@@ -1,0 +1,359 @@
+[project]
+name = "VmaxBuilder"
+version = "1.0.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11.1,<3.12"
+dependencies = [
+    "alabaster>=1.0.0",
+    "annotated-types>=0.7.0",
+    "anyio>=4.9.0",
+    "appdirs>=1.4.4",
+    "attrs>=25.3.0",
+    "babel>=2.17.0",
+    "backoff>=2.2.1",
+    "beautifulsoup4>=4.13.4",
+    "biothings-client>=0.4.1",
+    "blinker>=1.9.0",
+    "certifi>=2025.4.26",
+    "cffi>=1.15.1",
+    "cfgv>=3.4.0",
+    "chardet>=5.2.0",
+    "charset-normalizer>=3.4.2",
+    "click>=8.2.1",
+    "click-option-group>=0.5.7",
+    "cloudpickle>=3.1.1",
+    "cobra>=0.31.1",
+    "colorama>=0.4.6",
+    "colorbrewer>=0.3",
+    "colour>=0.1.5",
+    "commitizen>=4.9.1",
+    "commitlint>=1.3.1",
+    "contourpy>=1.3.2",
+    "coverage>=7.8.2",
+    "cycler>=0.12.1",
+    "dash>=4.0.0rc1",
+    "dash-bootstrap-components>=2.0.5a2",
+    "dash-core-components>=2.0.0",
+    "dash-html-components>=2.0.0",
+    "dash-mantine-components>=2.3.0",
+    "dash-table>=5.0.0",
+    "decorator>=5.2.1",
+    "defusedxml>=0.7.1",
+    "depinfo>=2.2.0",
+    "deprecated>=1.2.18",
+    "diskcache>=5.6.3",
+    "distlib>=0.3.9",
+    "docutils>=0.21.2",
+    "docutils-stubs>=0.0.22",
+    "dotty-dict>=1.3.1",
+    "et-xmlfile>=2.0.0",
+    "filelock>=3.18.0",
+    "flask>=3.0.3",
+    "fonttools>=4.58.2",
+    "furo>=2024.8.6",
+    "gitdb>=4.0.12",
+    "gitpython>=3.1.44",
+    "grandalf>=0.8",
+    "graphviz>=0.20.3",
+    "gunicorn>=25.3.0",
+    "gurobipy>=11.0.2",
+    "h11>=0.16.0",
+    "h5py>=3.12.1",
+    "hdf5storage>=0.1.19",
+    "httpcore>=1.0.9",
+    "httpx>=0.28.1",
+    "hypothesis>=6.135.1",
+    "identify>=2.6.12",
+    "idna>=3.10",
+    "igraph>=0.11.8",
+    "imagesize>=1.4.1",
+    "importlib-metadata>=8.7.0",
+    "importlib-resources>=6.5.2",
+    "iniconfig>=2.1.0",
+    "isort>=6.0.1",
+    "itsdangerous>=2.2.0",
+    "jinja2>=3.1.6",
+    "joblib>=1.5.1",
+    "joypy>=0.2.6",
+    "kiwisolver>=1.4.8",
+    "line-profiler>=4.2.0",
+    "llvmlite>=0.44.0",
+    "markdown-it-py>=3.0.0",
+    "markupsafe>=3.0.2",
+    "matplotlib>=3.9.0",
+    "mdit-py-plugins>=0.4.2",
+    "mdurl>=0.1.2",
+    "memory-profiler>=0.61.0",
+    "mip>=1.15.0",
+    "mpmath>=1.3.0",
+    "mygene>=3.2.2",
+    "mypy>=1.16.0",
+    "mypy-extensions>=1.1.0",
+    "myst-parser>=4.0.1",
+    "narwhals>=1.41.1",
+    "nbsphinx>=0.9.8",
+    "nest-asyncio>=1.6.0",
+    "netgraph>=4.13.2",
+    "networkx>=3.4.2",
+    "nodeenv>=1.9.1",
+    "numba>=0.61.2",
+    "numpy>=1.26.4",
+    "numpy-typing-compat>=20250818.1.25",
+    "nvidia-ml-py>=12.575.51",
+    "openpyxl>=3.1.2",
+    "optlang>=1.8.3",
+    "optype>=0.13.4",
+    "packaging>=25.0",
+    "pandas>=2.2.2",
+    "pandas-stubs>=2.3.2.250827",
+    "pathspec>=0.12.1",
+    "pbr>=6.1.1",
+    "pillow>=11.2.1",
+    "platformdirs>=4.3.8",
+    "plotly>=6.1.0rc0",
+    "pluggy>=1.6.0",
+    "ply>=3.11",
+    "poetry>=0.3.0",
+    "pre-commit>=4.2.0",
+    "progressbar2>=4.5.0",
+    "psutil>=7.0.0",
+    "pubchempy>=1.0.4",
+    "py-cpuinfo>=9.0.0",
+    "py4cytoscape>=1.9.0",
+    "pyarrow>=18.1.0",
+    "pycparser>=2.22",
+    "pydantic>=2.10.6",
+    "pydantic-core>=2.27.2",
+    "pygame>=2.6.1",
+    "pygments>=2.19.1",
+    "pynndescent>=0.5.13",
+    "pyomo>=6.8.2",
+    "pyparsing>=3.2.3",
+    "pyreadr>=0.5.6",
+    "pytest>=8.3.4",
+    "pytest-benchmark>=5.1.0",
+    "pytest-cov>=6.1.1",
+    "python-dateutil>=2.9.0.post0",
+    "python-gitlab>=4.13.0",
+    "python-libsbml>=5.20.4",
+    "python-semantic-release>=9.21.0",
+    "python-utils>=3.9.1",
+    "pytz>=2025.2",
+    "pyyaml>=6.0.2",
+    "rdkit>=2024.9.5",
+    "rectangle-packer>=2.0.4",
+    "requests>=2.32.3",
+    "requests-toolbelt>=1.0.0",
+    "retrying>=1.3.4",
+    "rich>=13.9.4",
+    "roman-numerals-py>=3.1.0",
+    "ruamel-yaml>=0.18.10",
+    "ruamel-yaml-clib>=0.2.12",
+    "ruff>=0.11.13",
+    "scalene>=1.5.49",
+    "schedule>=1.2.2",
+    "scikit-dimension>=0.3.4",
+    "scikit-learn>=1.5.1",
+    "scikit-posthocs>=0.12.0",
+    "scipy>=1.13.0",
+    "scipy-stubs>=1.16.1.1",
+    "seaborn>=0.13.2",
+    "selenium>=4.34.0",
+    "setuptools>=70.0.0",
+    "setuptools-scm>=10.0.3",
+    "shellingham>=1.5.4",
+    "six>=1.17.0",
+    "smmap>=5.0.2",
+    "sniffio>=1.3.1",
+    "snowballstemmer>=3.0.1",
+    "soappy>=0.12.22",
+    "sortedcontainers>=2.4.0",
+    "soupsieve>=2.7",
+    "sphinx>=8.2.1",
+    "sphinx-autobuild>=2024.10.3",
+    "sphinx-basic-ng>=1.0.0b2",
+    "sphinx-copybutton>=0.5.2",
+    "sphinx-rtd-theme>=3.1.0",
+    "sphinxcontrib-applehelp>=2.0.0",
+    "sphinxcontrib-devhelp>=2.0.0",
+    "sphinxcontrib-htmlhelp>=2.1.0",
+    "sphinxcontrib-jsmath>=1.0.1",
+    "sphinxcontrib-qthelp>=2.0.0",
+    "sphinxcontrib-serializinghtml>=2.0.0",
+    "starlette>=0.47.0",
+    "statsmodels>=0.14.6",
+    "swiglpk>=5.0.12",
+    "sympy>=1.13.3",
+    "texttable>=1.7.0",
+    "threadpoolctl>=3.6.0",
+    "tomlkit>=0.13.3",
+    "tqdm>=4.67.1",
+    "ty>=0.0.1a21",
+    "typer>=0.16.0",
+    "types-docutils>=0.22.2.20251006",
+    "types-pytz>=2025.2.0.20250809",
+    "typing-extensions>=4.14.0",
+    "tzdata>=2025.2",
+    "umap-learn>=0.5.7",
+    "urllib3>=2.4.0",
+    "uv>=0.11.4",
+    "uvicorn>=0.34.3",
+    "virtualenv>=20.31.2",
+    "watchfiles>=1.0.5",
+    "webdriver-manager>=4.0.2",
+    "websockets>=15.0.1",
+    "werkzeug>=3.0.6",
+    "wheel>=0.45.1",
+    "wrapt>=1.17.2",
+    "wstools>=0.4.8",
+    "xlrd>=2.0.2",
+    "zipp>=3.22.0",
+]
+
+### Dependencies ###
+[project.optional-dependencies]
+dev = ["python-semantic-release"]
+# Heavy ML dependencies required by UniKP/infer_Kcats.py.
+# Install with:  uv sync --extra unikp
+# PyTorch CPU wheels are resolved automatically via [[tool.uv.index]] below.
+unikp = [
+    "torch==2.4.1+cpu",
+    "torchvision==0.19.1",
+    "torchaudio==2.4.1",
+    "transformers==4.46.3",
+    "sentencepiece==0.2.0",
+    "safetensors==0.5.3",
+    "huggingface-hub==0.36.2",
+]
+
+### Build and packaging ###
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["VmaxBuilder*"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+zip-safe = false
+
+[tool.setuptools.package-data]
+VmaxBuilder = ["*.pyi", "**/*.pyi", "py.typed"]
+
+[tool.setuptools_scm]
+version_scheme = "post-release"
+local_scheme = "dirty-tag"
+
+### Testing and linting ###
+[tool.coverage.run]
+branch = true
+source = ["VmaxBuilder"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+### Linting and formatting with Ruff
+[tool.ruff]
+line-length = 94
+
+[tool.ruff.lint]
+select = [
+    "B",
+    "C90",
+    "E",
+    "I",
+    "F",
+    "W",
+]
+ignore = [
+    "W293",
+    "F401",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # allow unused imports in __init__.py files
+"tests/*" = ["S101"]  # allow use of assert statements in tests
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.isort]
+profile = "black"
+line_length = 94
+skip_glob = ["**/__init__.py"]
+
+[tool.mypy]
+python_version = 3.11
+exclude = ["docs/source/conf.py"]
+mypy_path = ["src"]
+explicit_package_bases = true
+ignore_missing_imports = true
+
+[tool.semantic_release]
+version_source = "tag"
+version_variable = "src/VmaxBuilder/__init__.py:__version__"
+branch = ["main","dev"]
+prerelease_token = ["main","dev"]
+upload_to_pypi = true  # set to true if you want PyPI deployment later
+changelog_file = "CHANGELOG.md"
+
+[tool.semantic_release.commit_parser_options]
+# use all commitlint/commitizen types except "chore"
+allowed_tags = [ "fix",  "feat","docs","style", "refactor","perf",  "test",  "build","ci",]
+
+[tool.sphinx]
+source-dir = "docs/source"
+build-dir = "docs/_build"
+
+[tool.uv.workspace]
+exclude = [
+    "UniKP/*"
+]
+
+# Route the `torch` package to the PyTorch CPU wheel index so that
+# `uv sync --extra unikp` installs the +cpu build automatically.
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+#[tool.uv.dependency-groups]
+#dev = [ "pre-commit>=4.2.0", "sphinx>=7.0.0",  "sphinx-autobuild>=2023.10.0", "sphinx-rtd-theme>=1.2.0" ]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+version = "0.1.0"
+version_scheme = "semver2"
+version_provider = "uv"
+update_changelog_on_bump = true
+major_version_zero = true
+[dependency-groups]
+dev = [
+    "pre-commit>=4.3.0",
+]
+
+[tool.creosote]
+venvs=[".venv"]
+paths=["src"]
+deps-file="pyproject.toml"
+sections=["project.dependencies"]
+exclude-deps =[
+  "pyodbc",
+  "pg8000",
+]
+# Also scan for imports inside functions, methods, and conditional blocks
+include-deferred = true

@@ -1,0 +1,149 @@
+# Byte-compiled / optimized / DLL files
+
+data/for_SWAMP/Kcat_predictions/shared_embedding_cache
+UniKP20Km.pkl
+UniKP20kcat.pkl
+UniKP20kcat_Km.pkl
+*_cache.pkl
+
+UniKP20for20Km.pkl
+UniKP20for20kcat.pkl
+UniKP20for20kcat_Km.pkl
+__pycache__/
+prot_t5_xl_uniref50.zip
+prot_t5_xl_uniref50/
+prot_t5_xl_uniref50/*
+
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+env/
+venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# pyenv
+.python-version
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# PyCharm
+.idea/
+
+# VSCode
+.vscode/
+
+# Local scripts or data
+*.sqlite3
+*.db
+*.log
+*.bak
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Mac and Linux
+.DS_Store
+*.swp
+data/for_SWAMP/expression_datasets/DCM_magnet/data_geTMM_MAGNET_BC.csv
+data/for_SWAMP/expression_datasets/DCM_magnet/data_geTMM_MAGNET_BC.parquet
+**/logs/*.csv
+data/for_SWAMP/combinations/HumanGem17_irreversible_DCM_magnet_metabolic_tasks_2024_v1_01_Eraslan2019V1_UniKPV1/diagnostics/reaction_activity_diagnostics/reaction_activity_df_mmol_per_gDW_hour.csv
+data/for_SWAMP/combinations/_oldHumanGem17_irreversible_DCM_magnet_metabolic_tasks_2024_v1_01_Eraslan2019V1_UniKPV1/diagnostics/reaction_activity_diagnostics/reaction_activity_df_mmol_per_gDW_hour.csv
+*.asv
+
+data/for_SWAMP/combinations/**/reaction_activity_df_mmol_per_gDW_hour.csv
+data/for_SWAMP/combinations/HumanGem17_DCM_magnet_metabolic_tasks_2024_v1_01_Eraslan2019V1_UniKPV1/diagnostics/reaction_activity_diagnostics/reaction_activity_df_mmol_per_gDW_hour.csv
+
+# Node
+node_modules/
+npm-debug.log
+
+# Python
+*.pyc
+*.pyo
+*.pyd
+*.swo
+*.coverage
+.env
+.venv/
+
+# Jupyter
+
+# Sphinx
+docs/_build/
+docs/generated/
+
+# Node / JS (if any)
+
+# OS
+Thumbs.db
+
+# PyCharm
+
+# VS Code
+data/for_SWAMP/**/reaction_activity_df_mmol_per_gDW_hour_.csv
+data/for_SWAMP/databases/NCBI_gene_info.gz
+data/for_SWAMP/combinations/model_inhouse_v7_human_DCM_test_tasklist_MACSBIO_v0_6_20250904_Eraslan2019V1_UniKPV1/
+data/for_SWAMP/combinations/SysBio_COBRA_v_17_huntington_daan_tasklist_CARDIO_daan_Eraslan2019V1_human_UniKPV1/
+
+data/for_SWAMP/databases/**/temp_sabio_rk/*
+*_collab*
+*SMILES_tensors*
+
+data/crop_slider_output/
+
+# Auto-added by pre-commit (files >99 MB)
+data/for_SWAMP/combinations/model_inhouse_v7_human_GTEx_gene_rna_tasklist_MACSBIO_v0_6_20250904_Eraslan2019V1_UniKPV1/reaction_activity_df.csv
+data/for_SWAMP/combinations/model_inhouse_v7_human_GTEx_gene_rna_tasklist_MACSBIO_v0_6_20250904_Eraslan2019V1_UniKPV1/reaction_activity_df_before_imputation.csv
+UniKP/.venv/Lib/site-packages/torch/lib/dnnl.lib
+UniKP/.venv/Lib/site-packages/torch/lib/torch_cpu.dll
+UniKP/prot_t5_xl_uniref50/pytorch_model.bin
+UniKP/UniKP20kcat.pkl
+UniKP/UniKP20Km.pkl
+data/UMAP_diagnostics_output/main_metabolite_path_finder/full_model/main_path/baseline_cover_stoichiometric_matrix.csv
+data/UMAP_diagnostics_output/main_metabolite_path_finder/full_model/main_path/baseline_stoichiometric_matrix.csv
+data/UMAP_diagnostics_output/main_metabolite_path_finder/full_model/main_path/submodel_main_metabolite_connectivity.npy
+data/UMAP_diagnostics_output/main_metabolite_path_finder/full_model/main_path/submodel_main_metabolite_connectivity_matrix.csv
+data/UMAP_diagnostics_output/main_metabolite_path_finder/full_model/main_path/submodel_main_metabolite_cover_matrix.csv

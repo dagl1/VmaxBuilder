@@ -1,0 +1,17 @@
+extends:
+  - "@commitlint/config-conventional"
+
+rules:
+  # Example: enforce lowercase types
+  type-case: [2, "always", "lower-case"]
+
+  header-max-length: [2 , "always", "130"]
+
+  body-max-line-length: [2, "always", "200"]
+  footer-max-line-length: [2, "always", "200"]
+
+  # Optional: restrict allowed commit types
+  type-enum: [2, "always", [
+    "feat", "fix", "docs", "style", "refactor",
+    "perf", "test", "build", "ci", "chore", "revert"
+  ]]

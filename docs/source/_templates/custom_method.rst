@@ -1,0 +1,3 @@
+.. currentmodule:: {{ module }}
+
+.. automethod:: {{ objname }}
