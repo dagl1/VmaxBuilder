@@ -4,7 +4,7 @@
 
 Scope:
 
-- Only modify code inside `src/SWAMP` (see allowed modules)
+- Only modify code inside `src/VmaxBuilder` (see allowed modules), except if specifically asked to modify files outside.
 
 - Ignore legacy or refactor-in-progress code unless explicitly instructed
 
@@ -12,7 +12,7 @@ Scope:
 
 Testing:
 
-- Tests should mirror the structure of `src/SWAMP`
+- Tests should mirror the structure of `src/VmaxBuilder`
 
 - Improve coverage when modifying logic
 
@@ -20,9 +20,9 @@ Testing:
 
 Documentation:
 
-- Do NOT create standalone `.md` documentation files
+- Do NOT create standalone `.md` documentation files except when specifically asked to
 
-- Only modify inline docstrings
+- Only modify inline docstrings, check [architecture.instructions.md](architecture.instructions.md) instructions
 
 
 

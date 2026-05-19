@@ -17,6 +17,8 @@ Typing:
 - All functions must:
   - be fully type hinted
   - pass type checking using `ty` (astral)
+- Variables, when necessary, should be typed
+  - If applicable (upon type error), cast types to ensure correct typing
 
 Paths:
 - Always use `pathlib`
@@ -24,6 +26,9 @@ Paths:
 
 Formatting:
 - Code must pass `ruff` (format + lint)
+
+Checking
+- Code must pass `ruff` check
 
 Package management:
 - Use `uv` only -> pyproject.toml for specific project settings

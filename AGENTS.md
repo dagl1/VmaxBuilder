@@ -69,12 +69,12 @@ Boundaries: code/commits/PRs written normal.
 
 ## Architecture
 
-- Modular pipeline: main focus is `preprocessing/`, each step hereafter is a module that can
+- Modular pipeline: main focus is, each step hereafter is a module that can
   be selected through main API and registry/enum pattern. Overall VmaxBuilder workflow: takes
   `expression/` data, multiplies it with `PTR/`, allocates using `GPR/`, utilises `Kcat` data,
   outputs `Vmax/` values.
 - Core module folder: `src/VmaxBuilder/`,
-- with submodules for each purpose (e.g., `preprocessing/`, `diagnostics/`, `utils/`).
+- with submodules for each purpose (e.g., `diagnostics/`, `utils/`).
 - Registry pattern: Enum + registry for algorithm selection.
 - Data: Input/output in `data/`, configs in `config/`.
 - Scripts: Experiments, CLI wrappers in `src/scripts/`.

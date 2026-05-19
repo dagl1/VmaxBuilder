@@ -247,10 +247,12 @@ class RouteOptimization:
 if __name__ == "__main__":
     root = get_project_root()
     data_folder = root / "data"
-    preprocessing_folder = data_folder / "for_SWAMP" / "combinations"
-    preprocessing_name = "model_inhouse_v9_human_Amsterdam_collab_tasklist_MACSBIO_v0_6_6_20260210_Eraslan2019V1_UniKPV1"
+    preprocessing_folder = data_folder / "for_VmaxBuilder" / "combinations"
+    preprocessing_name = ("model_inhouse_v9_human_Amsterdam_collab_ # pragma: allowlist secret
+       tasklist_MACSBIO_v0_6_6_20260210_Eraslan2019V1_UniKPV1" # pragma: allowlist secret
+    ) #pragma: allowlist secret
     preprocessing_folder = preprocessing_folder / preprocessing_name
-    output_folder = data_folder / "SWAMP_results"
+    output_folder = data_folder / "VmaxBuilder_results"
 
     # Load the config, adjust it as needed:
     config = load_route_optimization_config()

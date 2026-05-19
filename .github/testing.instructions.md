@@ -53,7 +53,7 @@ Guidelines:
 
 Use:
 - datasets from:
-  - `data/for_SWAMP/`
+  - `data/for_VmaxBuilder/`
   - If so, copy to test directory and use as test fixture
 Focus on:
 - end-to-end execution
@@ -103,9 +103,9 @@ When a function or module is modified:
 ## Test Organization
 
 - Tests should mirror the structure of:
-  - `src/SWAMP/`
+  - `src/VmaxBuilder/`
 
 Example:
 ``` id="rsc2ts"
-src/SWAMP/optimization/...
-→ tests/optimization/...
+src/VmaxBuilder/GPR/...
+→ tests/GPR/...

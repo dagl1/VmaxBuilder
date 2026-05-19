@@ -73,7 +73,7 @@ Follow these instruction files:
 
 - Usability / workflow tests:
   - When relevant, validate changes using datasets from:
-    - `data/for_SWAMP/`
+    - `data/for_VmaxBuilder/`
   - If so, copy to test directory and use as test fixture
   - Ensure end-to-end workflows execute without errors
 
@@ -94,7 +94,7 @@ Follow these instruction files:
 
 When generating code, apply rules in this order:
 
-1. Existing patterns in `src/SWAMP/analysis` and `src/SWAMP/optimization`
+1. Existing patterns in `src/VmaxBuilder/analysis` and `src/VmaxBuilder/optimization`
 2. `architecture.instructions.md`
 3. `style.instructions.md`
 4. `workflow.instructions.md`
@@ -126,6 +126,6 @@ When generating code, apply rules in this order:
 
 ## Scope
 
-- Only modify active modules in `src/SWAMP`
+- Only modify active modules in `src/VmaxBuilder`
 - Use `src/scripts` for experiments
 - Do not modify cobrapy fork/overwrites

@@ -1,49 +1,45 @@
-\# Workflow Instructions
-
-
+Workflow Instructions
 
 When generating or modifying code:
 
+1. Prefer extending existing utilities over creating new ones
 
+2. Reuse:
 
-1\. Prefer extending existing utilities over creating new ones
+  - `utils/file\_handling.py`
 
-2\. Reuse:
+  - `utils/plotting.py`
 
-&#x20;  - `utils/file\_handling.py`
-
-&#x20;  - `utils/plotting.py`
-
-&#x20;  - `utils/custom\_logging.py`
-
-
-
-3\. Logging:
-
-&#x20;  - Always use `CustomLogger`
+  - `utils/custom\_logging.py`
 
 
 
-4\. Plotting:
+3. Logging:
 
-&#x20;  - Use Plotly graph\_objects only
-
-&#x20;  - Never use matplotlib
+  - Always use `CustomLogger`
 
 
 
-5\. Code organization:
+4. Plotting:
 
-&#x20;  - If functionality is reusable:
+  - Use Plotly graph\_objects only
 
-&#x20;    → place in `utils/`
-
-&#x20;  - Otherwise:
-
-&#x20;    → keep local to module
+  - Never use matplotlib
 
 
 
-6\. When unsure:
+5. Code organization:
 
-&#x20;  - Follow patterns already used in `analysis` and `optimization`
+  - If functionality is reusable:
+
+    → place in `utils/`
+
+  - Otherwise:
+
+    → keep local to module
+
+
+
+6. When unsure:
+
+ - Follow patterns already used in `analysis` and `optimization`
