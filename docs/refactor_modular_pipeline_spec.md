@@ -23,18 +23,20 @@ This document is binding design contract for implementation, review, and CI gate
 
 ## 4. Target Package Layout
 `src/VmaxBuilder/`
+- `allocation/`           # GPR split + IFP allocation
 - `api/`                  # orchestrator + public entry points
+- `cobrapy_overwrites/`   # contains changes to cobrapy (keep separate, do not modify)
 - `config/`               # dataclass configs + loaders + validation
 - `core/`                 # shared protocols, scaffold typing, errors
-- `expression/`           # expression preprocessing
-- `model/`                # model preprocessing/validation
-- `protein_abundance/`    # PTR/proteomics integration
-- `kcat/`                 # sequence/smiles retrieval + kcat estimation/resolution
-- `allocation/`           # GPR split + IFP allocation
-- `vmax/`                 # reaction capacity + imputation
+- `database_retrieval/`   # sequence and SMILES retrieval (external APIs + registry)
 - `diagnostics/`          # diagnostics collection/reporting
+- `expression/`           # expression preprocessing
+- `kcat/`                 # sequence/smiles retrieval + kcat estimation/resolution
+- `model/`                # model preprocessing/validation
+- `protein/`              # PTR/proteomics integration
 - `registries/`           # enum + registry implementations
 - `utils/`                # logging/cache/io/threading helpers
+- `vmax/`                 # reaction capacity + imputation
 
 ## 5. Orchestrator Contract
 - Single orchestrator initializes stage modules from loaded config.
