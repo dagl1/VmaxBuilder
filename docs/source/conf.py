@@ -19,9 +19,6 @@ project = "VmaxBuilder"
 copyright = "2026, Jelle Bonthuis, Marian Breuer, Michiel Adriaens"
 author = "Jelle Bonthuis, Marian Breuer, Michiel Adriaens; MaCSBio2"
 
-import VmaxBuilder  # noqa: E402
-
-release = VmaxBuilder.__version__
 try:
     import VmaxBuilder  # noqa: E402
 
