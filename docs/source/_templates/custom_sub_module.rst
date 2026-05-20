@@ -1,4 +1,4 @@
-{% set short = name.replace('SWAMP.', '') %}
+{% set short = name.replace('VmaxBuilder.', '') %}
 {{ short | escape | underline }}
 
 .. currentmodule:: {{ module }}

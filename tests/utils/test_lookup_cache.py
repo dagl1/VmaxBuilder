@@ -16,7 +16,7 @@ from VmaxBuilder.utils.lookup_cache import (
 def test_get_default_cache_dir_honors_environment_variable(
     monkeypatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setenv("SWAMP_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("VmaxBuilder_CACHE_DIR", str(tmp_path / "cache"))
 
     assert get_default_cache_dir() == (tmp_path / "cache").resolve()
 
