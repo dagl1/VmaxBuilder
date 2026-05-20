@@ -70,17 +70,19 @@ jobs:
 
       - name: Run integration tests
         run: |
+          set +e
           uv run pytest tests -m integration -v
           CODE=$?
-          if [ $CODE -eq 5 ]; then echo "No integration tests collected — skipping."; exit 0; fi
-          exit $CODE
+          set -e
+          [ $CODE -eq 5 ] && { echo "No integration tests collected — skipping."; exit 0; } || exit $CODE
 
       - name: Run usability tests
         run: |
+          set +e
           uv run pytest tests -m usability -v
           CODE=$?
-          if [ $CODE -eq 5 ]; then echo "No usability tests collected — skipping."; exit 0; fi
-          exit $CODE
+          set -e
+          [ $CODE -eq 5 ] && { echo "No usability tests collected — skipping."; exit 0; } || exit $CODE
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v4
