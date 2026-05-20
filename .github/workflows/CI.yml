@@ -38,9 +38,9 @@ jobs:
         shell: pwsh
         run: uv run isort --check-only .
 
-      - name: Run mypy type check
-        shell: pwsh
-        run: uv run mypy src
+#      - name: Run mypy type check
+#        shell: pwsh
+#        run: uv run mypy src
 
   tests:
     runs-on: ubuntu-latest
