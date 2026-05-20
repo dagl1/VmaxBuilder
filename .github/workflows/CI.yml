@@ -28,15 +28,15 @@ jobs:
 
       - name: Run Ruff lint
         shell: pwsh
-        run: uvx ruff check .
+        run: uv run ruff check .
 
       - name: Run ruff ty check
         shell: pwsh
-        run: uvx ty check .
+        run: uv run ty check .
 
       - name: Run isort check
         shell: pwsh
-        run: uvx isort --check-only .
+        run: uv run isort --check-only .
 
       - name: Run mypy type check
         shell: pwsh
