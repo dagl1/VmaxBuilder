@@ -12,7 +12,7 @@ Author: Jelle Bonthuis (MaCSBio)
 """
 
 from functools import partial
-from typing import Any, Callable, Iterable, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Iterable, Optional, Sequence, Tuple, Union, cast
 
 from cobra.core.dictlist import DictList
 from cobra.core.model import Model, logger
@@ -98,7 +98,6 @@ def bounds(
         self.update_variable_bounds()
 
 
-Reaction.bounds = bounds
-Reaction.update_variable_bounds_slim = (
-    update_variable_bounds_slim  # ty: ignore[unresolved-attribute]
-)
+reaction_class_with_extensions = cast(Any, Reaction)
+reaction_class_with_extensions.bounds = bounds
+reaction_class_with_extensions.update_variable_bounds_slim = update_variable_bounds_slim

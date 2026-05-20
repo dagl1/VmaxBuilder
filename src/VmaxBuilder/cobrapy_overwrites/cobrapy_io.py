@@ -343,7 +343,8 @@ def from_mat_struct(  # noqa: C901
         if met_formulas:
             new_metabolite.formula = met_formulas[i]
         if met_inchis:
-            new_metabolite.inchi = met_inchis[i]
+            metabolite_with_extensions = cast(Any, new_metabolite)
+            metabolite_with_extensions.inchi = met_inchis[i]
         new_metabolites.append(new_metabolite)
     mat_parse_annotations(new_metabolites, m, d_replace=DICT_MET)
     mat_parse_notes(new_metabolites, m, d_replace=DICT_MET_NOTES)
@@ -425,7 +426,8 @@ def from_mat_struct(  # noqa: C901
         if rxn_gene_rules:
             new_reaction.gene_reaction_rule = rxn_gene_rules[i]
         if rxn_EC_number:
-            new_reaction.EC_number = rxn_EC_number[i]
+            reaction_with_extensions = cast(Any, new_reaction)
+            reaction_with_extensions.EC_number = rxn_EC_number[i]
         new_reactions.append(new_reaction)
     mat_parse_annotations(new_reactions, m, d_replace=DICT_REACTION)
     # TODO - When cobrapy.notes are revised not be a dictionary (possibly when

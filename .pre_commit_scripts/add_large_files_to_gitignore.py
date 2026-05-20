@@ -19,7 +19,6 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
-from typing import cast
 
 _MAX_BYTES = 99 * 1024 * 1024  # 99 MB
 _ROOT = Path(__file__).resolve().parent.parent
@@ -129,8 +128,7 @@ def main() -> int:  # noqa: C901
 
     # ── 2. Read and normalise existing .gitignore ───────────────────────────
     raw: str = _GITIGNORE.read_text(encoding="utf-8") if _GITIGNORE.exists() else ""
-    lines = cast(list[str], raw.splitlines())
-    # cast as list to ensure we have a mutable sequence for the cleaning steps
+    lines = raw.splitlines()
     lines = _clean_lines(lines)
     lines = _deduplicate(lines)
     existing_patterns = _pattern_set(lines)
