@@ -32,6 +32,7 @@ from logging import (
     FileHandler,
     Filter,
     Formatter,
+    Logger,
     StreamHandler,
     addLevelName,
     getLogger,
@@ -39,7 +40,7 @@ from logging import (
 from os import getpid
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 import line_profiler
 import pandas as pd
@@ -152,7 +153,7 @@ class CustomLogger:
         else:
             log_files_location_path = Path(log_files_location)
 
-        self.logger: Any = getLogger(name)
+        self.logger: Logger = getLogger(name)
         self.logger.setLevel(DEBUG)
         self.logger.propagate = False
         self.print_level = print_level
@@ -160,9 +161,11 @@ class CustomLogger:
         addLevelName(CustomLogger.VALID_LEVEL, "VALID")
         addLevelName(CustomLogger.FINISHED_LEVEL, "FINISHED")
         addLevelName(CustomLogger.STARTING_LEVEL, "STARTING")
-        self.logger.valid = self.valid
-        self.logger.starting = self.starting
-        self.logger.finished = self.finished
+        # Keep runtime compatibility for code using `custom_logger.logger.starting(...)`.
+        logger_with_custom_levels = cast(Any, self.logger)
+        logger_with_custom_levels.valid = self.valid
+        logger_with_custom_levels.starting = self.starting
+        logger_with_custom_levels.finished = self.finished
         # todo add extra ones that could be used
         console_handler = StreamHandler()
         console_handler.setLevel(DEBUG)
