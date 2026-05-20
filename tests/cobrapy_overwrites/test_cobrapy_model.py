@@ -13,6 +13,7 @@ from cobra import Gene, Metabolite, Model, Reaction
 from VmaxBuilder.cobrapy_overwrites import cobrapy_model
 
 
+@pytest.mark.unit
 class TestAddReactionSlim:
     """Unit tests for add_reactions_slim method."""
 
@@ -109,6 +110,7 @@ class TestAddReactionSlim:
         assert "g2" in model.genes
 
 
+@pytest.mark.unit
 class TestPopulateSolverFromModel:
     """Unit tests for populate_solver_from_model method."""
 
@@ -163,6 +165,7 @@ class TestPopulateSolverFromModel:
         assert len(model.reactions) == 1
 
 
+@pytest.mark.integration
 class TestIntegrationSlimWorkflow:
     """Integration tests for slim model building + solver workflow."""
 

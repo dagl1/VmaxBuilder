@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from VmaxBuilder.utils.custom_logging import CustomLogger, parse_log_file
 
 
+@pytest.mark.unit
 def test_parse_log_file_pairs_start_and_finish_entries(tmp_path: Path) -> None:
     log_path = tmp_path / "example.log"
     log_path.write_text(
@@ -23,6 +26,7 @@ def test_parse_log_file_pairs_start_and_finish_entries(tmp_path: Path) -> None:
     assert parsed_frame.loc[0, "calls"] == 1
 
 
+@pytest.mark.unit
 def test_custom_logger_accepts_path_log_directory(tmp_path: Path) -> None:
     log_directory = tmp_path / "logs"
 

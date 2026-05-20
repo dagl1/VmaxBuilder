@@ -12,6 +12,7 @@ from cobra import Metabolite, Model, Reaction
 from VmaxBuilder.cobrapy_overwrites import cobrapy_reaction
 
 
+@pytest.mark.unit
 class TestBoundsSetter:
     """Test updated bounds setter with slim mode support."""
 
@@ -94,6 +95,7 @@ class TestBoundsSetter:
         assert rxn.lower_bound == -10
 
 
+@pytest.mark.unit
 class TestUpdateVariableBoundsSlim:
     """Test update_variable_bounds_slim no-op method."""
 
