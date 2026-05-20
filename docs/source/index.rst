@@ -1,38 +1,40 @@
-.. VmaxBuilder documentation master file, created by
-   sphinx-quickstart on Sun Jun  8 16:04:05 2025.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+nVmaxBuilder documentation
+========================
 
-VmaxBuilder documentation
-====================================================================
+**VmaxBuilder** is a modular Python toolbox for converting expression and model inputs
+into condition-specific reaction capacity estimates.
 
-**VmaxBuilder** is a Python library to integrate transcriptomics data into Genome-Scale
-metabolic models (GEMs) to predict maximum reaction rates (Vmax) in a condition- and
-tissue-specific manner. It is a modular pipeline that consists of three main steps:
-1. Estimation of protein abundance from transcriptomics data using the protein-to-RNA ratios.
-2. Allocation of the estimated protein abundance to reactions using gene-protein-reaction (GPR)
-   rules and quadratic programming allocation strategy, which aims to allocate proteins as
-   to evenly distribute them to as many independently functioning proteins (IFPs)
-   while remaining constrained by each individual's protein abundance - see publication
-   <link> for more information.
-3. Estimation of Vmax values for each reaction by multiplying the allocated protein abundance
-   with the each IFP's reaction-specific Kcat value, predicted through one of several
-   Kcat-prediciton algorithms such as UniKP (<link>), or directly fetched from databases
-   such as Brenda or Sabio-RK.
+Pipeline overview
+-----------------
 
-.. note::
+The pipeline is structured as modular stages:
 
-   For information on how to get started see the
-   :doc:`usage` page, including a guide on :ref:`installing <installation>`
-   VmaxBuilder.
+1. Expression preprocessing.
+2. Model preprocessing.
+3. Protein abundance estimation.
+4. Kcat estimation and resolution.
+5. Allocation and Vmax calculation.
+
+Start here
+----------
+
+- New users: :doc:`getting_started`
+- Installation options: :doc:`installation`
+- Worked examples: :doc:`examples`
+- Practical scenarios: :doc:`use_cases`
+- API details: :doc:`VmaxBuilder (API)`
 
 .. note::
 
    This project is under active development.
 
+.. toctree::
+   :maxdepth: 2
+   :caption: Contents
 
-..  toctree::
-    :caption: Contents
-
-    usage
-    VmaxBuilder (API)
+   getting_started
+   installation
+   examples
+   use_cases
+   usage
+   VmaxBuilder (API)
