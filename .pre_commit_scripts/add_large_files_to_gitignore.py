@@ -110,7 +110,7 @@ def _deduplicate(lines: list[str]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901
     # ── 1. Collect staged large files that are not already ignored ─────────
     large_files: list[str] = []
     for rel_path in _staged_added_files():
