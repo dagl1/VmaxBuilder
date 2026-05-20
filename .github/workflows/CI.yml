@@ -66,16 +66,21 @@ jobs:
         run: uv sync
 
       - name: Run unit tests
-        shell: pwsh
         run: uv run pytest tests --cov=VmaxBuilder --cov-report=xml --cov-report=term-missing -m "not integration and not usability"
 
       - name: Run integration tests
-        shell: pwsh
-        run: uv run pytest tests -m integration -v
+        run: |
+          uv run pytest tests -m integration -v
+          CODE=$?
+          if [ $CODE -eq 5 ]; then echo "No integration tests collected — skipping."; exit 0; fi
+          exit $CODE
 
       - name: Run usability tests
-        shell: pwsh
-        run: uv run pytest tests -m usability -v
+        run: |
+          uv run pytest tests -m usability -v
+          CODE=$?
+          if [ $CODE -eq 5 ]; then echo "No usability tests collected — skipping."; exit 0; fi
+          exit $CODE
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v4
