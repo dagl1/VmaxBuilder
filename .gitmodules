@@ -1,0 +1,6 @@
+[submodule "UniKP"]
+	path = UniKP
+	url = https://github.com/dagl1/UniKP.git
+[submodule "data/SWAMP_results"]
+	path = data/SWAMP_results
+	url = https://github.com/dagl1/SWAMP_data.git

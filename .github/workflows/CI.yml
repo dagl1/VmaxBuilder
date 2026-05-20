@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "dev"]
+  pull_request:
+    branches: ["main", "dev"]
+
+jobs:
+  lint-typecheck:
+    runs-on: ubuntu-latest
+    name: Lint and Type Check
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.2"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dev dependencies
+        run: uv sync --group dev
+
+      - name: Run Ruff lint
+        shell: pwsh
+        run: uvx ruff check .
+
+      - name: Run ruff ty check
+	shell: pwsh
+	run: uvx ty check .
+
+      - name: Run isort check
+        shell: pwsh
+        run: uvx isort --check-only .
+
+      - name: Run mypy type check
+        shell: pwsh
+        run: uv run mypy src
