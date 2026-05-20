@@ -20,6 +20,7 @@ from cobra import Gene, Metabolite, Model, Reaction
 from VmaxBuilder.cobrapy_overwrites import cobrapy_io
 
 
+@pytest.mark.unit
 class TestModelToDict:
     """Unit tests for model_to_dict function."""
 
@@ -103,6 +104,7 @@ class TestModelToDict:
         assert rxn_dict["upper_bound"] == 20
 
 
+@pytest.mark.unit
 class TestModelFromDict:
     """Unit tests for model_from_dict function."""
 
@@ -170,6 +172,7 @@ class TestModelFromDict:
         assert model.objective.direction is not None
 
 
+@pytest.mark.integration
 class TestSaveJsonModel:
     """Integration tests for save_json_model function."""
 
@@ -281,6 +284,7 @@ class TestSaveJsonModel:
             )
 
 
+@pytest.mark.unit
 class TestReactionToDict:
     """Unit tests for _reaction_to_dict function."""
 

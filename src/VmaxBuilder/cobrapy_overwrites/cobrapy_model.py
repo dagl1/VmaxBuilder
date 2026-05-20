@@ -162,7 +162,6 @@ def populate_solver_from_model(self) -> None:
     logger.info(f"Populated solver for model '{self.id}' ({len(self.reactions)} reactions).")
 
 
-Model.add_reactions_slim = add_reactions_slim  # ty: ignore[unresolved-attribute]
-Model.populate_solver_from_model = (
-    populate_solver_from_model  # ty: ignore[unresolved-attribute]
-)
+model_class_with_extensions = cast(Any, Model)
+model_class_with_extensions.add_reactions_slim = add_reactions_slim
+model_class_with_extensions.populate_solver_from_model = populate_solver_from_model

@@ -55,11 +55,11 @@ def get_default_cache_dir() -> Path:
 
     Resolution order:
 
-    1. ``SWAMP_CACHE_DIR`` environment variable (absolute or relative path).
+    1. ``VmaxBuilder_CACHE_DIR`` environment variable (absolute or relative path).
     1. ``VmaxBuilder_CACHE_DIR`` environment variable (legacy compatibility).
     2. ``{project_root}/.lookup_cache/``
     """
-    env_override = os.environ.get("SWAMP_CACHE_DIR") or os.environ.get(
+    env_override = os.environ.get("VmaxBuilder_CACHE_DIR") or os.environ.get(
         "VmaxBuilder_CACHE_DIR"
     )
     if env_override:

@@ -65,7 +65,7 @@ Boundaries: code/commits/PRs written normal.
 ## Project Overview
 
 - VmaxBuilder: Pipeline for converting transcriptomics data into reaction capacities in genome-scale metabolic models (GEMs).
-- UniKP: Deep learning framework for enzyme kinetic parameter prediction. Located in `UniKP/`. Not core to SWAMP pipeline but referenced for advanced workflows.
+- UniKP: Deep learning framework for enzyme kinetic parameter prediction. Located in `UniKP/`. Not core to VmaxBuilder pipeline but referenced for advanced workflows.
 
 ## Architecture
 

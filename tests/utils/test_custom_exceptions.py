@@ -10,18 +10,21 @@ from VmaxBuilder.utils.custom_exceptions import (
 )
 
 
+@pytest.mark.unit
 def test_check_and_return_value_allows_optional_missing_value() -> None:
     result = _check_and_return_value({"mode": None}, "mode", ["OPTIONAL", "fast"])
 
     assert result is None
 
 
+@pytest.mark.unit
 def test_check_and_return_value_accepts_numeric_range() -> None:
     result = _check_and_return_value({"threshold": 3}, "threshold", [(1, 5)])
 
     assert result == 3
 
 
+@pytest.mark.unit
 def test_check_and_return_value_warns_when_ignore_missing_options() -> None:
     with warnings.catch_warnings(record=True) as captured_warnings:
         warnings.simplefilter("always")
@@ -37,6 +40,7 @@ def test_check_and_return_value_warns_when_ignore_missing_options() -> None:
     assert "Ignoring missing options" in str(captured_warnings[0].message)
 
 
+@pytest.mark.unit
 def test_exception_incorrect_kwargs_message_mentions_invalid_value() -> None:
     with pytest.raises(ExceptionIncorrectKwargs) as exception_info:
         _check_and_return_value({"mode": "invalid"}, "mode", ["fast", "slow"])

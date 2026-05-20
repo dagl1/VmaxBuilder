@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from VmaxBuilder.utils.file_handling import (
     check_for_existing_files,
@@ -12,6 +13,7 @@ from VmaxBuilder.utils.file_handling import (
 )
 
 
+@pytest.mark.unit
 def test_get_project_root_finds_parent_with_project_name(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     nested_directory = project_root / "src" / "nested"
@@ -24,6 +26,7 @@ def test_get_project_root_finds_parent_with_project_name(tmp_path: Path) -> None
     assert get_project_root(nested_directory) == project_root
 
 
+@pytest.mark.unit
 def test_check_for_existing_files_returns_matching_path(tmp_path: Path) -> None:
     matching_file = tmp_path / "Example_Result.TXT"
     matching_file.write_text("content", encoding="utf-8")
@@ -33,6 +36,7 @@ def test_check_for_existing_files_returns_matching_path(tmp_path: Path) -> None:
     assert found_path == str(matching_file)
 
 
+@pytest.mark.unit
 def test_load_existing_file_based_on_extension_reads_csv(tmp_path: Path) -> None:
     input_frame = pd.DataFrame({"value": [1, 2], "name": ["a", "b"]})
     csv_path = tmp_path / "data.csv"
@@ -43,6 +47,7 @@ def test_load_existing_file_based_on_extension_reads_csv(tmp_path: Path) -> None
     pd.testing.assert_frame_equal(loaded_frame, input_frame)
 
 
+@pytest.mark.unit
 def test_save_with_tries_writes_string_and_creates_directory(tmp_path: Path) -> None:
     save_directory = tmp_path / "nested" / "output"
 

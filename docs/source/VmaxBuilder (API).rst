@@ -6,7 +6,7 @@ VmaxBuilder (API)
    :toctree: generated/
    :recursive:
 
-   SWAMP.input_diagnostics <input_diagnostics>
-   SWAMP.input_preprocessing <input_preprocessing>
-   SWAMP.preprocessing <preprocessing>
-   SWAMP.utils <utils>
+   VmaxBuilder.input_diagnostics <input_diagnostics>
+   VmaxBuilder.input_preprocessing <input_preprocessing>
+   VmaxBuilder.preprocessing <preprocessing>
+   VmaxBuilder.utils <utils>

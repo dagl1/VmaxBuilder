@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from VmaxBuilder.utils.lookup_cache import (
     GeneSequenceResult,
     LookupCache,
@@ -13,14 +15,16 @@ from VmaxBuilder.utils.lookup_cache import (
 )
 
 
+@pytest.mark.unit
 def test_get_default_cache_dir_honors_environment_variable(
     monkeypatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setenv("SWAMP_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("VmaxBuilder_CACHE_DIR", str(tmp_path / "cache"))
 
     assert get_default_cache_dir() == (tmp_path / "cache").resolve()
 
 
+@pytest.mark.integration
 def test_lookup_cache_round_trip(tmp_path: Path) -> None:
     cache = LookupCache(tmp_path, "genes")
     cache.set("alpha", {"value": 1})
@@ -33,6 +37,7 @@ def test_lookup_cache_round_trip(tmp_path: Path) -> None:
     assert reopened_cache.get("alpha") == {"value": 1}
 
 
+@pytest.mark.integration
 def test_lookup_cache_hits_and_misses_and_invalidation(tmp_path: Path) -> None:
     cache = LookupCache(tmp_path, "genes")
     cache.set_many({"a": 1, "b": 2})
@@ -45,6 +50,7 @@ def test_lookup_cache_hits_and_misses_and_invalidation(tmp_path: Path) -> None:
     assert "a" not in cache
 
 
+@pytest.mark.unit
 def test_gene_result_round_trip_conversion() -> None:
     result = GeneSequenceResult(
         gene_symbol="BRCA1",

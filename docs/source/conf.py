@@ -4,6 +4,7 @@ import os
 import re
 import sys
 from collections.abc import Set
+from typing import Any
 
 from docutils import nodes
 from sphinx import addnodes
@@ -73,7 +74,7 @@ from sphinx.ext.autodoc import (  # noqa: E402
 )
 
 
-def process_doc(self, app: Sphinx, doctree: nodes.document) -> None:
+def custom_process_doc(self: TitleCollector, app: Sphinx, doctree: nodes.document) -> None:
     """Add a title node to the document (just copy the first section title),
     and store that title in the environment.
     """
@@ -108,7 +109,8 @@ def process_doc(self, app: Sphinx, doctree: nodes.document) -> None:
     app.env.longtitles[app.env.docname] = longtitlenode
 
 
-TitleCollector.process_doc = process_doc
+title_collector_class: Any = TitleCollector
+title_collector_class.process_doc = custom_process_doc
 
 
 def setup(app):
