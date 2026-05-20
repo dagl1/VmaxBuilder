@@ -318,9 +318,18 @@ filterwarnings = [
 [tool.semantic_release]
 version_source = "tag"
 version_variable = "src/VmaxBuilder/__init__.py:__version__"
-branch = ["main","dev"]
-prerelease_token = ["main","dev"]
 upload_to_pypi = true  # set to true if you want PyPI deployment later
+
+[tool.semantic_release.branches.main]
+match = "main"
+prerelease = false
+
+[tool.semantic_release.branches.dev]
+match = "dev"
+prerelease = true
+prerelease_token = "dev"
+
+[tool.semantic_release.changelog.default_templates]
 changelog_file = "CHANGELOG.md"
 
 [tool.semantic_release.commit_parser_options]
