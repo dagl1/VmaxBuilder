@@ -1,12 +1,12 @@
 """
-This module contains type hinting utilities for the SWAMP project. These include ready-made Union types to be imported,
-as well as custom type hints for commonly used data structures within the project. It also includes a function used in
+This module contains type hinting utilities for the VmaxBuilder project. These include
+ready-made Union types to be imported, as well as custom type hints for commonly
+used data structures within the project. It also includes a function used in
 development and debugigng for checking the necessary type hint for an object.
 """
 
-from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, FrozenSet, List, Tuple, Union
+from typing import Any, Dict, FrozenSet, List, Mapping, Tuple, Union
 
 # create a list or dict type hint
 ListOrDict = Union[List[Any], Dict[Any, Any]]
@@ -29,7 +29,7 @@ def _merge_types(types: set) -> UnionNode:
     return UnionNode(frozenset(types))
 
 
-def _infer_type(obj):
+def _infer_type(obj):  # noqa: C901
     if obj is None:
         return TypeNode("None")
 

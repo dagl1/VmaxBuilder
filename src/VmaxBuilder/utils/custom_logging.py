@@ -18,7 +18,6 @@ import cProfile
 import io
 import pstats
 import re
-import sys
 import tracemalloc
 from collections import defaultdict
 from datetime import datetime
@@ -37,7 +36,8 @@ from logging import (
     addLevelName,
     getLogger,
 )
-from os import getpid, makedirs, path
+from os import getpid
+from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable, Optional
 
@@ -54,7 +54,7 @@ DEFAULT_DECORATOR_TIME_DECIMALS = 4
 DEFAULT_BACKUP_LOGGER_PRINT_LEVEL = 3
 
 
-def parse_log_file(log_path):
+def parse_log_file(log_path):  # noqa: C901
     pattern_start = re.compile(r"STARTING - Starting: (.*?) \((.*?):(\d+)\)")
     pattern_finish = re.compile(
         r"FINISHED - Finished: (.*?) in: ([\d.]+) seconds \((.*?):(\d+)\)"
@@ -143,14 +143,16 @@ class CustomLogger:
     def __init__(
         self,
         name: str,
-        log_files_location: str | None = None,
+        log_files_location: str | Path | None = None,
         print_level: int = 2,
         auto_parse: bool = False,
     ):
         if log_files_location is None:
-            log_files_location = str(path.join(path.dirname(__file__), "logs"))
+            log_files_location_path = Path(__file__).resolve().parent / "logs"
+        else:
+            log_files_location_path = Path(log_files_location)
 
-        self.logger = getLogger(name)
+        self.logger: Any = getLogger(name)
         self.logger.setLevel(DEBUG)
         self.logger.propagate = False
         self.print_level = print_level
@@ -168,10 +170,8 @@ class CustomLogger:
         console_handler.addFilter(self.filter)
         self.logger.addHandler(console_handler)
         log_filename = name + ".log"
-        log_file_path = path.join(log_files_location, log_filename)
-
-        if not path.exists(log_files_location):
-            makedirs(log_files_location)
+        log_files_location_path.mkdir(parents=True, exist_ok=True)
+        log_file_path = log_files_location_path / log_filename
 
         file_handler = FileHandler(log_file_path, mode="w")
         file_handler.setFormatter(
@@ -186,13 +186,13 @@ class CustomLogger:
 
     def set_log_files_location(self, log_files_location: str, mode: str = "w") -> None:
         """Rebind the file handler to a new directory while preserving console logging."""
-        if not path.exists(log_files_location):
-            makedirs(log_files_location)
+        log_files_location_path = Path(log_files_location)
+        log_files_location_path.mkdir(parents=True, exist_ok=True)
 
         log_filename = (
-            path.basename(self.log_file_path) if hasattr(self, "log_file_path") else "run.log"
+            self.log_file_path.name if hasattr(self, "log_file_path") else "run.log"
         )
-        log_file_path = path.join(log_files_location, log_filename)
+        log_file_path = log_files_location_path / log_filename
 
         # Remove existing file handlers only; keep stream handlers and filters intact.
         handlers = list(self.logger.handlers)
@@ -374,7 +374,7 @@ class CustomLogger:
 
     def _run_log_parser(self):
         df = parse_log_file(self.log_file_path)
-        parsed_path = self.log_file_path.replace(".log", "_parsed.csv")
+        parsed_path = self.log_file_path.with_name(f"{self.log_file_path.stem}_parsed.csv")
         df.to_csv(parsed_path, index=False)
         if self.print_level <= 1:
             print(f"[Logger] Parsed log file saved to: {parsed_path}")
@@ -488,13 +488,13 @@ class PrintLevelFilter(Filter):
 
 _backup_logger = CustomLogger(
     "backup_logger",
-    path.join(path.dirname(__file__), "logs"),
+    Path(__file__).resolve().parent / "logs",
     print_level=DEFAULT_BACKUP_LOGGER_PRINT_LEVEL,
     auto_parse=True,
 )
 
 
-def decorator_provide_time_information_2(
+def decorator_provide_time_information_2(  # noqa: C901
     function: Optional[Callable] = None,
     *,
     print_level: Optional[int] = None,
@@ -588,44 +588,7 @@ def decorator_provide_time_information(function: Callable) -> Callable:
         function (Callable): The function to be decorated
     """
 
-    def wrapper(*args, **kwargs) -> Any:
-        logger = None
-        if len(args) > 0:
-            arg_with_logger = None
-            for args_ in args:
-                if hasattr(args_, "logger"):
-                    arg_with_logger = args_
-                    logger = arg_with_logger.logger
-                    break
-        if logger is None:
-            logger = _backup_logger
-
-        start_time = perf_counter()
-        if hasattr(function, "__name__"):
-            function_name = str(function.__name__)
-        else:
-            function_name = str(function)
-        function_name = function_name.replace("<", "").replace(">", "")
-        lineno = getsourcelines(function)[1] + 1
-        source_lines = getsourcelines(function)[0]
-        end_lineno = lineno + len(source_lines) - 1
-        start_message = f"Starting: {function_name}"
-
-        logger.starting(start_message, extra={"custom_lineno": lineno}, print_level=2)
-
-        result = function(*args, **kwargs)
-
-        elapsed_time = perf_counter() - start_time
-        full_message = f"Finished: {function_name} in: {elapsed_time:.4f} seconds"
-        logger.finished(
-            full_message,
-            extra={"custom_lineno": end_lineno},
-            print_level=2,
-        )
-
-        return result
-
-    return wrapper
+    return decorator_provide_time_information_2(function, print_level=2)
 
 
 def profile_time(func):

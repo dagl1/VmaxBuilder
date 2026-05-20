@@ -8,7 +8,7 @@ Designed to be shared by:
 - Any other external API calls that are expensive and should survive process restarts
 
 Cache files live in ``{project_root}/.lookup_cache/`` by default, or in a directory
-set by the ``SWAMP_CACHE_DIR`` environment variable.  Each namespace is a separate
+set by the ``VmaxBuilder_CACHE_DIR`` environment variable.  Each namespace is a separate
 JSON file, e.g. ``.lookup_cache/ensembl_sequences.json``.
 
 Thread-safety
@@ -25,7 +25,7 @@ Usage example
 -------------
 ::
 
-    from src.SWAMP.utils.lookup_cache import LookupCache, get_default_cache_dir
+    from src.VmaxBuilder.utils.lookup_cache import LookupCache, get_default_cache_dir
 
     cache = LookupCache(get_default_cache_dir(), "ensembl_sequences")
     key   = sequence_cache_key("homo_sapiens", "ENSG00000139618", "canonical_only")
@@ -43,6 +43,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -55,14 +56,17 @@ def get_default_cache_dir() -> Path:
     Resolution order:
 
     1. ``SWAMP_CACHE_DIR`` environment variable (absolute or relative path).
+    1. ``VmaxBuilder_CACHE_DIR`` environment variable (legacy compatibility).
     2. ``{project_root}/.lookup_cache/``
     """
-    env_override = os.environ.get("SWAMP_CACHE_DIR")
+    env_override = os.environ.get("SWAMP_CACHE_DIR") or os.environ.get(
+        "VmaxBuilder_CACHE_DIR"
+    )
     if env_override:
         return Path(env_override).resolve()
 
     # Lazy import to avoid circular dependency at module load time.
-    from SWAMP.utils.file_handling import get_project_root  # noqa: PLC0415
+    from .file_handling import get_project_root  # noqa: PLC0415
 
     return get_project_root() / _DEFAULT_CACHE_SUBDIR
 
@@ -209,6 +213,25 @@ class LookupCache:
         )
 
 
+@dataclass(frozen=True)
+class SequenceRecord:
+    """JSON-friendly record describing one retrieved sequence."""
+
+    sequence: str
+    source: str
+    accession: str
+    is_canonical: bool | None = None
+
+
+@dataclass(frozen=True)
+class GeneSequenceResult:
+    """Container for sequence lookup results for one gene symbol."""
+
+    gene_symbol: str
+    sequences: list[SequenceRecord]
+    errors: list[Any] = field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Sequence-specific helpers
 # ---------------------------------------------------------------------------
@@ -224,14 +247,24 @@ def sequence_cache_key(species: str, gene_symbol: str, mode: str) -> str:
     gene_symbol:
         Gene identifier / symbol.
     mode:
-        The :class:`~src.SWAMP.sequence_retrieval.types.SequenceMode` value
+        The :class:`~src.VmaxBuilder.sequence_retrieval.types.SequenceMode` value
         string (e.g. ``"canonical_only"`` or ``"all_isoforms"``).
     """
     return f"{species}:{gene_symbol}:{mode}"
 
 
-def gene_result_to_dict(result: Any) -> dict[str, Any]:
-    """Serialize a :class:`GeneSequenceResult` to a JSON-safe dict."""
+def gene_result_to_dict(result: GeneSequenceResult) -> dict[str, Any]:
+    """Generated: validation needed.
+
+    Description:
+        Serialize sequence result object to JSON-safe dictionary.
+
+    Args:
+        result (GeneSequenceResult): Sequence result to serialize.
+
+    Returns:
+        dict[str, Any]: JSON-safe representation of result.
+    """
     return {
         "gene_symbol": result.gene_symbol,
         "sequences": [
@@ -247,13 +280,18 @@ def gene_result_to_dict(result: Any) -> dict[str, Any]:
     }
 
 
-def dict_to_gene_result(data: dict[str, Any]) -> Any:
-    """Deserialize a cache-stored dict back to a :class:`GeneSequenceResult`."""
-    # Lazy import to avoid circular dependency.
-    from src.SWAMP.sequence_retrieval.types import (  # noqa: PLC0415
-        GeneSequenceResult,
-        SequenceRecord,
-    )
+def dict_to_gene_result(data: dict[str, Any]) -> GeneSequenceResult:
+    """Generated: validation needed.
+
+    Description:
+        Deserialize cached dictionary back to sequence result object.
+
+    Args:
+        data (dict[str, Any]): Cached representation to deserialize.
+
+    Returns:
+        GeneSequenceResult: Reconstructed sequence result.
+    """
 
     return GeneSequenceResult(
         gene_symbol=data["gene_symbol"],

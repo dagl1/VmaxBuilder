@@ -1,11 +1,23 @@
 import re
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Union, cast
 
-from cobrapy_fork import Model, Reaction
+if TYPE_CHECKING:
+    from cobra import Model, Reaction
 
 
-def _metabolite_has_same_identifiers(met1, met2) -> bool:
-    # requires matching without the compartment
+def _metabolite_has_same_identifiers(met1: Any, met2: Any) -> bool:
+    """Generated: validation needed.
+
+    Description:
+        Compare metabolite identifiers after stripping compartment suffixes.
+
+    Args:
+        met1 (Any): First metabolite-like object.
+        met2 (Any): Second metabolite-like object.
+
+    Returns:
+        bool: True when identifiers match after compartment removal.
+    """
     met_1_id = met1.id
     met_1_compartment = met1.compartment
     if met_1_id.endswith(f"[{met_1_compartment}]"):
@@ -26,17 +38,42 @@ def _metabolite_has_same_identifiers(met1, met2) -> bool:
     return met_1_id == met_2_id
 
 
-def _metabolite_has_same_names(met1, met2) -> bool:
+def _metabolite_has_same_names(met1: Any, met2: Any) -> bool:
+    """Generated: validation needed.
+
+    Description:
+        Compare metabolite names after trimming whitespace.
+
+    Args:
+        met1 (Any): First metabolite-like object.
+        met2 (Any): Second metabolite-like object.
+
+    Returns:
+        bool: True when names match exactly after strip.
+    """
     met_1_name = met1.name.strip()
     met_2_name = met2.name.strip()
     return met_1_name == met_2_name
 
 
 def _metabolite_has_same_formula(
-    met1,
-    met2,
-    ignore_h_plus: Optional[bool] = False,
+    met1: Any,
+    met2: Any,
+    ignore_h_plus: bool = False,
 ) -> bool:
+    """Generated: validation needed.
+
+    Description:
+        Compare metabolite formulas, optionally ignoring hydrogen fragments.
+
+    Args:
+        met1 (Any): First metabolite-like object.
+        met2 (Any): Second metabolite-like object.
+        ignore_h_plus (bool): When True, compare formulas after removing hydrogen fragments.
+
+    Returns:
+        bool: True when formulas match under selected comparison mode.
+    """
     met_1_formula = met1.formula.strip() if met1.formula is not None else None
     met_2_formula = met2.formula.strip() if met2.formula is not None else None
     if ignore_h_plus:
@@ -60,10 +97,23 @@ def _metabolite_has_same_formula(
 
 
 def _metabolite_has_same_charge(
-    met1,
-    met2,
-    ignore_h_plus: Optional[bool] = False,
+    met1: Any,
+    met2: Any,
+    ignore_h_plus: bool = False,
 ) -> bool:
+    """Generated: validation needed.
+
+    Description:
+        Compare metabolite charges, optionally adjusting for hydrogen fragments.
+
+    Args:
+        met1 (Any): First metabolite-like object.
+        met2 (Any): Second metabolite-like object.
+        ignore_h_plus (bool): When True, subtract hydrogen fragments from charge.
+
+    Returns:
+        bool: True when charges match under selected comparison mode.
+    """
     if ignore_h_plus:
         if met1.charge is None or met2.charge is None:
             return False
@@ -81,6 +131,17 @@ def _metabolite_has_same_charge(
 
 
 def extract_compartment(old_id: str) -> str:
+    """Generated: validation needed.
+
+    Description:
+        Extract compartment suffix from metabolite identifier.
+
+    Args:
+        old_id (str): Identifier to inspect.
+
+    Returns:
+        str: Extracted compartment or empty string when absent.
+    """
     if not isinstance(old_id, str):
         return ""
     # underscore form: "MAM20065_c" or "MAM20065_cyt"
@@ -92,13 +153,24 @@ def extract_compartment(old_id: str) -> str:
     if m:
         return m.group("comp")
     # [comp] form: "MAM20065[c]" or "MAM20065[cyt]"
-    m = re.search(r"\[(?P<comp>[A-Za-z]+)\]$", old_id)
+    m = re.search(r"\[(?P<comp>[A-Za-z]+)]$", old_id)
     if m:
         return m.group("comp")
     return ""
 
 
 def remove_compartment(old_id: str) -> str:
+    """Generated: validation needed.
+
+    Description:
+        Remove compartment suffix from metabolite identifier.
+
+    Args:
+        old_id (str): Identifier to normalise.
+
+    Returns:
+        str: Identifier without compartment suffix when pattern matches.
+    """
     if not isinstance(old_id, str):
         return old_id
     # underscore form: "MAM20065_c" or "MAM20065_cyt"
@@ -108,18 +180,21 @@ def remove_compartment(old_id: str) -> str:
         old_id,
     )
     # [comp] form: "MAM20065[c]" or "MAM20065[cyt]"
-    new_id = re.sub(
-        r"^(MAM\d+)\[(?:[A-Za-z]+)\]$",
-        r"\1",
-        new_id,
-    )
+    new_id = re.sub(r"^(MAM\d+)\[([A-Za-z]+)]$", r"\1", new_id)
     return new_id
 
 
 def convert_camel_case_to_snake_case(name: str) -> str:
-    """
-    Converts a camelCase string to snake_case.
+    """Generated: validation needed.
 
+    Description:
+        Convert camelCase string to snake_case.
+
+    Args:
+        name (str): Input name.
+
+    Returns:
+        str: Snake case version of name.
     """
     if not name:
         return name
@@ -134,22 +209,44 @@ def convert_camel_case_to_snake_case(name: str) -> str:
 
 
 def convert_model_to_cobra_model(
-    model: Union[Model, Dict[str, Any]], make_copy: Optional[bool] = False
-) -> Model:
+    model: Union["Model", Dict[str, Any]], make_copy: Optional[bool] = False
+) -> "Model":
     raise NotImplementedError(
-        "This function is not implemented in the SWAMP package. "
-        "Please use the appropriate method from the SWAMP package to convert models."
+        "This function is not implemented in the VmaxBuilder package. "
+        "Please use the appropriate method from the VmaxBuilder package to convert models."
     )  # todo
 
 
-def is_effectively_integer(value):
+def is_effectively_integer(value: Any) -> bool:
+    """Generated: validation needed.
+
+    Description:
+        Check whether value can be represented as integer without remainder.
+
+    Args:
+        value (Any): Candidate numeric value.
+
+    Returns:
+        bool: True when float conversion succeeds and is integer-like.
+    """
     try:
         return float(value).is_integer()
     except (ValueError, TypeError):
         return False
 
 
-def check_if_string_or_integer(column):
+def check_if_string_or_integer(column: Any) -> bool:
+    """Generated: validation needed.
+
+    Description:
+        Check whether column contains enough string or integer-like values.
+
+    Args:
+        column (Any): Column-like object supporting astype and string contains.
+
+    Returns:
+        bool: True when string or integer counts meet threshold.
+    """
     string_count = column.astype(str).str.contains("[a-zA-Z]").sum()
     integer_count = column.astype(str).str.contains("[0-9]").sum()
     return string_count >= 2 or integer_count >= 2
@@ -184,15 +281,32 @@ def compare_dicts(
             print(f"    dict2: {dict2[key]}")
 
 
-def create_task_specific_model_for_diagnostics(
-    irreversible_cobra_model: Model,
+def create_task_specific_model_for_diagnostics(  # noqa: C901
+    irreversible_cobra_model: "Model",
     task_information: Dict[str, Any],
-    unbounded_lower_bound_value: Optional[float | int] = 1,
-    unbounded_upper_bound_value: Optional[float | int] = 1000,
-    make_copy: Optional[bool] = False,
+    unbounded_lower_bound_value: float | int = 1,
+    unbounded_upper_bound_value: float | int = 1000,
+    make_copy: bool = False,
 ):
+    """Generated: validation needed.
+
+    Description:
+        Add temporary exchange reactions for task-specific diagnostics.
+
+    Args:
+        irreversible_cobra_model (Model): Model to modify.
+        task_information (Dict[str, Any]): Task metadata with input/output metabolites.
+        unbounded_lower_bound_value (float | int): Lower bound fallback for unbounded inputs.
+        unbounded_upper_bound_value (float | int): Upper bound fallback for unbounded bounds.
+        make_copy (bool): Copy model before mutation when True.
+
+    Returns:
+        tuple[Model, list[Any]]: Modified model and reactions added to it.
+    """
     if make_copy:
         irreversible_cobra_model = irreversible_cobra_model.copy()
+
+    from cobra import Reaction
 
     reactions_in_both_input_and_output = set(
         task_information["input_metabolites"]
@@ -215,7 +329,7 @@ def create_task_specific_model_for_diagnostics(
         new_reaction.name = f"temporary_exchange_{metabolite}"
         new_reaction.id = f"temporary_exchange_{metabolite}"
         new_reaction.subsystem = "temporary_exchange"
-        new_reaction.EC_number = ""
+        cast(Any, new_reaction).EC_number = ""
         new_reaction.lower_bound = lower_bound
         new_reaction.upper_bound = upper_bound
         metabolite_object = irreversible_cobra_model.metabolites.get_by_id(metabolite)
@@ -237,7 +351,7 @@ def create_task_specific_model_for_diagnostics(
         new_reaction.name = f"temporary_exchange_{metabolite}"
         new_reaction.id = f"temporary_exchange_{metabolite}"
         new_reaction.subsystem = "temporary_exchange"
-        new_reaction.EC_number = ""
+        cast(Any, new_reaction).EC_number = ""
         new_reaction.lower_bound = lower_bound
         new_reaction.upper_bound = upper_bound
         metabolite_object = irreversible_cobra_model.metabolites.get_by_id(metabolite)
@@ -261,7 +375,7 @@ def create_task_specific_model_for_diagnostics(
         new_reaction.id = f"temporary_exchange_{metabolite}_f"
         new_reaction.subsystem = "temporary_exchange"
         new_reaction.lower_bound = 0
-        new_reaction.EC_number = ""
+        cast(Any, new_reaction).EC_number = ""
         new_reaction.upper_bound = input_upper_bound
         metabolite_object = irreversible_cobra_model.metabolites.get_by_id(metabolite)
         new_reaction.add_metabolites({metabolite_object: 1})
@@ -273,7 +387,7 @@ def create_task_specific_model_for_diagnostics(
         new_reaction.id = f"temporary_exchange_{metabolite}_r"
         new_reaction.subsystem = "temporary_exchange"
         new_reaction.lower_bound = 0
-        new_reaction.EC_number = ""
+        cast(Any, new_reaction).EC_number = ""
         new_reaction.upper_bound = output_upper_bound
         metabolite_object = irreversible_cobra_model.metabolites.get_by_id(metabolite)
         new_reaction.add_metabolites({metabolite_object: -1})

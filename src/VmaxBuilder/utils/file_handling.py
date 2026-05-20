@@ -4,28 +4,24 @@ many different datatypes.
 """
 
 import json
-import os
+import warnings
+from collections.abc import Sequence
+from pathlib import Path
+from pickle import dump as pickle_dump
+from pickle import load as pickle_load
+from typing import Any
 
 try:
     import tomllib
 except ImportError:
     # For Python < 3.11, use the backport package
     import tomli as tomllib  # ty: ignore[unresolved-import]
-import warnings
-from pathlib import Path
-from pickle import dump as pickle_dump
-from pickle import load as pickle_load
-from typing import List, Optional, Union
 
 import pandas as pd
 import plotly.graph_objects as go
-from cobrapy_fork._cobra import load_matlab_model, save_json_model
-from cobrapy_fork.io import load_json_model, read_sbml_model
 from pyreadr import read_r
-from SWAMP.utils.custom_logging import decorator_provide_time_information_2
 
-# todo add kcat_assigning.KcatGPRAssigner.(load_existing_file_based_on_extension and check for existing files)
-# to the utils.file_handling module
+from .custom_logging import decorator_provide_time_information_2
 
 
 def get_project_root(start_path: str | Path | None = None) -> Path:
@@ -88,61 +84,79 @@ def get_project_root(start_path: str | Path | None = None) -> Path:
 
 
 @decorator_provide_time_information_2
-def load_existing_file_based_on_extension(
-    location: str,
-    index_col: Optional[Union[int, str]] = None,
-    is_cobra_model: Optional[bool] = False,
-):
-    """ """
-    if is_cobra_model:
-        if location.endswith(".json"):
-            return load_json_model(location)
-        elif location.endswith(".xml"):
-            return read_sbml_model(location)
-        elif location.endswith(".mat"):
-            return load_matlab_model(location)
+def load_existing_file_based_on_extension(  # noqa: C901
+    location: str | Path,
+    index_col: int | str | None = None,
+    is_cobra_model: bool = False,
+) -> object:
+    """Generated: validation needed.
 
-    if location.endswith(".json"):
-        with open(location, "r") as json_file:
+    Description:
+        Load existing file by extension and return deserialized object.
+
+    Args:
+        location (str | Path): File location.
+        index_col (int | str | None): Optional index column for tabular files.
+        is_cobra_model (bool): When True, load COBRA model formats through cobra readers.
+
+    Returns:
+        object: Loaded file content.
+
+    Raises:
+        ValueError: If file extension is unsupported.
+    """
+    location_path = Path(location)
+
+    if is_cobra_model:
+        from cobra.io import load_json_model, load_matlab_model, read_sbml_model
+
+        if location_path.suffix == ".json":
+            return load_json_model(str(location_path))
+        if location_path.suffix == ".xml":
+            return read_sbml_model(str(location_path))
+        if location_path.suffix == ".mat":
+            return load_matlab_model(str(location_path))
+
+    if location_path.suffix == ".json":
+        with location_path.open("r", encoding="utf-8") as json_file:
             data = json.load(json_file)
         try:
             return pd.DataFrame(data)
         except ValueError:
             return data
-    elif location.endswith(".pkl"):
-        with open(location, "rb") as pickle_file:
+    if location_path.suffix == ".pkl":
+        with location_path.open("rb") as pickle_file:
             data = pickle_load(pickle_file)
         try:
-            return pd.read_pickle(location)
+            return pd.read_pickle(location_path)
         except ValueError:
             return data
-    elif location.endswith(".csv"):
+    if location_path.suffix == ".csv":
         return pd.read_csv(
-            location,
+            location_path,
             index_col=index_col,
         )
-    elif location.endswith(".tsv"):
-        return pd.read_csv(location, sep="\t")
-    elif location.endswith(".txt"):
+    if location_path.suffix == ".tsv":
+        return pd.read_csv(location_path, sep="\t")
+    if location_path.suffix == ".txt":
         try:
-            return pd.read_csv(location, sep="\t")
+            return pd.read_csv(location_path, sep="\t")
         except pd.errors.ParserError:
-            with open(location, "r") as f:
-                return f.read()
-    elif location.endswith(".xlsx"):
-        return pd.read_excel(location)
-    elif location.endswith(".feather"):
-        df = pd.read_feather(location)
+            return location_path.read_text(encoding="utf-8")
+    if location_path.suffix == ".xlsx":
+        return pd.read_excel(location_path)
+    if location_path.suffix == ".feather":
+        df = pd.read_feather(location_path)
         # if index_col is not None:
         #     if index_col not in df.columns and isinstance(index_col, int):
         #         index_col = df.columns[index_col]
         #     df.set_index(index_col, inplace=True)
         return df
-    elif location.endswith(".parquet"):
-        return pd.read_parquet(location)
-    elif location.endswith(".rds"):
+    if location_path.suffix == ".parquet":
+        return pd.read_parquet(location_path)
+    if location_path.suffix == ".rds":
         # we use pyreadr
-        result = read_r(location)
+        result = read_r(str(location_path))
         if len(result) == 1:
             return next(iter(result.values()))
         # find something that looks like a dataframe
@@ -152,49 +166,83 @@ def load_existing_file_based_on_extension(
                 return pd.DataFrame(value)
             except Exception:
                 continue
-        raise ValueError(f"Could not find a dataframe in the RDS file at {location}")
+        raise ValueError(f"Could not find a dataframe in the RDS file at {location_path}")
 
-    else:
-        raise ValueError(f"Unsupported file extension for {location}")
+    raise ValueError(f"Unsupported file extension for {location_path}")
 
 
 @decorator_provide_time_information_2
 def check_for_existing_files(
-    location: str,
-    file_name_start: List[str],
-    file_name_end: List[str],
-):
+    location: str | Path,
+    file_name_start: Sequence[str],
+    file_name_end: Sequence[str],
+) -> str | bool:
+    """Generated: validation needed.
+
+    Description:
+        Check for existing file in directory using filename prefix and suffix.
+
+    Args:
+        location (str | Path): Directory to search.
+        file_name_start (Sequence[str]): Accepted lowercase filename prefixes.
+        file_name_end (Sequence[str]): Accepted lowercase filename suffixes.
+
+    Returns:
+        str | bool: Matching file path when found, otherwise False.
     """
-    Checks for existing files in a given directory based on specified start and end patterns.
-    """
-    if not os.path.exists(location):
+    location_path = Path(location)
+    if not location_path.exists():
         return False
-    for start in file_name_start:
-        for end in file_name_end:
-            for file_name in os.listdir(location):
-                file_name_lower = file_name.lower()
+    for file_path in location_path.iterdir():
+        if not file_path.is_file():
+            continue
+        file_name_lower = file_path.name.lower()
+        for start in file_name_start:
+            for end in file_name_end:
                 if file_name_lower.startswith(start) and file_name_lower.endswith(end):
-                    return os.path.join(location, file_name)
+                    return str(file_path)
     return False
 
 
 @decorator_provide_time_information_2
-def save_with_tries(
-    data: object,
+def save_with_tries(  # noqa: C901
+    data: Any,
     filename: str,
-    extension: Union[str, List[str]],
-    save_dir: str,
-    max_tries: Optional[int] = 10,
-    overwrite: Optional[bool] = False,
-    with_index: Optional[bool] = False,
-    header: Optional[bool] = True,
-    logger: Optional[object] = None,
-    print_level: Optional[int] = None,
+    extension: str | Sequence[str],
+    save_dir: str | Path,
+    max_tries: int = 10,
+    overwrite: bool = False,
+    with_index: bool = False,
+    header: bool | list[str] = True,
+    logger: Any | None = None,
+    print_level: int | None = None,
 ) -> None:
-    # todo create registry pattern for saving and loading different data types
-    #  https://www.youtube.com/watch?v=g7EGMWvJ1fI
-    # todo allow extensions to be a list and then save for all extension types
-    datatype = None
+    """Generated: validation needed.
+
+    Description:
+        Save supported data objects with retry and filename collision handling.
+
+    Args:
+        data (Any): Data to write.
+        filename (str): Output filename without directory.
+        extension (str | Sequence[str]): Target extension or extensions.
+        save_dir (str | Path): Output directory.
+        max_tries (int): Maximum rename retries when overwrite is disabled.
+        overwrite (bool): Overwrite existing file when True.
+        with_index (bool): Include index when writing tabular objects.
+        header (bool | list[str]): Header flag passed to pandas writers.
+        logger (Any | None): Optional logger supporting info and warning.
+        print_level (int | None): Optional print level for logger.
+
+    Returns:
+        None: Function writes file to disk.
+
+    Raises:
+        TypeError: If data type is unsupported.
+        ValueError: If extension is invalid for data type.
+    """
+    save_path = Path(save_dir)
+    datatype: str | None = None
     filename = filename.replace("/", "_").replace(
         "\\", "_"
     )  # Replace slashes to avoid path issues
@@ -207,10 +255,9 @@ def save_with_tries(
         "go_figure": ["html", "png", "jpeg", "pdf"],
         "html": ["html"],
     }
-    possible_extensions = []
-    for ext_list in datatype_extension_pairing.values():
-        possible_extensions.extend(ext_list)
-    possible_extensions = list(set(possible_extensions))
+    possible_extensions = {
+        ext for ext_list in datatype_extension_pairing.values() for ext in ext_list
+    }
     if logger is not None:
         logger.info(
             f"Saving {type(data)} to {filename} in {save_dir} with extension {extension}.",
@@ -240,231 +287,172 @@ def save_with_tries(
         datatype = "html"
     elif isinstance(data, go.Figure):
         datatype = "go_figure"
+    if datatype is None:
+        raise TypeError(f"Unsupported data type: {type(data)}")
 
-    extensions = [ext for ext in extension] if isinstance(extension, list) else [extension]
+    extensions = [extension] if isinstance(extension, str) else list(extension)
     original_filename = filename
-    for extension in extensions:
-        extension_in_filename = original_filename.split(".")[-1]
-        if extension_in_filename in possible_extensions:
-            if extension_in_filename != extension:
-                warn_message = (
-                    f"Extension in filename '{extension_in_filename}' does not match "
-                    f"the specified extension '{extension}'. Using provided filename: "
-                    f"{original_filename}."
-                )
-                warnings.warn(warn_message) if logger is None else logger.warning(
-                    warn_message
-                )
-                extension = "." + extension_in_filename
-                filename = original_filename.split(".")[0] + "." + extension
-        if not os.path.exists(save_dir):
-            warning_message = f"Directory '{save_dir}' does not exist. Creating it."
-            warnings.warn(warning_message) if logger is None else logger.warning(
-                warning_message
-            )
-            os.makedirs(save_dir)
 
-        if extension not in datatype_extension_pairing[datatype]:
+    def _write_to_path(file_path: Path, current_extension: str) -> None:  # noqa: C901
+        normalized_extension = (
+            current_extension
+            if current_extension.startswith(".")
+            else f".{current_extension}"
+        )
+        if datatype == "dataframe":
+            if normalized_extension == ".csv":
+                data.to_csv(file_path, index=with_index, header=header)
+            elif normalized_extension == ".json":
+                data.to_json(file_path, orient="records", lines=True)
+            elif normalized_extension == ".xlsx":
+                data.to_excel(file_path, index=with_index, header=header)
+            elif normalized_extension == ".feather":
+                frame = data.copy()
+                if with_index:
+                    frame.reset_index(inplace=True)
+                frame.to_feather(file_path)
+            elif normalized_extension == ".parquet":
+                data.to_parquet(file_path)
+            elif normalized_extension == ".pkl":
+                data.to_pickle(file_path)
+        elif datatype == "series":
+            if normalized_extension == ".csv":
+                data.to_csv(file_path, index=with_index, header=header)
+            elif normalized_extension == ".json":
+                data.to_json(file_path, orient="records", lines=True)
+            elif normalized_extension == ".xlsx":
+                data.to_excel(file_path, index=with_index, header=header)
+            elif normalized_extension == ".feather":
+                frame = data.to_frame()
+                if with_index:
+                    frame = frame.copy()
+                    frame.reset_index(inplace=True)
+                frame.to_feather(file_path)
+            elif normalized_extension == ".parquet":
+                data.to_parquet(file_path)
+            elif normalized_extension == ".pkl":
+                data.to_pickle(file_path)
+        elif datatype == "dict":
+            if normalized_extension == ".json":
+                with file_path.open("w", encoding="utf-8") as file_handle:
+                    json.dump(data, file_handle)
+            elif normalized_extension == ".jsonl":
+                with file_path.open("w", encoding="utf-8") as file_handle:
+                    for item in data:
+                        file_handle.write(json.dumps(item) + "\n")
+            elif normalized_extension == ".txt":
+                with file_path.open("w", encoding="utf-8") as file_handle:
+                    for key, value in data.items():
+                        file_handle.write(f"{key}: {value}\n")
+            elif normalized_extension == ".pkl":
+                with file_path.open("wb") as file_handle:
+                    pickle_dump(data, file_handle)
+        elif datatype == "list":
+            if normalized_extension == ".json":
+                with file_path.open("w", encoding="utf-8") as file_handle:
+                    json.dump(data, file_handle)
+            elif normalized_extension == ".jsonl":
+                with file_path.open("w", encoding="utf-8") as file_handle:
+                    for item in data:
+                        file_handle.write(json.dumps(item) + "\n")
+            elif normalized_extension == ".txt":
+                with file_path.open("w", encoding="utf-8") as file_handle:
+                    for item in data:
+                        file_handle.write(f"{item}\n")
+            elif normalized_extension == ".pkl":
+                with file_path.open("wb") as file_handle:
+                    pickle_dump(data, file_handle)
+        elif datatype == "string":
+            file_path.write_text(data, encoding="utf-8")
+        elif datatype == "go_figure":
+            if normalized_extension == ".html":
+                data.write_html(file_path)
+            elif normalized_extension in [".png", ".jpeg"]:
+                data.write_image(file_path)
+            elif normalized_extension == ".pdf":
+                data.write_image(file_path, format="pdf")
+            elif normalized_extension == ".json":
+                data.write_json(file_path)
+        elif datatype == "html":
+            file_path.write_text(data, encoding="utf-8")
+
+    for current_extension in extensions:
+        extension_in_filename = Path(original_filename).suffix.lstrip(".")
+        if (
+            extension_in_filename in possible_extensions
+            and extension_in_filename != current_extension.lstrip(".")
+        ):
+            warn_message = (
+                f"Extension in filename '{extension_in_filename}' does not match "
+                f"the specified extension '{current_extension}'. Using provided filename: "
+                f"{original_filename}."
+            )
+            if logger is None:
+                warnings.warn(warn_message, stacklevel=2)
+            else:
+                logger.warning(warn_message)
+            current_extension = f".{extension_in_filename}"
+            filename = f"{Path(original_filename).stem}.{current_extension.lstrip('.')}"
+
+        save_path.mkdir(parents=True, exist_ok=True)
+
+        valid_extensions = datatype_extension_pairing[datatype]
+        if (
+            current_extension not in valid_extensions
+            and current_extension.lstrip(".") not in valid_extensions
+        ):
             raise ValueError(
-                f"Extension '{extension}' is not valid for data type '{datatype}'. "
-                f"Valid extensions are: {datatype_extension_pairing[datatype]}."
+                f"Extension '{current_extension}' is not valid for data type '{datatype}'. "
+                f"Valid extensions are: {valid_extensions}."
             )
-        if "." not in extension:
-            extension = "." + extension
-        if not filename.endswith(extension):
-            filename = original_filename + extension
-        file_path = os.path.join(save_dir, filename)
 
-        if not overwrite:
-            filename_without_extension = filename.split(".")[0]
-            for i in range(max_tries):
-                if os.path.exists(file_path):
-                    file_path = os.path.join(
-                        save_dir, filename_without_extension + f"_{i + 1}" + extension
-                    )
-                try:
-                    if datatype == "dataframe":
-                        if extension == ".csv":
-                            data.to_csv(file_path, index=with_index, header=header)
-                        elif extension == ".json":
-                            data.to_json(file_path, orient="records", lines=True)
-                        elif extension == ".xlsx":
-                            data.to_excel(file_path, index=with_index, header=header)
-                        elif extension == ".feather":
-                            if with_index:
-                                data = data.copy()
-                                data.reset_index(inplace=True)
-                            data.to_feather(file_path)
-                        elif extension == ".parquet":
-                            data.to_parquet(file_path)
-                        elif extension == ".pkl":
-                            data.to_pickle(file_path)
-                    elif datatype == "series":
-                        if extension == ".csv":
-                            data.to_csv(file_path, index=with_index, header=header)
-                        elif extension == ".json":
-                            data.to_json(file_path, orient="records", lines=True)
-                        elif extension == ".xlsx":
-                            data.to_excel(file_path, index=with_index, header=header)
-                        elif extension == ".feather":
-                            data = data.to_frame()
-                            if with_index:
-                                data = data.copy()
-                                data.reset_index(inplace=True)
-                            data.to_feather(file_path)
-                        elif extension == ".parquet":
-                            data.to_parquet(file_path)
-                        elif extension == ".pkl":
-                            data.to_pickle(file_path)
-                    elif datatype == "dict":
-                        if extension == ".json":
-                            with open(file_path, "w") as f:
-                                json.dump(data, f)
-                        elif extension == ".jsonl":
-                            with open(file_path, "w") as f:
-                                for item in data:
-                                    f.write(json.dumps(item) + "\n")
-                        elif extension == ".txt":
-                            with open(file_path, "w") as f:
-                                for key, value in data.items():
-                                    f.write(f"{key}: {value}\n")
-                        elif extension == ".pkl":
-                            with open(file_path, "wb") as f:
-                                pickle_dump(data, f)
-                    elif datatype == "list":
-                        if extension == ".json":
-                            with open(file_path, "w") as f:
-                                json.dump(data, f)
-                        elif extension == ".jsonl":
-                            with open(file_path, "w") as f:
-                                for item in data:
-                                    f.write(json.dumps(item) + "\n")
-                        elif extension == ".txt":
-                            with open(file_path, "w") as f:
-                                for key, value in data.items():
-                                    f.write(f"{key}: {value}\n")
-                        elif extension == ".pkl":
-                            with open(file_path, "wb") as f:
-                                pickle_dump(data, f)
-                    elif datatype == "string":
-                        with open(file_path, "w") as f:
-                            f.write(data)
-                    elif datatype == "go_figure":
-                        if extension == ".html":
-                            data.write_html(file_path)
-                        elif extension in [".png", ".jpeg"]:
-                            data.write_image(file_path)
-                        elif extension == ".pdf":
-                            data.write_image(file_path, format="pdf")
-                        elif extension == ".json":
-                            data.write_json(file_path)
-                    elif datatype == "html":
-                        with open(file_path, "w", encoding="utf-8") as f:
-                            f.write(data)
+        normalized_extension = (
+            current_extension
+            if current_extension.startswith(".")
+            else f".{current_extension}"
+        )
+        if not filename.endswith(normalized_extension):
+            filename = f"{original_filename}{normalized_extension}"
 
-                    break
-                except Exception as e:
-                    if i < max_tries - 1:
-                        file_path = os.path.join(
-                            save_dir,
-                            filename_without_extension + f"_{i + 1}" + extension,
-                        )
-                    else:
-                        error_message = (
-                            f"Failed to save file '{file_path}' after {max_tries} attempts. "
-                            f"Error: {e}"
-                        )
-                        warnings.warn(error_message) if logger is None else logger.warning(
-                            error_message
-                        )
-                        raise Exception(error_message) from e
-        elif overwrite or not os.path.exists(file_path):
+        file_path = save_path / filename
+        filename_without_extension = file_path.stem
+
+        if overwrite:
             try:
-                if datatype == "dataframe":
-                    if extension == ".csv":
-                        data.to_csv(file_path, index=with_index, header=header)
-                    elif extension == ".json":
-                        data.to_json(file_path, orient="records", lines=True)
-                    elif extension == ".xlsx":
-                        data.to_excel(file_path, index=with_index, header=header)
-                    elif extension == ".feather":
-                        if with_index:
-                            data = data.copy()
-                            data.reset_index(inplace=True)
-                        data.to_feather(file_path)
-                    elif extension == ".parquet":
-                        data.to_parquet(file_path)
-                    elif extension == ".pkl":
-                        data.to_pickle(file_path)
-                elif datatype == "series":
-                    if extension == ".csv":
-                        data.to_csv(file_path, index=with_index, header=header)
-                    elif extension == ".json":
-                        data.to_json(file_path, orient="records", lines=True)
-                    elif extension == ".xlsx":
-                        data.to_excel(file_path, index=with_index, header=header)
-                    elif extension == ".feather":
-                        data = data.to_frame()
-                        # convert index column to first column if with_index is True
-                        if with_index:
-                            data = data.copy()
-                            data.reset_index(inplace=True)
-                        data.to_feather(file_path)
-                    elif extension == ".parquet":
-                        data.to_parquet(file_path)
-                    elif extension == ".pkl":
-                        data.to_pickle(file_path)
-                elif datatype == "dict":
-                    if extension == ".json":
-                        with open(file_path, "w") as f:
-                            json.dump(data, f)
-                    elif extension == ".jsonl":
-                        with open(file_path, "w") as f:
-                            for item in data:
-                                f.write(json.dumps(item) + "\n")
-                    elif extension == ".txt":
-                        with open(file_path, "w") as f:
-                            for key, value in data.items():
-                                f.write(f"{key}: {value}\n")
-                    elif extension == ".pkl":
-                        with open(file_path, "wb") as f:
-                            pickle_dump(data, f)
-                elif datatype == "list":
-                    if extension == ".json":
-                        with open(file_path, "w") as f:
-                            json.dump(data, f)
-                    elif extension == ".jsonl":
-                        with open(file_path, "w") as f:
-                            for item in data:
-                                f.write(json.dumps(item) + "\n")
-                    elif extension == ".txt":
-                        with open(file_path, "w") as f:
-                            for key, value in data.items():
-                                f.write(f"{key}: {value}\n")
-                    elif extension == ".pkl":
-                        with open(file_path, "wb") as f:
-                            pickle_dump(data, f)
-                elif datatype == "string":
-                    with open(file_path, "w") as f:
-                        f.write(data)
-                elif datatype == "go_figure":
-                    if extension == ".html":
-                        data.write_html(file_path)
-                    elif extension in [".png", ".jpeg"]:
-                        data.write_image(file_path)
-                    elif extension == ".pdf":
-                        data.write_image(file_path, format="pdf")
-                    elif extension == ".json":
-                        data.write_json(file_path)
-                elif datatype == "html":
-                    with open(file_path, "w", encoding="utf-8") as f:
-                        f.write(data)
-            except Exception as e:
+                _write_to_path(file_path, normalized_extension)
+            except Exception as exc:
                 error_message = (
                     f"Failed to save file '{file_path}' after {max_tries} attempts. "
-                    f"Error: {e}"
+                    f"Error: {exc}"
                 )
-                warnings.warn(error_message) if logger is None else logger.warning(
-                    error_message
+                if logger is None:
+                    warnings.warn(error_message, stacklevel=2)
+                else:
+                    logger.warning(error_message)
+                raise Exception(error_message) from exc
+            continue
+
+        for attempt_index in range(max_tries):
+            candidate_path = (
+                file_path
+                if attempt_index == 0
+                else save_path
+                / f"{filename_without_extension}_{attempt_index}{normalized_extension}"
+            )
+            if candidate_path.exists() and attempt_index < max_tries - 1:
+                continue
+            try:
+                _write_to_path(candidate_path, normalized_extension)
+                break
+            except Exception as exc:
+                if attempt_index < max_tries - 1:
+                    continue
+                error_message = (
+                    f"Failed to save file '{candidate_path}' after {max_tries} attempts. "
+                    f"Error: {exc}"
                 )
-                raise Exception(error_message) from e
+                if logger is None:
+                    warnings.warn(error_message, stacklevel=2)
+                else:
+                    logger.warning(error_message)
+                raise Exception(error_message) from exc
