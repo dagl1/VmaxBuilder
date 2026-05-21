@@ -5,18 +5,32 @@ Use Google-style docstrings with required extensions.
 
 ## Required sections:
 
-- Description
+- Description (always required)
 
-- Args:
+- Args: (only if function/class has parameters)
 
-- Returns:
+- Returns: (only if function returns a non-None value)
 
-- Raises: (if applicable)
+- Raises: (only if exceptions are raised)
 
-- Requires: (for dependencies on instance attributes)
+- Requires: (only if there are instance attribute dependencies)
 
-- Modifies: (for side effects or state changes)
+- Modifies: (only if there are side effects or state changes)
 
+
+## Omission rule:
+
+**Do not include a section if it has no content.**
+
+- No `Args: None.` — omit `Args:` entirely if there are no parameters.
+- No `Returns: None.` — omit `Returns:` if the return is `None` or there is nothing meaningful to document.
+- No `Raises: None.` — omit `Raises:` if no exceptions are raised.
+- No `Requires: None.` — omit `Requires:` if there are no attribute dependencies.
+- No `Modifies: None.` — omit `Modifies:` if there are no side effects.
+
+Only the **Description** is always required. Every other section is conditional on having actual content.
+
+Applies to both function and class/module-level docstrings.
 
 
 ## Rules:
