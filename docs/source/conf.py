@@ -110,7 +110,7 @@ def custom_process_doc(self: TitleCollector, app: Sphinx, doctree: nodes.documen
 
 
 title_collector_class: Any = TitleCollector
-title_collector_class.process_doc = custom_process_doc
+title_collector_class.process_doc = custom_process_doc  # ty: ignore
 
 
 def setup(app):
