@@ -1,0 +1,134 @@
+"""Generated: validation needed.
+
+Description:
+    Central catalogue of allowed config values for refactored VmaxBuilder API.
+
+Args:
+    None.
+
+Returns:
+    None.
+
+Raises:
+    None.
+
+Requires:
+    None.
+
+Modifies:
+    None.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from VmaxBuilder.config.enums import (
+    DiagnosticSeverity,
+    KcatLevel,
+    LoadResolutionMode,
+    PrimaryOutputFormat,
+    ProteinSourceMode,
+    ReactionNotation,
+    StageName,
+    ValidationMode,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class OptionSpec:
+    """Generated: validation needed.
+
+    Description:
+        Describes one editable option catalogue entry.
+
+    Args:
+        name (str): Canonical option path.
+        allowed_values (tuple[Any, ...] | None): Allowed values for the option.
+        description (str): Human-readable guidance for the option.
+        validation_mode (ValidationMode): Default validation mode for the option.
+    """
+
+    name: str
+    allowed_values: tuple[Any, ...] | None
+    description: str
+    validation_mode: ValidationMode = ValidationMode.STRICT
+
+
+OPTION_SPECS: dict[str, OptionSpec] = {
+    "validation.mode": OptionSpec(
+        name="validation.mode",
+        allowed_values=(ValidationMode.STRICT.value, ValidationMode.LENIENT.value),
+        description="Global validation default for config and stage inputs.",
+    ),
+    "validation.field_mode": OptionSpec(
+        name="validation.field_mode",
+        allowed_values=(ValidationMode.STRICT.value, ValidationMode.LENIENT.value),
+        description="Per-field validation override.",
+    ),
+    "validation.halt_severity": OptionSpec(
+        name="validation.halt_severity",
+        allowed_values=tuple(severity.value for severity in DiagnosticSeverity),
+        description="Minimum severity that stops downstream stage execution.",
+    ),
+    "stage.name": OptionSpec(
+        name="stage.name",
+        allowed_values=tuple(stage.value for stage in StageName),
+        description="Top-level orchestrator stage name.",
+    ),
+    "protein.source_mode": OptionSpec(
+        name="protein.source_mode",
+        allowed_values=tuple(mode.value for mode in ProteinSourceMode),
+        description="Protein abundance source strategy.",
+    ),
+    "model.reaction_notation": OptionSpec(
+        name="model.reaction_notation",
+        allowed_values=tuple(notation.value for notation in ReactionNotation),
+        description="Reaction identifier notation expected by model-stage processors.",
+    ),
+    "loading.results_dir_name": OptionSpec(
+        name="loading.results_dir_name",
+        allowed_values=("VmaxResults",),
+        description="User-facing output folder name for generated results.",
+    ),
+    "loading.primary_output_format": OptionSpec(
+        name="loading.primary_output_format",
+        allowed_values=tuple(output_format.value for output_format in PrimaryOutputFormat),
+        description="Primary file format used when saving output tables.",
+    ),
+    "loading.write_additional_csv": OptionSpec(
+        name="loading.write_additional_csv",
+        allowed_values=(True, False),
+        description="Whether additional csv output copies are written.",
+    ),
+    "kcat.level": OptionSpec(
+        name="kcat.level",
+        allowed_values=tuple(level.value for level in KcatLevel),
+        description="Canonical kcat level exposed by a predictor or converter.",
+    ),
+    "load.resolution_mode": OptionSpec(
+        name="load.resolution_mode",
+        allowed_values=tuple(mode.value for mode in LoadResolutionMode),
+        description="Path resolution policy used when loading inputs and outputs.",
+    ),
+}
+
+
+def get_allowed_values(option_name: str) -> tuple[Any, ...] | None:
+    """Generated: validation needed.
+
+    Description:
+        Return allowed values for one known option catalogue entry.
+
+    Args:
+        option_name (str): Canonical option path to inspect.
+
+    Returns:
+        tuple[Any, ...] | None: Allowed values if option is known, else None.
+    """
+
+    option_spec = OPTION_SPECS.get(option_name)
+    if option_spec is None:
+        return None
+    return option_spec.allowed_values
