@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from cobra import Metabolite, Model, Reaction
+from cobra.io import save_json_model
 
 from VmaxBuilder.api import VmaxOrchestrator, build_default_api_config
 from VmaxBuilder.config import (
@@ -19,12 +21,30 @@ from VmaxBuilder.config import (
 # ruff: noqa: I001
 
 
-def test_run_model_uses_explicit_model_path() -> None:
+def _make_simple_model() -> Model:
+    model = Model("test_model")
+    met_a = Metabolite("A")
+    met_b = Metabolite("B")
+    reaction = Reaction("r1")
+    reaction.add_metabolites({met_a: -1.0, met_b: 1.0})
+    reaction.bounds = (0.0, 10.0)
+    model.add_reactions([reaction])
+    return model
+
+
+def _write_model_json(model_path: Path) -> None:
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    save_json_model(_make_simple_model(), str(model_path))
+
+
+def test_run_model_uses_explicit_model_path(tmp_path: Path) -> None:
+    model_path = tmp_path / "model.json"
+    _write_model_json(model_path)
     config = APIConfig(
         validation=ValidationPolicy(mode=ValidationMode.STRICT),
         loading=LoadingPolicy(
             resolution_mode=LoadResolutionMode.EXACT_THEN_DISCOVER,
-            model_path=Path("C:/data/model.json"),
+            model_path=model_path,
         ),
         model=ModelConfig(),
     )
@@ -33,10 +53,9 @@ def test_run_model_uses_explicit_model_path() -> None:
     scaffold = orchestrator.run_model()
 
     assert scaffold["artifacts"]["model_reference"]["source"] == "explicit_path"
-    assert Path(scaffold["artifacts"]["model_reference"]["path"]) == Path(
-        "C:/data/model.json"
-    )
+    assert Path(scaffold["artifacts"]["model_reference"]["path"]) == model_path
     assert "reaction_notation" in scaffold["metadata"]["model_stage"]
+    assert "model" in scaffold["artifacts"]
 
 
 def test_build_default_api_config_returns_mutable_defaults() -> None:
@@ -49,12 +68,15 @@ def test_build_default_api_config_returns_mutable_defaults() -> None:
     assert config.loading.model_path == Path("C:/data/model.json")
 
 
-def test_run_model_uses_discovery_roots_when_model_path_missing() -> None:
+def test_run_model_uses_discovery_roots_when_model_path_missing(tmp_path: Path) -> None:
+    search_root = tmp_path / "search_root"
+    model_path = search_root / "model_from_discovery.json"
+    _write_model_json(model_path)
     config = APIConfig(
         validation=ValidationPolicy(mode=ValidationMode.STRICT),
         loading=LoadingPolicy(
             resolution_mode=LoadResolutionMode.EXACT_THEN_DISCOVER,
-            search_roots=(Path("C:/data"), Path("C:/fallback")),
+            search_roots=(search_root,),
         ),
     )
     orchestrator = VmaxOrchestrator(config=config)
@@ -62,14 +84,11 @@ def test_run_model_uses_discovery_roots_when_model_path_missing() -> None:
     scaffold = orchestrator.run_model()
 
     assert scaffold["artifacts"]["model_reference"]["source"] == "discover"
-    assert [
-        Path(path_value)
-        for path_value in scaffold["artifacts"]["model_reference"]["search_roots"]
-    ] == [Path("C:/data"), Path("C:/fallback")]
+    assert Path(scaffold["artifacts"]["model_reference"]["path"]) == model_path
 
 
 def test_run_model_uses_in_memory_model_from_config() -> None:
-    model_object = object()
+    model_object = _make_simple_model()
     config = APIConfig(
         validation=ValidationPolicy(mode=ValidationMode.STRICT),
         loading=LoadingPolicy(model_object=model_object),
@@ -94,7 +113,7 @@ def test_run_model_raises_when_no_resolution_inputs_configured() -> None:
 
 
 def test_run_model_uses_in_memory_model_from_scaffold_input() -> None:
-    model_object = object()
+    model_object = _make_simple_model()
     config = APIConfig(
         validation=ValidationPolicy(mode=ValidationMode.STRICT),
         loading=LoadingPolicy(resolution_mode=LoadResolutionMode.EXACT_THEN_DISCOVER),
@@ -112,10 +131,12 @@ def test_run_model_primes_output_directories_and_reprime_on_path_change(
 ) -> None:
     first_output_dir = tmp_path / "out_a"
     second_output_dir = tmp_path / "out_b"
+    model_path = tmp_path / "model.json"
+    _write_model_json(model_path)
     config = APIConfig(
         validation=ValidationPolicy(mode=ValidationMode.STRICT),
         loading=LoadingPolicy(
-            model_path=Path("C:/data/model.json"),
+            model_path=model_path,
             output_path=first_output_dir,
         ),
     )
@@ -135,12 +156,14 @@ def test_run_model_primes_output_directories_and_reprime_on_path_change(
     assert "orchestrator" in scaffold_second["metadata"]
 
 
-def test_run_executes_selected_stage_order() -> None:
+def test_run_executes_selected_stage_order(tmp_path: Path) -> None:
+    model_path = tmp_path / "model.json"
+    _write_model_json(model_path)
     config = APIConfig(
         validation=ValidationPolicy(mode=ValidationMode.STRICT),
         loading=LoadingPolicy(
             resolution_mode=LoadResolutionMode.EXACT_THEN_DISCOVER,
-            model_path=Path("C:/data/model.json"),
+            model_path=model_path,
         ),
     )
     orchestrator = VmaxOrchestrator(config=config)
@@ -150,3 +173,20 @@ def test_run_executes_selected_stage_order() -> None:
     assert "model_stage" in scaffold["metadata"]
     assert "protein_stage" in scaffold["metadata"]
     assert scaffold["metadata"]["protein_stage"]["status"] == "placeholder_not_implemented"
+
+
+def test_run_model_resolves_model_file_from_directory(tmp_path: Path) -> None:
+    model_directory = tmp_path / "model_dir"
+    model_path = model_directory / "Model_in_dir.json"
+    _write_model_json(model_path)
+
+    config = APIConfig(
+        validation=ValidationPolicy(mode=ValidationMode.STRICT),
+        loading=LoadingPolicy(model_path=model_directory),
+    )
+    orchestrator = VmaxOrchestrator(config=config)
+
+    scaffold = orchestrator.run_model()
+
+    assert scaffold["artifacts"]["model_reference"]["source"] == "explicit_path"
+    assert Path(scaffold["artifacts"]["model_reference"]["path"]) == model_path

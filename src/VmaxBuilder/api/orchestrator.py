@@ -272,9 +272,6 @@ class VmaxOrchestrator:
         Raises:
             ValueError: When unsupported stage name is provided.
 
-        Requires:
-            None.
-
         Modifies:
             scaffold payload across stage runs.
         """
@@ -299,17 +296,8 @@ class VmaxOrchestrator:
         Description:
             Execute all top-level stages in default pipeline order.
 
-        Args:
-            None.
-
         Returns:
             Scaffold: Updated scaffold after full pipeline traversal.
-
-        Raises:
-            None.
-
-        Requires:
-            None.
 
         Modifies:
             scaffold payload.
@@ -336,12 +324,6 @@ class VmaxOrchestrator:
 
         Returns:
             Scaffold: Normalized scaffold object.
-
-        Raises:
-            None.
-
-        Requires:
-            None.
 
         Modifies:
             scaffold dictionary keys when missing.

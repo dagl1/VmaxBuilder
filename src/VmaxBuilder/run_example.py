@@ -8,11 +8,12 @@ from VmaxBuilder.config import ReactionNotation, ValidationMode
 
 if __name__ == "__main__":
     # Put your model path here. Raw string avoids escaping backslashes on Windows.
-    model_path = Path(r"C:\replace\with\your\model.json")
-
+    base_dir = Path(r"C:\git\SWaPAM\data\for_SWAMP")
+    models_dir = base_dir / "models"
+    model_name = "HumanGEM_2"
+    model_dir = models_dir / model_name
     # Example alternative paths:
-    # model_path = Path(r"C:\Git\VmaxBuilder\data\for_VmaxBuilder\models\HumanGEM.xml")
-    # model_path = Path("C:/Git/VmaxBuilder/data/for_VmaxBuilder/models/HumanGEM.xml")
+    model_path = model_dir
 
     # Change options here before each run.
     reaction_notation = ReactionNotation.STANDARD
@@ -50,3 +51,8 @@ if __name__ == "__main__":
 
     print("\n=== Scaffold metadata ===")
     pprint(scaffold.get("metadata", {}), sort_dicts=False)
+
+    print(f"model_path: {config.loading.model_path}")
+    print(f"reaction_notation: {config.model.reaction_notation.value}")
+    print(f"validation_mode: {config.validation.mode.value}")
+    print(f"make_copy: {config.model.make_copy}")
