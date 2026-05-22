@@ -38,6 +38,7 @@ from VmaxBuilder.core.protocols import (
     StageProtocol,
 )
 from VmaxBuilder.diagnostics.runner import DiagnosticsRunner
+from VmaxBuilder.protein.stage_implementation import DefaultProteinStageCoordinator
 
 # ruff:
 
@@ -363,6 +364,8 @@ class VmaxOrchestrator:
         self._prime_output_directories(scaffold=scaffold)
         if stage_name is StageName.MODEL:
             self._validate_model_inputs(scaffold=scaffold)
+        elif stage_name is StageName.PROTEIN:
+            self._validate_protein_inputs(scaffold=scaffold)
 
     def _validate_model_inputs(self, *, scaffold: Scaffold) -> None:
         """Generated: validation needed.
@@ -397,6 +400,43 @@ class VmaxOrchestrator:
             "config.loading.model_object, config.loading.model_path, "
             "config.loading.exact_paths['model'], or config.loading.search_roots."
         )
+
+    def _validate_protein_inputs(self, *, scaffold: Scaffold) -> None:
+        """Generated: validation needed.
+
+        Description:
+            Validate protein-stage inputs are available from in-memory objects or path config.
+            Required inputs depend on protein.source_mode (expression+ptr or proteomics).
+
+        Args:
+            scaffold (Scaffold): Shared pipeline scaffold.
+
+        Raises:
+            ConfigurationError: When required protein inputs are missing.
+        """
+
+        mode_requirements = DefaultProteinStageCoordinator.get_mode_requirements(
+            self.config.protein.source_mode
+        )
+        required_inputs: tuple[str, ...] = mode_requirements["required_inputs"]
+
+        in_memory_inputs = self.config.loading.get_effective_in_memory_inputs()
+        explicit_paths = self.config.loading.get_effective_exact_paths()
+
+        missing_inputs: list[str] = []
+        for input_key in required_inputs:
+            has_in_memory = input_key in in_memory_inputs
+            input_path = explicit_paths.get(input_key)
+            has_path = input_path is not None and Path(input_path).exists()
+            if not has_in_memory and not has_path:
+                missing_inputs.append(input_key)
+
+        if missing_inputs:
+            raise ConfigurationError(
+                "Missing required protein inputs for mode "
+                f"'{self.config.protein.source_mode.value}': {missing_inputs}. "
+                "Set required *_path values to existing files or provide in_memory_inputs."
+            )
 
     def _prime_output_directories(self, *, scaffold: Scaffold) -> None:
         """Generated: validation needed.

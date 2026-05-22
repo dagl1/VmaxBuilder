@@ -5,7 +5,6 @@ from pprint import pprint
 
 from VmaxBuilder.api import VmaxOrchestrator, build_default_api_config
 from VmaxBuilder.config import ProteinSourceMode, ReactionNotation, ValidationMode
-from VmaxBuilder.protein.stage_implementation import DefaultProteinStageCoordinator
 
 if __name__ == "__main__":
     # Keep existing model filepath scaffold unchanged.
@@ -16,9 +15,9 @@ if __name__ == "__main__":
     model_path = model_dir
 
     # Protein inputs (set whichever mode needs).
-    expression_path = base_dir / "expression_datasets" / "NCI60"
+    expression_path = base_dir / "expression_datasets" / "NCI_60_human"
     ptr_path = base_dir / "PTR_datasets" / "Eraslan2019_human"
-    proteomics_path = base_dir / "proteomics" / "NCI_60_human"
+    proteomics_path = base_dir / "proteomics" / "NCI60"
 
     # Stage/run toggles.
     run_all_stages = False
@@ -79,26 +78,6 @@ if __name__ == "__main__":
     # config.loading.in_memory_inputs["proteomics"] = pd.DataFrame(...)
 
     orchestrator = VmaxOrchestrator(config=config)
-
-    if run_protein_stage:
-        mode_requirements = DefaultProteinStageCoordinator.get_mode_requirements(
-            config.protein.source_mode
-        )
-        missing_paths: list[str] = []
-        effective_paths = config.loading.get_effective_exact_paths()
-        effective_in_memory = config.loading.get_effective_in_memory_inputs()
-        for input_key in mode_requirements["required_inputs"]:
-            has_in_memory = input_key in effective_in_memory
-            input_path = effective_paths.get(input_key)
-            has_path = input_path is not None and Path(input_path).exists()
-            if not has_in_memory and not has_path:
-                missing_paths.append(input_key)
-        if missing_paths:
-            raise RuntimeError(
-                "Missing required protein inputs for mode "
-                f"'{config.protein.source_mode.value}': {missing_paths}. "
-                "Set required *_path values to existing files or provide in_memory_inputs."
-            )
 
     if run_all_stages:
         scaffold = orchestrator.run_all()
