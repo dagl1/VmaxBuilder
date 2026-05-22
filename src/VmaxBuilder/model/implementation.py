@@ -15,8 +15,6 @@ from VmaxBuilder.core.protocols import Scaffold
 from VmaxBuilder.model.preprocessing import preprocess_model
 from VmaxBuilder.utils.file_handling import load_existing_file_based_on_extension
 
-_ALLOWED_MODEL_SUFFIXES = {".json", ".xml", ".mat"}
-
 
 class DefaultModelStageImplementation:
     """Generated: validation needed.
@@ -106,7 +104,7 @@ class DefaultModelStageImplementation:
         explicit_paths = config.loading.get_effective_exact_paths()
         model_path = explicit_paths.get("model")
         if model_path is not None:
-            resolved_model_path = self._resolve_model_file_path(model_path)
+            resolved_model_path = self._resolve_model_file_path(model_path, config)
             loaded_model = self._load_model_from_path(resolved_model_path)
             input_payload["model"] = loaded_model
             return loaded_model, {
@@ -117,7 +115,7 @@ class DefaultModelStageImplementation:
         search_roots: tuple[Path, ...] = config.loading.iter_search_roots("model")
         for search_root in search_roots:
             try:
-                resolved_model_path = self._resolve_model_file_path(search_root)
+                resolved_model_path = self._resolve_model_file_path(search_root, config)
             except ConfigurationError:
                 continue
             loaded_model = self._load_model_from_path(resolved_model_path)
@@ -134,7 +132,7 @@ class DefaultModelStageImplementation:
             "'config.loading.search_roots'."
         )
 
-    def _resolve_model_file_path(self, model_path: Path) -> Path:
+    def _resolve_model_file_path(self, model_path: Path, config: APIConfig) -> Path:
         """Generated: validation needed.
 
         Description:
@@ -142,6 +140,7 @@ class DefaultModelStageImplementation:
 
         Args:
             model_path (Path): Candidate model file or directory path.
+            config (APIConfig): Root API configuration.
 
         Returns:
             Path: Resolved model file path.
@@ -150,10 +149,19 @@ class DefaultModelStageImplementation:
             ConfigurationError: When no supported model file can be resolved.
         """
 
+        allowed_extensions = {
+            extension.lower()
+            for extension in config.loading.get_discovery_extensions("model")
+        }
+        filename_prefixes = tuple(
+            prefix.lower() for prefix in config.loading.get_discovery_prefixes("model")
+        )
+
         if model_path.is_file():
-            if model_path.suffix.lower() not in _ALLOWED_MODEL_SUFFIXES:
+            if model_path.suffix.lower() not in allowed_extensions:
                 raise ConfigurationError(
-                    "Unsupported model file extension. Use one of: .json, .xml, .mat"
+                    "Unsupported model file extension. "
+                    "Use configured model discovery_extensions."
                 )
             return model_path
 
@@ -162,13 +170,14 @@ class DefaultModelStageImplementation:
                 candidate
                 for candidate in model_path.iterdir()
                 if candidate.is_file()
-                and candidate.name.lower().startswith("model")
-                and candidate.suffix.lower() in _ALLOWED_MODEL_SUFFIXES
+                and candidate.name.lower().startswith(filename_prefixes)
+                and candidate.suffix.lower() in allowed_extensions
             )
             if not model_candidates:
                 raise ConfigurationError(
                     f"No model file found in directory '{model_path}'. "
-                    "Expected file starting with 'model' and extension .json/.xml/.mat."
+                    "Expected file matching configured model discovery_prefixes and "
+                    "discovery_extensions."
                 )
             return model_candidates[0]
 
