@@ -11,7 +11,7 @@ from VmaxBuilder.config.enums import StageName
 from VmaxBuilder.core.protocols import Scaffold, StageProtocol
 from VmaxBuilder.model.implementation import DefaultModelStageImplementation
 
-# ruff: noqa: I001
+# ruff:
 
 
 class ModelStageOrchestrator(StageProtocol):

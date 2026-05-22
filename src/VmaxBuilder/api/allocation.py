@@ -26,7 +26,7 @@ from VmaxBuilder.config.dataclasses import APIConfig
 from VmaxBuilder.config.enums import StageName
 from VmaxBuilder.core.protocols import Scaffold, StageProtocol
 
-# ruff: noqa: I001
+# ruff:
 
 
 class AllocationStageOrchestrator(StageProtocol):

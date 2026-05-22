@@ -2,21 +2,6 @@
 
 Description:
     Central catalogue of allowed config values for refactored VmaxBuilder API.
-
-Args:
-    None.
-
-Returns:
-    None.
-
-Raises:
-    None.
-
-Requires:
-    None.
-
-Modifies:
-    None.
 """
 
 from __future__ import annotations
@@ -86,6 +71,17 @@ OPTION_SPECS: dict[str, OptionSpec] = {
         name="model.reaction_notation",
         allowed_values=tuple(notation.value for notation in ReactionNotation),
         description="Reaction identifier notation expected by model-stage processors.",
+    ),
+    "model.target_id_type": OptionSpec(
+        name="model.target_id_type",
+        allowed_values=(
+            "ensembl_gene_id",
+            "ensembl_transcript_id",
+            "entrez_gene_id",
+            "uniprot",
+            "symbol",
+        ),
+        description="Identifier namespace used by model-stage and downstream mapping logic.",
     ),
     "loading.results_dir_name": OptionSpec(
         name="loading.results_dir_name",

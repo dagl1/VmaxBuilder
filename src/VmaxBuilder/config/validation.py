@@ -3,20 +3,6 @@
 Description:
     Validation helpers for refactored VmaxBuilder configuration values.
 
-Args:
-    None.
-
-Returns:
-    None.
-
-Raises:
-    None.
-
-Requires:
-    None.
-
-Modifies:
-    None.
 """
 
 from __future__ import annotations
@@ -28,8 +14,6 @@ from typing import Any
 from VmaxBuilder.config.dataclasses import LoadingPolicy, ModelConfig, ValidationPolicy
 from VmaxBuilder.config.enums import StageName, ValidationMode
 from VmaxBuilder.config.options import OPTION_SPECS, OptionSpec
-
-# ruff: noqa: I001
 
 
 class ConfigurationError(ValueError):
@@ -220,6 +204,7 @@ def validate_model_config(
 
     model_options: dict[str, Any] = {
         "model.reaction_notation": model_config.reaction_notation.value,
+        "model.target_id_type": model_config.target_id_type,
     }
     return validate_option_map(
         model_options,

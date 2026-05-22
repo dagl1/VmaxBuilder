@@ -2,21 +2,6 @@
 
 Description:
     API-level protein stage orchestrator.
-
-Args:
-    None.
-
-Returns:
-    None.
-
-Raises:
-    None.
-
-Requires:
-    None.
-
-Modifies:
-    None.
 """
 
 from __future__ import annotations
@@ -24,9 +9,7 @@ from __future__ import annotations
 from VmaxBuilder.config.dataclasses import APIConfig
 from VmaxBuilder.config.enums import StageName
 from VmaxBuilder.core.protocols import Scaffold, StageProtocol
-from VmaxBuilder.protein.implementation import DefaultProteinStageImplementation
-
-# ruff: noqa: I001
+from VmaxBuilder.protein.stage_implementation import DefaultProteinStageCoordinator
 
 
 class ProteinStageOrchestrator(StageProtocol):
@@ -36,7 +19,7 @@ class ProteinStageOrchestrator(StageProtocol):
         Orchestrate protein stage by delegating execution to protein implementation module.
 
     Args:
-        implementation (DefaultProteinStageImplementation | None):
+        implementation (DefaultProteinStageCoordinator | None):
             Optional protein implementation override.
 
     Returns:
@@ -56,9 +39,9 @@ class ProteinStageOrchestrator(StageProtocol):
 
     def __init__(
         self,
-        implementation: DefaultProteinStageImplementation | None = None,
+        implementation: DefaultProteinStageCoordinator | None = None,
     ) -> None:
-        self._implementation = implementation or DefaultProteinStageImplementation()
+        self._implementation = implementation or DefaultProteinStageCoordinator()
 
     def run(self, scaffold: Scaffold, config: APIConfig) -> Scaffold:
         """Generated: validation needed.

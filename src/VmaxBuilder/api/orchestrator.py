@@ -39,7 +39,7 @@ from VmaxBuilder.core.protocols import (
 )
 from VmaxBuilder.diagnostics.runner import DiagnosticsRunner
 
-# ruff: noqa: I001
+# ruff:
 
 
 def build_default_api_config() -> APIConfig:

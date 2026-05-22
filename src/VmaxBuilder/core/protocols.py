@@ -2,21 +2,6 @@
 
 Description:
     Base protocols and typed payloads for refactored VmaxBuilder API.
-
-Args:
-    None.
-
-Returns:
-    None.
-
-Raises:
-    None.
-
-Requires:
-    None.
-
-Modifies:
-    None.
 """
 
 from __future__ import annotations
@@ -41,18 +26,6 @@ class Scaffold(TypedDict):
         metadata (dict[str, Any]): Reproducibility metadata.
         diagnostics (dict[str, Any]): Diagnostics payload.
         extras (dict[str, Any]): Extension bag for custom modules.
-
-    Returns:
-        None.
-
-    Raises:
-        None.
-
-    Requires:
-        None.
-
-    Modifies:
-        None.
     """
 
     inputs: dict[str, Any]
@@ -81,18 +54,6 @@ class DiagnosticRecordCore(TypedDict):
         duration_ms (float): Event duration in milliseconds.
         cache_hit (bool): Whether cache was used.
         exception_type (str): Exception type when event captures failure.
-
-    Returns:
-        None.
-
-    Raises:
-        None.
-
-    Requires:
-        None.
-
-    Modifies:
-        None.
     """
 
     timestamp_utc: str
@@ -123,18 +84,6 @@ class DiagnosticRecord(DiagnosticRecordCore, total=False):
         config_hash (str): Optional config hash.
         worker_id (str): Optional worker identifier.
         artifact_path (str): Optional artifact path.
-
-    Returns:
-        None.
-
-    Raises:
-        None.
-
-    Requires:
-        None.
-
-    Modifies:
-        None.
     """
 
     sample_id: str
@@ -154,20 +103,8 @@ class StageProtocol(Protocol):
     Description:
         Protocol for a top-level pipeline stage implementation.
 
-    Args:
-        None.
-
-    Returns:
-        None.
-
-    Raises:
-        None.
-
     Requires:
         name (StageName): Stage name.
-
-    Modifies:
-        None.
     """
 
     name: StageName
@@ -184,15 +121,6 @@ class StageProtocol(Protocol):
 
         Returns:
             Scaffold: Updated scaffold.
-
-        Raises:
-            None.
-
-        Requires:
-            None.
-
-        Modifies:
-            None.
         """
 
 
@@ -203,20 +131,8 @@ class StrategyProtocol(Protocol):
     Description:
         Protocol for interchangeable submodule strategy implementation.
 
-    Args:
-        None.
-
-    Returns:
-        None.
-
-    Raises:
-        None.
-
     Requires:
         method_key (str): Strategy identifier.
-
-    Modifies:
-        None.
     """
 
     method_key: str
@@ -233,15 +149,6 @@ class StrategyProtocol(Protocol):
 
         Returns:
             Scaffold: Updated scaffold.
-
-        Raises:
-            None.
-
-        Requires:
-            None.
-
-        Modifies:
-            None.
         """
 
 
@@ -252,21 +159,9 @@ class DiagnosticsHookProtocol(Protocol):
     Description:
         Protocol for diagnostics hook attached to stage or strategy execution.
 
-    Args:
-        None.
-
-    Returns:
-        None.
-
-    Raises:
-        None.
-
     Requires:
         stage (StageName): Stage this hook targets.
         name (str): Hook name.
-
-    Modifies:
-        None.
     """
 
     stage: StageName
@@ -291,15 +186,6 @@ class DiagnosticsHookProtocol(Protocol):
 
         Returns:
             Sequence[DiagnosticRecord]: Diagnostics emitted before stage execution.
-
-        Raises:
-            None.
-
-        Requires:
-            None.
-
-        Modifies:
-            None.
         """
 
     def after_stage(
@@ -321,15 +207,6 @@ class DiagnosticsHookProtocol(Protocol):
 
         Returns:
             Sequence[DiagnosticRecord]: Diagnostics emitted after stage execution.
-
-        Raises:
-            None.
-
-        Requires:
-            None.
-
-        Modifies:
-            None.
         """
 
 
@@ -339,21 +216,6 @@ class DiagnosticsRunnerProtocol(Protocol):
 
     Description:
         Protocol for diagnostics runner coordinating hooks and halt policy.
-
-    Args:
-        None.
-
-    Returns:
-        None.
-
-    Raises:
-        None.
-
-    Requires:
-        None.
-
-    Modifies:
-        None.
     """
 
     def run_hooks(
@@ -380,14 +242,6 @@ class DiagnosticsRunnerProtocol(Protocol):
         Returns:
             Scaffold: Scaffold updated with diagnostics records.
 
-        Raises:
-            None.
-
-        Requires:
-            None.
-
-        Modifies:
-            None.
         """
 
 
@@ -397,21 +251,6 @@ class RegistryProtocol(Protocol):
 
     Description:
         Protocol for explicit registry used by stage, strategy, or hook lookup.
-
-    Args:
-        None.
-
-    Returns:
-        None.
-
-    Raises:
-        None.
-
-    Requires:
-        None.
-
-    Modifies:
-        None.
     """
 
     def register(self, key: str, value: Any) -> None:
@@ -424,17 +263,6 @@ class RegistryProtocol(Protocol):
             key (str): Registry key.
             value (Any): Implementation object.
 
-        Returns:
-            None.
-
-        Raises:
-            None.
-
-        Requires:
-            None.
-
-        Modifies:
-            None.
         """
 
     def resolve(self, key: str) -> Any:
@@ -451,12 +279,6 @@ class RegistryProtocol(Protocol):
 
         Raises:
             KeyError: When key is not registered.
-
-        Requires:
-            None.
-
-        Modifies:
-            None.
         """
 
     def available(self) -> tuple[str, ...]:
@@ -465,18 +287,6 @@ class RegistryProtocol(Protocol):
         Description:
             Return available registry keys.
 
-        Args:
-            None.
-
         Returns:
             tuple[str, ...]: Registered keys.
-
-        Raises:
-            None.
-
-        Requires:
-            None.
-
-        Modifies:
-            None.
         """

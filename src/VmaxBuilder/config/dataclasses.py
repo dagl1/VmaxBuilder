@@ -87,6 +87,10 @@ class LoadingPolicy:
         write_additional_csv (bool): Whether to write additional csv copies.
         exact_paths (dict[str, Path]): Explicit artifact paths keyed by logical name.
         in_memory_inputs (dict[str, Any]): In-memory input objects keyed by logical name.
+        discovery_prefixes (dict[str, tuple[str, ...]]): Filename prefixes used when
+            resolving directories.
+        discovery_extensions (dict[str, tuple[str, ...]]): Allowed file extensions used
+            during discovery.
         search_roots (tuple[Path, ...]): Roots used for fallback discovery.
         preferred_filenames (dict[str, tuple[str, ...]]): Preferred filename patterns by key.
         allow_ambiguous_discovery (bool): Allow multiple matches during fallback discovery.
@@ -105,6 +109,22 @@ class LoadingPolicy:
     write_additional_csv: bool = False
     exact_paths: dict[str, Path] = field(default_factory=dict)
     in_memory_inputs: dict[str, Any] = field(default_factory=dict)
+    discovery_prefixes: dict[str, tuple[str, ...]] = field(
+        default_factory=lambda: {
+            "model": ("model",),
+            "expression": ("data__",),
+            "ptr": ("ptr__",),
+            "proteomics": ("data__",),
+        }
+    )
+    discovery_extensions: dict[str, tuple[str, ...]] = field(
+        default_factory=lambda: {
+            "model": (".json", ".xml", ".mat"),
+            "expression": (".csv", ".xlsx", ".tsv"),
+            "ptr": (".csv", ".xlsx", ".tsv"),
+            "proteomics": (".csv", ".xlsx", ".tsv"),
+        }
+    )
     search_roots: tuple[Path, ...] = ()
     preferred_filenames: dict[str, tuple[str, ...]] = field(default_factory=dict)
     allow_ambiguous_discovery: bool = False
@@ -182,6 +202,36 @@ class LoadingPolicy:
             return ()
         return (output_root, output_root / self.results_dir_name)
 
+    def get_discovery_prefixes(self, artifact_name: str) -> tuple[str, ...]:
+        """Generated: validation needed.
+
+        Description:
+            Return configured filename prefixes for one artifact discovery key.
+
+        Args:
+            artifact_name (str): Logical artifact key.
+
+        Returns:
+            tuple[str, ...]: Lower/upper agnostic filename prefixes for discovery.
+        """
+
+        return self.discovery_prefixes.get(artifact_name, ())
+
+    def get_discovery_extensions(self, artifact_name: str) -> tuple[str, ...]:
+        """Generated: validation needed.
+
+        Description:
+            Return configured allowed extensions for one artifact discovery key.
+
+        Args:
+            artifact_name (str): Logical artifact key.
+
+        Returns:
+            tuple[str, ...]: File extensions used during discovery.
+        """
+
+        return self.discovery_extensions.get(artifact_name, ())
+
 
 @dataclass(slots=True)
 class StageConfig:
@@ -213,10 +263,74 @@ class ModelConfig(StageConfig):
     Args:
         reaction_notation (ReactionNotation): Reaction identifier convention.
         make_copy (bool): Copy model at preprocessing start before mutation. Default True.
+        target_id_type (str): Canonical identifier type expected in model entities.
     """
 
     reaction_notation: ReactionNotation = ReactionNotation.STANDARD
     make_copy: bool = True
+    target_id_type: str = "ensembl_gene_id"
+
+
+@dataclass(slots=True)
+class ExpressionInputConfig:
+    """Generated: validation needed.
+
+    Description:
+        Expression input option group used by protein-stage expression->protein flow.
+
+    Args:
+        id_type (str): Identifier namespace for expression features.
+        transformation_state (str): Data transform state, e.g. log or linear.
+        origin_transcript_gene_level (str): Source granularity, transcript or gene.
+        data_type (str): Expression quantification type, e.g. TPM, geTMM, raw_reads.
+        thresholding (bool | str): Disabled flag or thresholding strategy name.
+    """
+
+    id_type: str = "ensembl_gene_id"
+    transformation_state: str = "log"
+    origin_transcript_gene_level: str = "gene"
+    data_type: str = "TPM"
+    thresholding: bool | str = False
+
+
+@dataclass(slots=True)
+class PTRInputConfig:
+    """Generated: validation needed.
+
+    Description:
+        PTR input option group used by expression+PTR protein abundance flow.
+
+    Args:
+        id_type (str): Identifier namespace for PTR features.
+        transformation_state (str): Data transform state, e.g. log or linear.
+        origin_transcript_gene_level (str): Source granularity, transcript or gene.
+    """
+
+    id_type: str = "ensembl_gene_id"
+    transformation_state: str = "log"
+    origin_transcript_gene_level: str = "gene"
+
+
+@dataclass(slots=True)
+class ProteomicsInputConfig:
+    """Generated: validation needed.
+
+    Description:
+        Proteomics input option group used by direct-proteomics protein flow.
+
+    Args:
+        id_type (str): Identifier namespace for proteomics features.
+        origin_transcript_gene_level (str): Source granularity, transcript or gene.
+        transformation_state (str): Data transform state, e.g. log or linear.
+        imputation_strategy (str): Primary imputation strategy.
+        fallback_imputation_strategy (str): Fallback imputation strategy.
+    """
+
+    id_type: str = "uniprot"
+    origin_transcript_gene_level: str = "gene"
+    transformation_state: str = "log"
+    imputation_strategy: str = "weighted_gene_median"
+    fallback_imputation_strategy: str = "weighted_sample_median"
 
 
 @dataclass(slots=True)
@@ -228,16 +342,14 @@ class ProteinConfig(StageConfig):
 
     Args:
         source_mode (ProteinSourceMode): Protein source pathway.
-        expression_scale (str): Input scale for expression values.
-        ptr_scale (str): Input scale for PTR values.
+        ptr_method (str): PTR submodule strategy key for expression+PTR mode.
         tissue_type (str | None): Optional tissue metadata.
         allow_direct_proteomics (bool): Enable direct proteomics pathway.
         ptr_required (bool): Require PTR pathway when expression integration is selected.
     """
 
     source_mode: ProteinSourceMode = ProteinSourceMode.EXPRESSION_PTR
-    expression_scale: str = "log10"
-    ptr_scale: str = "log10"
+    ptr_method: str = "ptr_weighted_median"
     tissue_type: str | None = None
     allow_direct_proteomics: bool = False
     ptr_required: bool = False
@@ -291,7 +403,12 @@ class APIConfig:
     Args:
         validation (ValidationPolicy): Validation policy for config and stage inputs.
         loading (LoadingPolicy): File/path loading policy.
+        run_target_transcript_gene_level (str): Target analysis granularity,
+            transcript or gene.
         model (ModelConfig): Model stage configuration.
+        expression (ExpressionInputConfig): Expression input option group.
+        ptr (PTRInputConfig): PTR input option group.
+        proteomics (ProteomicsInputConfig): Proteomics input option group.
         protein (ProteinConfig): Protein stage configuration.
         allocation (AllocationConfig): Allocation stage configuration.
         vmax (VmaxConfig): Vmax stage configuration.
@@ -300,7 +417,11 @@ class APIConfig:
 
     validation: ValidationPolicy = field(default_factory=ValidationPolicy)
     loading: LoadingPolicy = field(default_factory=LoadingPolicy)
+    run_target_transcript_gene_level: str = "gene"
     model: ModelConfig = field(default_factory=ModelConfig)
+    expression: ExpressionInputConfig = field(default_factory=ExpressionInputConfig)
+    ptr: PTRInputConfig = field(default_factory=PTRInputConfig)
+    proteomics: ProteomicsInputConfig = field(default_factory=ProteomicsInputConfig)
     protein: ProteinConfig = field(default_factory=ProteinConfig)
     allocation: AllocationConfig = field(default_factory=AllocationConfig)
     vmax: VmaxConfig = field(default_factory=VmaxConfig)
