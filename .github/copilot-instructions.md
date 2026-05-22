@@ -88,6 +88,10 @@ Follow these instruction files:
 
 - Never finish a code change without evaluating testing impact
 
+- Run `uv run ruff format <file>` and ensure the code created passes
+ `uv run ty check <file>` and `uv run ruff check <file>`
+  before finalizing response.
+
 ---
 
 ## Priority Order
