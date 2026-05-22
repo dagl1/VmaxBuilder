@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from cobra import Metabolite, Model, Reaction
 from cobra.io import save_json_model
@@ -13,6 +14,7 @@ from VmaxBuilder.config import (
     LoadingPolicy,
     LoadResolutionMode,
     ModelConfig,
+    ProteinSourceMode,
     StageName,
     ValidationMode,
     ValidationPolicy,
@@ -159,20 +161,26 @@ def test_run_model_primes_output_directories_and_reprime_on_path_change(
 def test_run_executes_selected_stage_order(tmp_path: Path) -> None:
     model_path = tmp_path / "model.json"
     _write_model_json(model_path)
+    proteomics_df = pd.DataFrame(
+        {"sample_1": [1.0, 2.0]},
+        index=["P1", "P2"],
+    )
     config = APIConfig(
         validation=ValidationPolicy(mode=ValidationMode.STRICT),
         loading=LoadingPolicy(
             resolution_mode=LoadResolutionMode.EXACT_THEN_DISCOVER,
             model_path=model_path,
+            in_memory_inputs={"proteomics": proteomics_df},
         ),
     )
+    config.protein.source_mode = ProteinSourceMode.PROTEOMICS
     orchestrator = VmaxOrchestrator(config=config)
 
     scaffold = orchestrator.run(stages=(StageName.MODEL, StageName.PROTEIN))
 
     assert "model_stage" in scaffold["metadata"]
     assert "protein_stage" in scaffold["metadata"]
-    assert scaffold["metadata"]["protein_stage"]["status"] == "placeholder_not_implemented"
+    assert scaffold["metadata"]["protein_stage"]["status"] == "implemented_placeholder"
 
 
 def test_run_model_resolves_model_file_from_directory(tmp_path: Path) -> None:
@@ -183,6 +191,27 @@ def test_run_model_resolves_model_file_from_directory(tmp_path: Path) -> None:
     config = APIConfig(
         validation=ValidationPolicy(mode=ValidationMode.STRICT),
         loading=LoadingPolicy(model_path=model_directory),
+    )
+    orchestrator = VmaxOrchestrator(config=config)
+
+    scaffold = orchestrator.run_model()
+
+    assert scaffold["artifacts"]["model_reference"]["source"] == "explicit_path"
+    assert Path(scaffold["artifacts"]["model_reference"]["path"]) == model_path
+
+
+def test_run_model_uses_configured_model_discovery_rules(tmp_path: Path) -> None:
+    model_directory = tmp_path / "custom_model_dir"
+    model_path = model_directory / "custom_model.json"
+    _write_model_json(model_path)
+
+    config = APIConfig(
+        validation=ValidationPolicy(mode=ValidationMode.STRICT),
+        loading=LoadingPolicy(
+            model_path=model_directory,
+            discovery_prefixes={"model": ("custom_model",)},
+            discovery_extensions={"model": (".json",)},
+        ),
     )
     orchestrator = VmaxOrchestrator(config=config)
 

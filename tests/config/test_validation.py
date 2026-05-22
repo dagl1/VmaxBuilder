@@ -9,6 +9,7 @@ from VmaxBuilder.config import (
     APIConfig,
     ConfigurationError,
     DiagnosticSeverity,
+    ExpressionInputConfig,
     KcatLevel,
     LoadingPolicy,
     LoadResolutionMode,
@@ -16,6 +17,8 @@ from VmaxBuilder.config import (
     PrimaryOutputFormat,
     ProteinConfig,
     ProteinSourceMode,
+    ProteomicsInputConfig,
+    PTRInputConfig,
     ReactionNotation,
     StageName,
     ValidationMode,
@@ -160,10 +163,36 @@ def test_loading_policy_get_output_directories_uses_output_path_and_results_dir(
     assert output_directories == (output_root, output_root / "VmaxResults")
 
 
+def test_loading_policy_discovery_defaults_match_expected_prefixes_and_extensions() -> None:
+    loading_policy = LoadingPolicy()
+
+    assert loading_policy.get_discovery_prefixes("model") == ("model",)
+    assert loading_policy.get_discovery_extensions("model") == (".json", ".xml", ".mat")
+    assert loading_policy.get_discovery_prefixes("expression") == ("data__",)
+    assert loading_policy.get_discovery_extensions("expression") == (
+        ".csv",
+        ".xlsx",
+        ".tsv",
+    )
+    assert loading_policy.get_discovery_prefixes("ptr") == ("ptr__",)
+    assert loading_policy.get_discovery_prefixes("proteomics") == ("data__",)
+
+
+def test_loading_policy_discovery_config_can_be_overridden() -> None:
+    loading_policy = LoadingPolicy(
+        discovery_prefixes={"model": ("my_model",)},
+        discovery_extensions={"model": (".xml",)},
+    )
+
+    assert loading_policy.get_discovery_prefixes("model") == ("my_model",)
+    assert loading_policy.get_discovery_extensions("model") == (".xml",)
+
+
 def test_validate_model_config_accepts_known_values() -> None:
     validation_policy = ValidationPolicy(mode=ValidationMode.STRICT)
     model_config = ModelConfig(
         reaction_notation=ReactionNotation.STANDARD,
+        target_id_type="ensembl_gene_id",
     )
 
     validated = validate_model_config(
@@ -172,6 +201,21 @@ def test_validate_model_config_accepts_known_values() -> None:
     )
 
     assert validated["model.reaction_notation"] == "standard"
+    assert validated["model.target_id_type"] == "ensembl_gene_id"
+
+
+def test_api_config_exposes_expression_ptr_proteomics_option_groups() -> None:
+    config = APIConfig(
+        expression=ExpressionInputConfig(id_type="ensembl_transcript_id"),
+        ptr=PTRInputConfig(transformation_state="linear"),
+        proteomics=ProteomicsInputConfig(imputation_strategy="weighted_gene_median"),
+        run_target_transcript_gene_level="gene",
+    )
+
+    assert config.expression.id_type == "ensembl_transcript_id"
+    assert config.ptr.transformation_state == "linear"
+    assert config.proteomics.imputation_strategy == "weighted_gene_median"
+    assert config.run_target_transcript_gene_level == "gene"
 
 
 def test_validate_loading_policy_accepts_vmaxresults_and_feather() -> None:
