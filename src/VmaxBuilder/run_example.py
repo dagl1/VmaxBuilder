@@ -5,10 +5,11 @@ from pprint import pprint
 
 from VmaxBuilder.api import VmaxOrchestrator, build_default_api_config
 from VmaxBuilder.config import ProteinSourceMode, ReactionNotation, ValidationMode
+from VmaxBuilder.core.protocols import Scaffold
 
 if __name__ == "__main__":
     # Keep existing model filepath scaffold unchanged.
-    base_dir = Path(r"C:\git\SWaPAM\data\for_SWAMP")
+    base_dir = Path(r"E:\git\SWaPAM\data\for_SWAMP")
     models_dir = base_dir / "models"
     model_name = "HumanGEM_2"
     model_dir = models_dir / model_name
@@ -24,10 +25,6 @@ if __name__ == "__main__":
     run_model_stage = True
     run_protein_stage = True
 
-    # Choose protein implementation mode.
-    protein_mode = ProteinSourceMode.EXPRESSION_PTR
-    # protein_mode = ProteinSourceMode.PROTEOMICS
-
     config = build_default_api_config()
 
     # Global/model options.
@@ -35,33 +32,37 @@ if __name__ == "__main__":
     config.loading.model_path = model_path
     config.model.reaction_notation = ReactionNotation.STANDARD
     config.model.make_copy = True
-    config.model.target_id_type = "ensembl_gene_id"
+    config.model.id_type = "ensembl"
+    config.model.level = "gene"
 
     # Pipeline target granularity.
     config.run_target_transcript_gene_level = "gene"
 
     # Expression option group.
-    config.expression.id_type = "ensembl_transcript_id"
-    config.expression.transformation_state = "log"
-    config.expression.origin_transcript_gene_level = "transcript"
-    config.expression.data_type = "TPM"
+    config.expression.id_type = "ensembl"
+    config.expression.level = "gene"
+    config.expression.transformation_state = "log2"
+    config.expression.data_type = "raw_counts"
     config.expression.thresholding = False
+    config.expression.sample_type_map = "heart"
 
     # PTR option group.
-    config.ptr.id_type = "ensembl_gene_id"
+    config.ptr.id_type = "ensembl"
+    config.ptr.level = "gene"
     config.ptr.transformation_state = "log"
-    config.ptr.origin_transcript_gene_level = "gene"
 
     # Proteomics option group.
-    config.proteomics.id_type = "uniprot"
-    config.proteomics.origin_transcript_gene_level = "gene"
+    config.proteomics.id_type = "ensembl"
+    config.proteomics.level = "gene"
     config.proteomics.transformation_state = "log"
     config.proteomics.imputation_strategy = "weighted_gene_median"
     config.proteomics.fallback_imputation_strategy = "weighted_sample_median"
 
     # Protein stage mode config.
-    config.protein.source_mode = protein_mode
+    protein_mode = ProteinSourceMode.EXPRESSION_PTR
+    config.protein.source_mode = ProteinSourceMode.EXPRESSION_PTR
     config.protein.ptr_method = "ptr_weighted_median"
+    config.expression.sample_type_map = "heart"
 
     # Must-have input paths by mode:
     # - EXPRESSION_PTR: must provide expression + ptr
@@ -82,7 +83,7 @@ if __name__ == "__main__":
     if run_all_stages:
         scaffold = orchestrator.run_all()
     else:
-        scaffold = {
+        scaffold: Scaffold = {
             "inputs": {},
             "artifacts": {},
             "outputs": {},

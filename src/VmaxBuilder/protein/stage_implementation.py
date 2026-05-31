@@ -140,7 +140,9 @@ class DefaultProteinStageCoordinator:
             tuple[pd.DataFrame, dict[str, Any]]: Protein abundance and metadata.
 
         Raises:
-            ConfigurationError: When expression or PTR input is missing.
+            ConfigurationError: When expression/PTR input is missing or when
+                ``config.expression.sample_type_map`` is required by selected
+                PTR strategy and not provided.
         """
 
         expression_df = self.expression_implementation.resolve_expression_frame(
@@ -156,6 +158,7 @@ class DefaultProteinStageCoordinator:
             )
 
         expression_df = self.expression_implementation.prepare_expression_frame(
+            scaffold,
             expression_df,
             config,
         )
@@ -167,9 +170,34 @@ class DefaultProteinStageCoordinator:
                 "or config.loading.ptr_path."
             )
 
+        # Extract metabolic genes from scaffold model when available.
+        metabolic_genes: list[str] | None = None
+        model_artifact = scaffold.get("artifacts", {}).get("model")
+        if model_artifact is not None and hasattr(model_artifact, "genes"):
+            metabolic_genes = [gene.id for gene in model_artifact.genes]
+
+        ptr_df = self.ptr_implementation.prepare_ptr_frame(
+            ptr_df,
+            expression_df,
+            config,
+            metabolic_genes=metabolic_genes,
+        )
+
+        sample_type_map = config.expression.sample_type_map
+        if (
+            self.ptr_implementation.requires_sample_type_map(config.protein.ptr_method)
+            and sample_type_map is None
+        ):
+            raise ConfigurationError(
+                "expression.sample_type_map is required for "
+                "protein.source_mode='expression_ptr'. Provide tissue/sample "
+                "mapping as str or dict[str, str]."
+            )
+
         protein_df = self.ptr_implementation.combine_expression_with_ptr(
             expression_df,
             ptr_df,
+            sample_type_map=sample_type_map,
         )
         return protein_df, {
             "implementation": "expression_ptr",
@@ -178,13 +206,19 @@ class DefaultProteinStageCoordinator:
             "ptr_runtime_implementation": type(self.ptr_implementation).__name__,
             "ptr_used": True,
             "expression_id_type": config.expression.id_type,
+            "expression_level": config.expression.level,
             "expression_transformation_state": config.expression.transformation_state,
-            "expression_origin_level": config.expression.origin_transcript_gene_level,
             "expression_data_type": config.expression.data_type,
             "expression_thresholding": config.expression.thresholding,
             "ptr_id_type": config.ptr.id_type,
+            "ptr_level": config.ptr.level,
             "ptr_transformation_state": config.ptr.transformation_state,
-            "ptr_origin_level": config.ptr.origin_transcript_gene_level,
+            "ptr_pretransformed_type": config.ptr.pretransformed_type,
+            "ptr_missing_value_strategy": config.ptr.missing_value_strategy,
+            "ptr_unobserved_gene_imputation_strategy": (
+                config.ptr.unobserved_gene_imputation_strategy
+            ),
+            "ptr_sample_type_map": sample_type_map,
         }
 
     def _run_proteomics_flow(
@@ -225,7 +259,7 @@ class DefaultProteinStageCoordinator:
             "implementation": "proteomics",
             "proteomics_implementation": type(self.proteomics_implementation).__name__,
             "proteomics_id_type": config.proteomics.id_type,
-            "proteomics_origin_level": config.proteomics.origin_transcript_gene_level,
+            "proteomics_level": config.proteomics.level,
             "proteomics_transformation_state": config.proteomics.transformation_state,
             "imputation_strategy": config.proteomics.imputation_strategy,
             "fallback_imputation_strategy": config.proteomics.fallback_imputation_strategy,

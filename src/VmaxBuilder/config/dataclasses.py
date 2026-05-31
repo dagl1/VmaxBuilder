@@ -263,12 +263,14 @@ class ModelConfig(StageConfig):
     Args:
         reaction_notation (ReactionNotation): Reaction identifier convention.
         make_copy (bool): Copy model at preprocessing start before mutation. Default True.
-        target_id_type (str): Canonical identifier type expected in model entities.
+        id_type (str): Canonical identifier provider expected in model entities.
+        level (str): Gene or transcript level granularity.
     """
 
     reaction_notation: ReactionNotation = ReactionNotation.STANDARD
     make_copy: bool = True
-    target_id_type: str = "ensembl_gene_id"
+    id_type: str = "ensembl"
+    level: str = "gene"
 
 
 @dataclass(slots=True)
@@ -279,18 +281,33 @@ class ExpressionInputConfig:
         Expression input option group used by protein-stage expression->protein flow.
 
     Args:
-        id_type (str): Identifier namespace for expression features.
+        id_type (str | None): Identifier provider for expression features.
+        level (str): Gene or transcript level granularity.
+        sample_type_map (dict[str, str] | str | None): Mapping from expression
+            sample columns to PTR tissue/sample columns used by expression+PTR
+            protein flow. ``str`` maps all expression columns to one PTR
+            column; ``dict`` maps each expression column individually.
         transformation_state (str): Data transform state, e.g. log or linear.
-        origin_transcript_gene_level (str): Source granularity, transcript or gene.
         data_type (str): Expression quantification type, e.g. TPM, geTMM, raw_reads.
         thresholding (bool | str): Disabled flag or thresholding strategy name.
+        transcript_aggregation_policy (str): Transcript-to-gene aggregation policy.
+        id_translation_provider (str): Identifier translation provider key.
+        id_translation_species (str | None): Optional species hint for API lookups.
+        id_translation_max_workers (int): Maximum worker threads for translation API calls.
+        id_translation_batch_size (int): Identifier batch size for translation API calls.
     """
 
-    id_type: str = "ensembl_gene_id"
+    id_type: str | None = "ensembl"
+    level: str = "gene"
+    sample_type_map: dict[str, str] | str | None = None
     transformation_state: str = "log"
-    origin_transcript_gene_level: str = "gene"
     data_type: str = "TPM"
     thresholding: bool | str = False
+    transcript_aggregation_policy: str = "sum"
+    id_translation_provider: str = "auto"
+    id_translation_species: str | None = None
+    id_translation_max_workers: int = 8
+    id_translation_batch_size: int = 500
 
 
 @dataclass(slots=True)
@@ -301,14 +318,50 @@ class PTRInputConfig:
         PTR input option group used by expression+PTR protein abundance flow.
 
     Args:
-        id_type (str): Identifier namespace for PTR features.
+        id_type (str): Identifier provider for PTR features.
+        level (str): Gene or transcript level granularity.
         transformation_state (str): Data transform state, e.g. log or linear.
-        origin_transcript_gene_level (str): Source granularity, transcript or gene.
+        pretransformed_type (str): Log-scale used in raw PTR input before
+            linear conversion. One of ``none``, ``log10``, ``log2``, ``ln``.
+        missing_value_strategy (str): Within-sample imputation strategy for
+            observed-but-missing PTR values. One of ``weighted_median``,
+            ``median``.
+        partial_missing_imputation_statistic (str): Row statistic used for
+            within-sample imputation of observed-but-missing PTR values.
+            One of ``median``, ``mean``, ``mode``, ``max``, ``min``.
+        partial_missing_use_weighted (bool): Whether within-sample imputation
+            should apply tissue scaling based on per-tissue statistics.
+        unobserved_gene_imputation_strategy (str): Strategy used to fill genes
+            present in expression but absent from PTR. One of
+            ``sample_after_imputation``, ``sample_before_imputation``.
+        unobserved_gene_imputation_statistic (str): Per-sample statistic used
+            when imputing unobserved genes. One of ``median``, ``mean``,
+            ``max``, ``min``.
+        unobserved_gene_imputation_reference (str): Reference frame used for
+            per-sample statistics in unobserved-gene imputation. One of
+            ``after_within_sample_imputation``,
+            ``before_within_sample_imputation``.
+        use_special_groups_for_unobserved_imputation (bool): Whether to impute
+            configured special gene groups independently.
+        special_gene_groups (dict[str, list[str]] | None): Optional custom
+            grouping of genes to impute independently.
+        impute_from_metabolic_genes_only (bool): Restrict PTR prior to
+            imputation to genes found in the metabolic model.
     """
 
-    id_type: str = "ensembl_gene_id"
+    id_type: str = "ensembl"
+    level: str = "gene"
     transformation_state: str = "log"
-    origin_transcript_gene_level: str = "gene"
+    pretransformed_type: str = "none"
+    missing_value_strategy: str = "weighted_median"
+    partial_missing_imputation_statistic: str = "median"
+    partial_missing_use_weighted: bool = True
+    unobserved_gene_imputation_strategy: str = "sample_after_imputation"
+    unobserved_gene_imputation_statistic: str = "median"
+    unobserved_gene_imputation_reference: str = "after_within_sample_imputation"
+    use_special_groups_for_unobserved_imputation: bool = False
+    special_gene_groups: dict[str, list[str]] | None = None
+    impute_from_metabolic_genes_only: bool = True
 
 
 @dataclass(slots=True)
@@ -319,15 +372,15 @@ class ProteomicsInputConfig:
         Proteomics input option group used by direct-proteomics protein flow.
 
     Args:
-        id_type (str): Identifier namespace for proteomics features.
-        origin_transcript_gene_level (str): Source granularity, transcript or gene.
+        id_type (str): Identifier provider for proteomics features.
+        level (str): Gene or transcript level granularity.
         transformation_state (str): Data transform state, e.g. log or linear.
         imputation_strategy (str): Primary imputation strategy.
         fallback_imputation_strategy (str): Fallback imputation strategy.
     """
 
     id_type: str = "uniprot"
-    origin_transcript_gene_level: str = "gene"
+    level: str = "gene"
     transformation_state: str = "log"
     imputation_strategy: str = "weighted_gene_median"
     fallback_imputation_strategy: str = "weighted_sample_median"

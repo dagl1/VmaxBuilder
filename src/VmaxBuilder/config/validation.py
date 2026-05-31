@@ -204,7 +204,8 @@ def validate_model_config(
 
     model_options: dict[str, Any] = {
         "model.reaction_notation": model_config.reaction_notation.value,
-        "model.target_id_type": model_config.target_id_type,
+        "model.id_type": model_config.id_type,
+        "model.level": model_config.level,
     }
     return validate_option_map(
         model_options,

@@ -149,3 +149,4 @@ data/UMAP_diagnostics_output/main_metabolite_path_finder/full_model/main_path/su
 data/UMAP_diagnostics_output/main_metabolite_path_finder/full_model/main_path/submodel_main_metabolite_cover_matrix.csv
 
 staged_files.txt
+src/VmaxBuilder/to_refactor

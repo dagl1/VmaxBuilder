@@ -192,7 +192,8 @@ def test_validate_model_config_accepts_known_values() -> None:
     validation_policy = ValidationPolicy(mode=ValidationMode.STRICT)
     model_config = ModelConfig(
         reaction_notation=ReactionNotation.STANDARD,
-        target_id_type="ensembl_gene_id",
+        id_type="ensembl",
+        level="gene",
     )
 
     validated = validate_model_config(
@@ -201,18 +202,20 @@ def test_validate_model_config_accepts_known_values() -> None:
     )
 
     assert validated["model.reaction_notation"] == "standard"
-    assert validated["model.target_id_type"] == "ensembl_gene_id"
+    assert validated["model.id_type"] == "ensembl"
+    assert validated["model.level"] == "gene"
 
 
 def test_api_config_exposes_expression_ptr_proteomics_option_groups() -> None:
     config = APIConfig(
-        expression=ExpressionInputConfig(id_type="ensembl_transcript_id"),
+        expression=ExpressionInputConfig(id_type="ensembl", level="transcript"),
         ptr=PTRInputConfig(transformation_state="linear"),
         proteomics=ProteomicsInputConfig(imputation_strategy="weighted_gene_median"),
         run_target_transcript_gene_level="gene",
     )
 
-    assert config.expression.id_type == "ensembl_transcript_id"
+    assert config.expression.id_type == "ensembl"
+    assert config.expression.level == "transcript"
     assert config.ptr.transformation_state == "linear"
     assert config.proteomics.imputation_strategy == "weighted_gene_median"
     assert config.run_target_transcript_gene_level == "gene"
