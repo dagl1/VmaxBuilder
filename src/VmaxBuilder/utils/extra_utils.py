@@ -252,6 +252,107 @@ def check_if_string_or_integer(column: Any) -> bool:
     return string_count >= 2 or integer_count >= 2
 
 
+def _deduplicate_preserve_order(values: list[str]) -> list[str]:
+    """Generated: validation needed.
+
+    Description:
+        Deduplicate strings while preserving first-seen order.
+
+    Args:
+        values (list[str]): Input string list.
+
+    Returns:
+        list[str]: Ordered unique string list.
+    """
+    return list(dict.fromkeys(values))
+
+
+def resolve_gene_or_reaction_group_members(
+    model: Any | None,
+    identifiers: list[str],
+    expression_gene_ids: set[str] | None = None,
+) -> list[str]:
+    """Generated: validation needed.
+
+    Description:
+        Expand a mixed list of gene IDs and reaction IDs into gene IDs.
+        Reaction IDs contribute all associated gene IDs. Gene IDs are passed
+        through unchanged.
+
+    Args:
+        model (Any | None): Cobra-like model with ``reactions`` collection.
+        identifiers (list[str]): Gene or reaction identifiers.
+        expression_gene_ids (set[str] | None): Optional filter restricting
+            returned genes to those present in expression data.
+
+    Returns:
+        list[str]: Ordered unique gene IDs.
+    """
+    if model is None:
+        resolved_gene_ids = identifiers
+    else:
+        reaction_lookup: dict[str, Any] = {
+            str(reaction.id): reaction for reaction in getattr(model, "reactions", [])
+        }
+        resolved_gene_ids = []
+        for identifier in identifiers:
+            reaction = reaction_lookup.get(identifier)
+            if reaction is None:
+                resolved_gene_ids.append(identifier)
+                continue
+            resolved_gene_ids.extend(str(gene.id) for gene in getattr(reaction, "genes", []))
+
+    if expression_gene_ids is not None:
+        resolved_gene_ids = [
+            gene_id for gene_id in resolved_gene_ids if gene_id in expression_gene_ids
+        ]
+    return _deduplicate_preserve_order(resolved_gene_ids)
+
+
+def get_transport_reaction_gene_ids(
+    model: Any,
+    expression_gene_ids: set[str] | None = None,
+) -> list[str]:
+    """Generated: validation needed.
+
+    Description:
+        Return genes associated exclusively with transport reactions.
+        Transport reactions are defined as reactions spanning more than one
+        compartment and carrying a non-empty gene-reaction rule.
+
+    Args:
+        model (Any): Cobra-like model with ``reactions`` and ``genes``.
+        expression_gene_ids (set[str] | None): Optional filter restricting
+            returned genes to those present in expression data.
+
+    Returns:
+        list[str]: Ordered unique transport-associated gene IDs.
+    """
+    transport_reactions = [
+        reaction
+        for reaction in getattr(model, "reactions", [])
+        if len(getattr(reaction, "compartments", ())) > 1
+        and str(getattr(reaction, "gene_reaction_rule", "")).strip() != ""
+    ]
+    non_transport_gene_ids = {
+        str(gene.id)
+        for reaction in getattr(model, "reactions", [])
+        if reaction not in transport_reactions
+        and str(getattr(reaction, "gene_reaction_rule", "")).strip() != ""
+        for gene in getattr(reaction, "genes", [])
+    }
+    transport_gene_ids = [
+        str(gene.id)
+        for gene in getattr(model, "genes", [])
+        if str(gene.id) not in non_transport_gene_ids
+    ]
+    if expression_gene_ids is not None:
+        transport_gene_ids = [
+            gene_id for gene_id in transport_gene_ids if gene_id in expression_gene_ids
+        ]
+    return _deduplicate_preserve_order(transport_gene_ids)
+
+
 def compare_dicts(
     dict1: Dict[str, Any],
     dict2: Dict[str, Any],

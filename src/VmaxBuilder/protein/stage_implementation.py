@@ -84,9 +84,19 @@ class DefaultProteinStageCoordinator:
         mode_requirements = self.get_mode_requirements(config.protein.source_mode)
 
         if config.protein.source_mode is ProteinSourceMode.EXPRESSION_PTR:
-            protein_abundance, mode_metadata = self._run_expression_ptr_flow(scaffold, config)
+            protein_abundance, mode_metadata, inter_stage_artifacts = (
+                self._run_expression_ptr_flow(
+                    scaffold,
+                    config,
+                )
+            )
         elif config.protein.source_mode is ProteinSourceMode.PROTEOMICS:
-            protein_abundance, mode_metadata = self._run_proteomics_flow(scaffold, config)
+            protein_abundance, mode_metadata, inter_stage_artifacts = (
+                self._run_proteomics_flow(
+                    scaffold,
+                    config,
+                )
+            )
         else:
             raise ConfigurationError(
                 f"Unsupported protein source mode: {config.protein.source_mode!s}."
@@ -95,6 +105,7 @@ class DefaultProteinStageCoordinator:
         artifacts_payload = scaffold.setdefault("artifacts", {})
         metadata_payload = scaffold.setdefault("metadata", {})
         artifacts_payload["protein_abundance"] = protein_abundance
+        artifacts_payload.update(inter_stage_artifacts)
         metadata_payload["protein_stage"] = {
             "status": "implemented_placeholder",
             "source_mode": config.protein.source_mode.value,
@@ -126,7 +137,7 @@ class DefaultProteinStageCoordinator:
         self,
         scaffold: Scaffold,
         config: APIConfig,
-    ) -> tuple[pd.DataFrame, dict[str, Any]]:
+    ) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
         """Generated: validation needed.
 
         Description:
@@ -137,7 +148,8 @@ class DefaultProteinStageCoordinator:
             config (APIConfig): Root API configuration.
 
         Returns:
-            tuple[pd.DataFrame, dict[str, Any]]: Protein abundance and metadata.
+            tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]: Protein
+            abundance, metadata, and inter-stage artifacts.
 
         Raises:
             ConfigurationError: When expression/PTR input is missing or when
@@ -181,6 +193,7 @@ class DefaultProteinStageCoordinator:
             expression_df,
             config,
             metabolic_genes=metabolic_genes,
+            model_artifact=model_artifact,
         )
 
         sample_type_map = config.expression.sample_type_map
@@ -194,38 +207,67 @@ class DefaultProteinStageCoordinator:
                 "mapping as str or dict[str, str]."
             )
 
+        resolved_sample_type_map = self.ptr_implementation.resolve_sample_type_map(
+            expression_df,
+            sample_type_map,
+        )
         protein_df = self.ptr_implementation.combine_expression_with_ptr(
             expression_df,
             ptr_df,
             sample_type_map=sample_type_map,
         )
-        return protein_df, {
-            "implementation": "expression_ptr",
-            "expression_implementation": type(self.expression_implementation).__name__,
-            "ptr_implementation": config.protein.ptr_method,
-            "ptr_runtime_implementation": type(self.ptr_implementation).__name__,
-            "ptr_used": True,
-            "expression_id_type": config.expression.id_type,
-            "expression_level": config.expression.level,
-            "expression_transformation_state": config.expression.transformation_state,
-            "expression_data_type": config.expression.data_type,
-            "expression_thresholding": config.expression.thresholding,
-            "ptr_id_type": config.ptr.id_type,
-            "ptr_level": config.ptr.level,
-            "ptr_transformation_state": config.ptr.transformation_state,
-            "ptr_pretransformed_type": config.ptr.pretransformed_type,
-            "ptr_missing_value_strategy": config.ptr.missing_value_strategy,
-            "ptr_unobserved_gene_imputation_strategy": (
-                config.ptr.unobserved_gene_imputation_strategy
-            ),
-            "ptr_sample_type_map": sample_type_map,
+        ptr_diagnostics = self.ptr_implementation.get_latest_preparation_diagnostics()
+        inter_stage_artifacts: dict[str, Any] = {
+            "processed_expression_df": expression_df,
+            "imputed_ptr_df": ptr_df,
+            "expression_to_ptr_column_mapping": resolved_sample_type_map,
         }
+        special_group_gene_mapping = ptr_diagnostics.get("special_group_gene_mapping", {})
+        if special_group_gene_mapping:
+            inter_stage_artifacts["special_group_gene_mapping"] = special_group_gene_mapping
+            inter_stage_artifacts["special_group_fill_values_per_sample"] = (
+                ptr_diagnostics.get(
+                    "special_group_fill_values_per_sample",
+                    {},
+                )
+            )
+            inter_stage_artifacts["special_group_assigned_values_per_sample"] = (
+                ptr_diagnostics.get("special_group_assigned_values_per_sample", {})
+            )
+
+        return (
+            protein_df,
+            {
+                "implementation": "expression_ptr",
+                "expression_implementation": type(self.expression_implementation).__name__,
+                "ptr_implementation": config.protein.ptr_method,
+                "ptr_runtime_implementation": type(self.ptr_implementation).__name__,
+                "ptr_used": True,
+                "expression_id_type": config.expression.id_type,
+                "expression_level": config.expression.level,
+                "expression_transformation_state": config.expression.transformation_state,
+                "expression_data_type": config.expression.data_type,
+                "expression_thresholding": config.expression.thresholding,
+                "ptr_id_type": config.ptr.id_type,
+                "ptr_level": config.ptr.level,
+                "ptr_pretransformed_type": config.ptr.pretransformed_type,
+                "ptr_partial_missing_use_weighted": config.ptr.partial_missing_use_weighted,
+                "ptr_partial_missing_weighted_statistic": (
+                    config.ptr.partial_missing_weighted_statistic
+                ),
+                "ptr_unobserved_gene_imputation_strategy": (
+                    config.ptr.unobserved_gene_imputation_strategy
+                ),
+                "ptr_sample_type_map": sample_type_map,
+            },
+            inter_stage_artifacts,
+        )
 
     def _run_proteomics_flow(
         self,
         scaffold: Scaffold,
         config: APIConfig,
-    ) -> tuple[pd.DataFrame, dict[str, Any]]:
+    ) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
         """Generated: validation needed.
 
         Description:
@@ -236,7 +278,8 @@ class DefaultProteinStageCoordinator:
             config (APIConfig): Root API configuration.
 
         Returns:
-            tuple[pd.DataFrame, dict[str, Any]]: Protein abundance and metadata.
+            tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]: Protein
+            abundance, metadata, and inter-stage artifacts.
 
         Raises:
             ConfigurationError: When proteomics input is missing.
@@ -255,12 +298,20 @@ class DefaultProteinStageCoordinator:
             )
 
         protein_df = self.proteomics_implementation.impute_proteomics(proteomics_df)
-        return protein_df, {
-            "implementation": "proteomics",
-            "proteomics_implementation": type(self.proteomics_implementation).__name__,
-            "proteomics_id_type": config.proteomics.id_type,
-            "proteomics_level": config.proteomics.level,
-            "proteomics_transformation_state": config.proteomics.transformation_state,
-            "imputation_strategy": config.proteomics.imputation_strategy,
-            "fallback_imputation_strategy": config.proteomics.fallback_imputation_strategy,
-        }
+        return (
+            protein_df,
+            {
+                "implementation": "proteomics",
+                "proteomics_implementation": type(self.proteomics_implementation).__name__,
+                "proteomics_id_type": config.proteomics.id_type,
+                "proteomics_level": config.proteomics.level,
+                "proteomics_transformation_state": config.proteomics.transformation_state,
+                "imputation_strategy": config.proteomics.imputation_strategy,
+                "fallback_imputation_strategy": (
+                    config.proteomics.fallback_imputation_strategy
+                ),
+            },
+            {
+                "processed_protein_df": protein_df,
+            },
+        )

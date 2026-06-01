@@ -10,6 +10,7 @@ Description:
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -18,6 +19,11 @@ import pandas as pd
 from VmaxBuilder.config.dataclasses import APIConfig
 from VmaxBuilder.core.protocols import Scaffold
 from VmaxBuilder.protein.input_resolution import resolve_dataframe_input
+from VmaxBuilder.utils.extra_utils import (
+    get_transport_reaction_gene_ids,
+    resolve_gene_or_reaction_group_members,
+)
+from VmaxBuilder.utils.transformations import transform_dataframe
 
 _logger = logging.getLogger(__name__)
 
@@ -81,6 +87,9 @@ _IMPUTATION_STATISTICS: dict[str, Any] = {
     "mode": _series_mode,
     "max": lambda s: s.max(skipna=True),
     "min": lambda s: s.min(skipna=True),
+}
+_PRETRANSFORM_ALIASES: dict[str, str] = {
+    "none": "linear",
 }
 
 
@@ -203,111 +212,176 @@ class DefaultPTRImplementation:
         return pd.DataFrame(df)
 
     # ------------------------------------------------------------------
-    # Log → linear conversion
+    # Within-sample imputation
     # ------------------------------------------------------------------
 
     @staticmethod
     def transform_ptr_to_linear(
         ptr_df: pd.DataFrame,
-        pretransformed_type: str = "none",
+        pretransformed_type: str = "linear",
     ) -> pd.DataFrame:
         """Generated: validation needed.
 
         Description:
-            Convert PTR values from a log scale back to linear space.
+            Convert PTR frame to linear space from configured transform state.
+            Supports ``none`` alias for ``linear``.
 
         Args:
-            ptr_df (pd.DataFrame): PTR table in log or linear space.
-            pretransformed_type (str): Log base applied to raw input.  One of
-                ``none``, ``log10``, ``log2``, ``ln``.
+            ptr_df (pd.DataFrame): PTR table in source transform space.
+            pretransformed_type (str): Source transform key. One of
+                ``linear``, ``log10``, ``log2``, ``ln``.
 
         Returns:
-            pd.DataFrame: PTR table in linear space.
+            pd.DataFrame: PTR table transformed to linear space.
 
         Raises:
-            ValueError: When ``pretransformed_type`` is unrecognised.
+            ValueError: When ``pretransformed_type`` is unsupported.
         """
-        df = ptr_df.copy().replace({pd.NA: np.nan}).astype(float)
-        if pretransformed_type == "none":
-            pass
-        elif pretransformed_type == "log10":
-            df = df.apply(lambda col: 10**col)
-        elif pretransformed_type == "log2":
-            df = df.apply(lambda col: 2**col)
-        elif pretransformed_type == "ln":
-            df = df.apply(lambda col: np.e**col)
-        else:
-            raise ValueError(
-                f"Unrecognised PTR pretransformed_type '{pretransformed_type}'. "
-                "Expected one of: none, log10, log2, ln."
-            )
-        return df
+        canonical_type = _PRETRANSFORM_ALIASES.get(pretransformed_type, pretransformed_type)
+        return transform_dataframe(
+            ptr_df,
+            pretransformed_type=canonical_type,
+            target_transformation="linear",
+        )
 
-    # ------------------------------------------------------------------
-    # Within-sample imputation
-    # ------------------------------------------------------------------
+    @staticmethod
+    def get_weights(
+        df: pd.DataFrame,
+        col_stat_function: Callable[[pd.Series], float],
+    ) -> pd.Series:
+        """Generated: validation needed.
+
+        Description:
+            Compute per-column weighting ratios for within-sample imputation.
+
+        Args:
+            df (pd.DataFrame): PTR frame in linear space.
+            col_stat_function (Callable[[pd.Series], float]): Statistic function
+                for column aggregation and global normalisation.
+
+        Returns:
+            pd.Series: Weight ratio per PTR column.
+        """
+
+        col_stats = pd.Series({col: float(col_stat_function(df[col])) for col in df.columns})
+        stat_of_col_stats = float(col_stat_function(col_stats))
+        ratio = (
+            col_stats / stat_of_col_stats
+            if stat_of_col_stats != 0 and not np.isnan(stat_of_col_stats)
+            else pd.Series(1.0, index=col_stats.index)
+        )
+        return ratio
+
+    @staticmethod
+    def _validate_within_sample_weighting(
+        use_weighted: bool,
+        weighted_statistic: str | None,
+    ) -> None:
+        """Generated: validation needed.
+
+        Description:
+            Validate effective within-sample weighting inputs.
+
+        Args:
+            use_weighted (bool): Weighted-imputation toggle.
+            weighted_statistic (str | None): Column-statistic key for weighted mode.
+
+        Raises:
+            ValueError: When weighted mode lacks a strategy statistic.
+        """
+        if not use_weighted:
+            return
+        if weighted_statistic is None:
+            raise ValueError(
+                "Weighted imputation requires weighted_statistic to be specified."
+            )
+
+    @staticmethod
+    def _resolve_within_sample_stat_functions(
+        use_weighted: bool,
+        weighted_statistic: str | None,
+        imputation_statistic: str,
+    ) -> tuple[Callable[[pd.Series], float], Callable[[pd.Series], float] | None]:
+        """Generated: validation needed.
+
+        Description:
+            Resolve callable statistic functions used by within-sample imputation.
+
+        Args:
+            use_weighted (bool): Weighted-imputation toggle.
+            weighted_statistic (str | None): Weighted-column statistic key.
+            imputation_statistic (str): Row-wise statistic key.
+
+        Returns:
+            tuple[Callable[[pd.Series], float], Callable[[pd.Series], float] | None]:
+            Row-statistic function and optional weighted-column statistic function.
+
+        Raises:
+            ValueError: When requested statistic keys are unsupported.
+        """
+        imputation_statistic_function = _IMPUTATION_STATISTICS.get(imputation_statistic)
+        if imputation_statistic_function is None:
+            raise ValueError(
+                f"Unrecognised PTR partial_missing_imputation_statistic '"
+                f"{imputation_statistic}'. "
+                f"Expected one of: {', '.join(_IMPUTATION_STATISTICS)}."
+            )
+
+        weighted_statistic_function = (
+            _IMPUTATION_STATISTICS.get(weighted_statistic) if weighted_statistic else None
+        )
+        if use_weighted and weighted_statistic_function is None:
+            raise ValueError(
+                f"Unrecognised PTR weighted imputation statistic "
+                f"'{weighted_statistic}'. "
+                f"Expected one of: {', '.join(_IMPUTATION_STATISTICS)}."
+            )
+
+        return imputation_statistic_function, weighted_statistic_function
 
     @staticmethod
     def impute_within_tissue_ptrs(
         ptr_df: pd.DataFrame,
-        strategy: str = "weighted_median",
-        statistic: str = "median",
         use_weighted: bool = True,
+        weighted_statistic: str | None = "median",
+        imputation_statistic: str = "median",
     ) -> pd.DataFrame:
         """Generated: validation needed.
 
         Description:
-            Impute missing values for genes that are *observed* in at least one
-            sample.  Two strategies are available:
-
-            * ``weighted_median``: fill each missing cell with
-              ``row_median × (col_median / median_of_col_medians)``.
-            * ``median``: fill each missing cell with the row median.
+            Impute missing values for genes observed in at least one sample.
+            Weighted behaviour is controlled by ``use_weighted``.
 
         Args:
             ptr_df (pd.DataFrame): PTR table in linear space (genes × samples).
-            strategy (str): Imputation strategy.  One of ``weighted_median``,
-                ``median``.
-            statistic (str): Row/column statistic used for imputation. One of
-                ``median``, ``mean``, ``mode``, ``max``, ``min``.
-            use_weighted (bool): Whether to scale row statistic by tissue
-                statistic ratio.
+            use_weighted (bool): Apply weighted per-column scaling during
+                within-sample imputation.
+            weighted_statistic (str | None): Statistic for weighted column ratio.
+            imputation_statistic (str): Statistic used for row-wise base fill.
 
         Returns:
             pd.DataFrame: PTR table with within-sample missing values filled.
 
         Raises:
-            ValueError: When ``strategy`` or ``statistic`` is unrecognised.
+            ValueError: When weighting configuration or statistic is unrecognised.
         """
+        DefaultPTRImplementation._validate_within_sample_weighting(
+            use_weighted,
+            weighted_statistic,
+        )
+        imputation_statistic_function, weighted_statistic_function = (
+            DefaultPTRImplementation._resolve_within_sample_stat_functions(
+                use_weighted,
+                weighted_statistic,
+                imputation_statistic,
+            )
+        )
+
         df = ptr_df.copy().replace({pd.NA: np.nan}).astype(float)
-        if strategy == "weighted_median":
-            statistic = "median"
-            use_weighted = True
-        elif strategy == "median":
-            statistic = "median"
-            use_weighted = False
-        elif strategy != "custom":
-            raise ValueError(
-                f"Unrecognised PTR missing_value_strategy '{strategy}'. "
-                "Expected one of: weighted_median, median, custom."
-            )
-
-        stat_fn = _IMPUTATION_STATISTICS.get(statistic)
-        if stat_fn is None:
-            raise ValueError(
-                f"Unrecognised PTR partial_missing_imputation_statistic '{statistic}'. "
-                f"Expected one of: {', '.join(_IMPUTATION_STATISTICS)}."
-            )
-
-        row_stats = df.apply(lambda row: float(stat_fn(row)), axis=1)
+        row_stats = df.apply(lambda row: float(imputation_statistic_function(row)), axis=1)
         if use_weighted:
-            col_stats = pd.Series({col: float(stat_fn(df[col])) for col in df.columns})
-            median_of_col_stats = float(col_stats.median(skipna=True))
-            ratio = (
-                col_stats / median_of_col_stats
-                if median_of_col_stats != 0 and not np.isnan(median_of_col_stats)
-                else pd.Series(1.0, index=col_stats.index)
-            )
+            assert weighted_statistic_function is not None
+            ratio = DefaultPTRImplementation.get_weights(df, weighted_statistic_function)
         else:
             ratio = pd.Series(1.0, index=df.columns)
 
@@ -375,18 +449,27 @@ class DefaultPTRImplementation:
         Raises:
             ValueError: When statistic key is unsupported.
         """
-        stat_fn = _IMPUTATION_STATISTICS.get(statistic)
-        if stat_fn is None:
+        base_statistic_function = _IMPUTATION_STATISTICS.get(statistic)
+        if base_statistic_function is None:
             raise ValueError(
                 f"Unrecognised unobserved_gene_imputation_statistic '{statistic}'. "
                 f"Expected one of: {', '.join(_IMPUTATION_STATISTICS)}."
             )
-        return {col: float(stat_fn(source_df[col])) for col in source_df.columns}
+
+        per_sample_values = {
+            col: float(base_statistic_function(source_df[col])) for col in source_df.columns
+        }
+
+        global_fill_value = float(
+            base_statistic_function(pd.Series(per_sample_values.values()))
+        )
+        return {col: global_fill_value for col in source_df.columns}
 
     @staticmethod
     def _apply_global_unobserved_fill(
         df: pd.DataFrame,
         fill_values: dict[str, float],
+        target_gene_ids: set[str],
     ) -> pd.DataFrame:
         """Generated: validation needed.
 
@@ -396,12 +479,20 @@ class DefaultPTRImplementation:
         Args:
             df (pd.DataFrame): Target PTR frame aligned to expression index.
             fill_values (dict[str, float]): Per-sample fallback values.
+            target_gene_ids (set[str]): Gene IDs eligible for unobserved-gene fill.
 
         Returns:
             pd.DataFrame: Frame with missing values filled.
         """
+        if not target_gene_ids:
+            return df
+        target_gene_mask = pd.Series(
+            [str(gene_id) in target_gene_ids for gene_id in df.index],
+            index=df.index,
+            dtype=bool,
+        )
         for col in df.columns:
-            mask = df[col].isna()
+            mask = df[col].isna() & target_gene_mask
             if mask.any():
                 df.loc[mask, col] = fill_values.get(col, np.nan)
         return df
@@ -413,6 +504,8 @@ class DefaultPTRImplementation:
         statistic: str,
         special_gene_groups: dict[str, list[str]],
         fallback_fill_values: dict[str, float],
+        target_gene_ids: set[str],
+        trace: dict[str, Any] | None = None,
     ) -> pd.DataFrame:
         """Generated: validation needed.
 
@@ -427,12 +520,13 @@ class DefaultPTRImplementation:
             special_gene_groups (dict[str, list[str]]): Group name to gene IDs.
             fallback_fill_values (dict[str, float]): Global per-sample fallback
                 values.
+            target_gene_ids (set[str]): Gene IDs eligible for unobserved-gene fill.
+            trace (dict[str, Any] | None): Optional mutable trace dictionary
+                populated with special-group mapping and assigned imputed values.
 
         Returns:
             pd.DataFrame: Frame with grouped missing-value imputation applied.
         """
-        stat_fn = _IMPUTATION_STATISTICS[statistic]
-
         gene_group_lookup: dict[str, str] = {}
         for group_name, group_genes in special_gene_groups.items():
             for gene_id in group_genes:
@@ -441,39 +535,93 @@ class DefaultPTRImplementation:
         group_fill_values: dict[str, dict[str, float]] = {}
         for group_name, group_genes in special_gene_groups.items():
             group_genes_in_source = source_df.index.intersection(group_genes)
-            if group_genes_in_source.empty:
-                group_fill_values[group_name] = fallback_fill_values
+            if len(group_genes_in_source) == 0:
+                group_fill_values[group_name] = dict(fallback_fill_values)
                 continue
             group_frame = source_df.loc[group_genes_in_source]
-            group_fill_values[group_name] = {
-                col: float(stat_fn(group_frame[col])) for col in source_df.columns
-            }
+            group_fill_values[group_name] = (
+                DefaultPTRImplementation._compute_per_sample_fill_values(
+                    group_frame,
+                    statistic,
+                )
+            )
 
+        assigned_values: dict[str, dict[str, float]] = {}
+        if not target_gene_ids:
+            return df
+        target_gene_mask = pd.Series(
+            [str(gene_id) in target_gene_ids for gene_id in df.index],
+            index=df.index,
+            dtype=bool,
+        )
         for col in df.columns:
-            mask = df[col].isna()
-            if not mask.any():
+            mask = df[col].isna() & target_gene_mask
+            if not bool(mask.any()):
                 continue
             missing_gene_ids = df.index[mask]
             for gene_id in missing_gene_ids:
                 group_name = gene_group_lookup.get(gene_id)
-                if group_name is None:
-                    df.at[gene_id, col] = fallback_fill_values.get(col, np.nan)
-                    continue
-                df.at[gene_id, col] = group_fill_values[group_name].get(
-                    col,
-                    fallback_fill_values.get(col, np.nan),
+                assigned_value = DefaultPTRImplementation._resolve_grouped_fill_value(
+                    column_name=col,
+                    group_name=group_name,
+                    group_fill_values=group_fill_values,
+                    fallback_fill_values=fallback_fill_values,
                 )
+                df.at[gene_id, col] = assigned_value
+                assigned_values.setdefault(str(gene_id), {})[str(col)] = assigned_value
+
+        if trace is not None:
+            trace["special_group_gene_mapping"] = dict(gene_group_lookup)
+            trace["special_group_fill_values_per_sample"] = {
+                group_name: dict(fill_values)
+                for group_name, fill_values in group_fill_values.items()
+            }
+            trace["special_group_assigned_values_per_sample"] = assigned_values
         return df
+
+    @staticmethod
+    def _resolve_grouped_fill_value(
+        *,
+        column_name: Any,
+        group_name: str | None,
+        group_fill_values: dict[str, dict[str, float]],
+        fallback_fill_values: dict[str, float],
+    ) -> float:
+        """Generated: validation needed.
+
+        Description:
+            Resolve one grouped unobserved-gene fill value with fallback.
+
+        Args:
+            column_name (Any): Sample/column identifier.
+            group_name (str | None): Optional resolved group name.
+            group_fill_values (dict[str, dict[str, float]]): Per-group fill values.
+            fallback_fill_values (dict[str, float]): Global fallback fill values.
+
+        Returns:
+            float: Assigned fill value.
+        """
+
+        if group_name is None:
+            return float(fallback_fill_values.get(column_name, np.nan))
+        return float(
+            group_fill_values[group_name].get(
+                column_name,
+                fallback_fill_values.get(column_name, np.nan),
+            )
+        )
 
     @staticmethod
     def impute_unobserved_genes(
         ptr_df: pd.DataFrame,
         expression_df: pd.DataFrame,
+        unobserved_gene_ids: set[str],
         strategy: str = "sample_after_imputation",
         statistic: str = "median",
         reference_df: pd.DataFrame | None = None,
         special_gene_groups: dict[str, list[str]] | None = None,
         use_special_groups: bool = False,
+        trace: dict[str, Any] | None = None,
     ) -> pd.DataFrame:
         """Generated: validation needed.
 
@@ -490,6 +638,8 @@ class DefaultPTRImplementation:
             ptr_df (pd.DataFrame): PTR table after within-sample imputation.
             expression_df (pd.DataFrame): Expression table whose index defines
                 the target gene universe.
+            unobserved_gene_ids (set[str]): Gene IDs present in expression but
+                absent from PTR to be filled.
             strategy (str): Imputation strategy for unobserved genes.  One of
                 ``sample_after_imputation``, ``sample_before_imputation``.
             statistic (str): Per-sample aggregation statistic.  One of
@@ -500,6 +650,8 @@ class DefaultPTRImplementation:
                 special groups to impute independently.
             use_special_groups (bool): Enable special-group independent
                 imputation behavior.
+            trace (dict[str, Any] | None): Optional mutable trace dictionary
+                populated with grouped-imputation diagnostics.
 
         Returns:
             pd.DataFrame: PTR table re-indexed to ``expression_df.index`` with
@@ -528,7 +680,11 @@ class DefaultPTRImplementation:
         df = df.reindex(expression_df.index)
 
         if not use_special_groups or not special_gene_groups:
-            return DefaultPTRImplementation._apply_global_unobserved_fill(df, fill_values)
+            return DefaultPTRImplementation._apply_global_unobserved_fill(
+                df,
+                fill_values,
+                unobserved_gene_ids,
+            )
 
         return DefaultPTRImplementation._apply_grouped_unobserved_fill(
             df,
@@ -536,6 +692,8 @@ class DefaultPTRImplementation:
             statistic,
             special_gene_groups,
             fill_values,
+            unobserved_gene_ids,
+            trace=trace,
         )
 
     # ------------------------------------------------------------------
@@ -548,6 +706,7 @@ class DefaultPTRImplementation:
         expression_df: pd.DataFrame,
         config: APIConfig,
         metabolic_genes: list[str] | None = None,
+        model_artifact: Any | None = None,
     ) -> pd.DataFrame:
         """Generated: validation needed.
 
@@ -567,12 +726,16 @@ class DefaultPTRImplementation:
                 the metabolic model.  When provided and
                 ``config.ptr.impute_from_metabolic_genes_only`` is ``True``,
                 PTR is filtered to this set before imputation.
+            model_artifact (Any | None): Optional cobra-like model used to
+                expand shorthand special gene groups such as
+                ``transport_reactions``.
 
         Returns:
             pd.DataFrame: Fully preprocessed PTR table aligned to the
             expression gene index.
         """
         ptr_cfg = config.ptr
+        ptr_imputation_trace: dict[str, Any] = {}
 
         df = self.standardize_ptr_frame(ptr_df)
         _logger.debug("PTR: standardized frame shape %s.", df.shape)
@@ -589,54 +752,108 @@ class DefaultPTRImplementation:
                 before - len(df),
             )
 
-        df = self.transform_ptr_to_linear(df, pretransformed_type=ptr_cfg.pretransformed_type)
-        _logger.debug("PTR: converted to linear scale.")
+        df = self.transform_ptr_to_linear(
+            df,
+            pretransformed_type=ptr_cfg.pretransformed_type,
+        )
 
         before_within_imputation_df = df.copy()
 
         df = self.impute_within_tissue_ptrs(
             df,
-            strategy=ptr_cfg.missing_value_strategy,
-            statistic=ptr_cfg.partial_missing_imputation_statistic,
             use_weighted=ptr_cfg.partial_missing_use_weighted,
+            weighted_statistic=ptr_cfg.partial_missing_weighted_statistic,
+            imputation_statistic=ptr_cfg.partial_missing_imputation_statistic,
         )
         _logger.debug("PTR: within-sample imputation done.")
 
         unobserved_strategy = ptr_cfg.unobserved_gene_imputation_strategy
-        if ptr_cfg.unobserved_gene_imputation_reference == "before_within_sample_imputation":
-            unobserved_strategy = "sample_before_imputation"
-        elif ptr_cfg.unobserved_gene_imputation_reference == "after_within_sample_imputation":
-            unobserved_strategy = "sample_after_imputation"
+        special_gene_groups = self.resolve_special_gene_groups(
+            config,
+            model_artifact=model_artifact,
+            expression_gene_ids=set(map(str, expression_df.index)),
+        )
+        unobserved_genes = {
+            str(gene.id) for gene in model_artifact.genes if str(gene.id) not in df.index
+        }
 
-        special_gene_groups = self.resolve_special_gene_groups(config)
+        if not unobserved_genes:
+            _logger.debug(
+                "PTR: no unobserved genes to impute after within-sample imputation."
+            )
+            return df.reindex(expression_df.index)
 
         df = self.impute_unobserved_genes(
             df,
             expression_df,
+            unobserved_gene_ids=unobserved_genes,
             strategy=unobserved_strategy,
             statistic=ptr_cfg.unobserved_gene_imputation_statistic,
             reference_df=before_within_imputation_df,
             special_gene_groups=special_gene_groups,
             use_special_groups=ptr_cfg.use_special_groups_for_unobserved_imputation,
+            trace=ptr_imputation_trace,
         )
         _logger.debug("PTR: unobserved-gene imputation done, final shape %s.", df.shape)
 
+        self._latest_ptr_preparation_diagnostics = {
+            "special_gene_groups": special_gene_groups,
+            "special_group_gene_mapping": ptr_imputation_trace.get(
+                "special_group_gene_mapping", {}
+            ),
+            "special_group_fill_values_per_sample": ptr_imputation_trace.get(
+                "special_group_fill_values_per_sample",
+                {},
+            ),
+            "special_group_assigned_values_per_sample": ptr_imputation_trace.get(
+                "special_group_assigned_values_per_sample",
+                {},
+            ),
+        }
+
         return df
 
+    def get_latest_preparation_diagnostics(self) -> dict[str, Any]:
+        """Generated: validation needed.
+
+        Description:
+            Return diagnostics captured during latest PTR preparation call.
+
+        Returns:
+            dict[str, Any]: PTR preparation diagnostics for inter-stage artifact
+            persistence.
+        """
+        diagnostics = getattr(self, "_latest_ptr_preparation_diagnostics", {})
+        return dict(diagnostics)
+
     @staticmethod
-    def resolve_special_gene_groups(config: APIConfig) -> dict[str, list[str]]:
+    def resolve_special_gene_groups(
+        config: APIConfig,
+        model_artifact: Any | None = None,
+        expression_gene_ids: set[str] | None = None,
+    ) -> dict[str, list[str]]:
         """Generated: validation needed.
 
         Description:
             Resolve user-provided special gene groups used by PTR unobserved-gene
             imputation. This endpoint enables independent group-wise imputation
-            (e.g., transport genes or other custom partitions).
+            (e.g., transport genes or other custom partitions). Group values
+            may contain gene IDs or reaction IDs; ``transport_reactions`` with
+            an empty list auto-resolves transport-associated genes from model.
 
         Args:
             config (APIConfig): Root API configuration.
+            model_artifact (Any | None): Optional cobra-like model used for
+                shorthand and reaction-based group expansion.
+            expression_gene_ids (set[str] | None): Optional expression-gene
+                universe used to filter resolved group members.
 
         Returns:
             dict[str, list[str]]: Mapping of group name to normalized gene IDs.
+
+        Raises:
+            ValueError: When ``transport_reactions`` shorthand is requested
+                without a model artifact.
         """
         raw_groups = config.ptr.special_gene_groups
         if raw_groups is None:
@@ -646,9 +863,27 @@ class DefaultPTRImplementation:
             normalized_name = str(group_name).strip()
             if normalized_name == "":
                 continue
-            normalized_groups[normalized_name] = [
-                str(gene_id).strip() for gene_id in group_genes if str(gene_id).strip() != ""
+            normalized_entries = [
+                str(group_entry).strip()
+                for group_entry in group_genes
+                if str(group_entry).strip() != ""
             ]
+            if normalized_name == "transport_reactions" and not normalized_entries:
+                if model_artifact is None:
+                    raise ValueError(
+                        "special_gene_groups['transport_reactions'] requires a model "
+                        "artifact when no explicit genes or reactions are supplied."
+                    )
+                normalized_groups[normalized_name] = get_transport_reaction_gene_ids(
+                    model_artifact,
+                    expression_gene_ids=expression_gene_ids,
+                )
+                continue
+            normalized_groups[normalized_name] = resolve_gene_or_reaction_group_members(
+                model_artifact,
+                normalized_entries,
+                expression_gene_ids=expression_gene_ids,
+            )
         return normalized_groups
 
     @classmethod

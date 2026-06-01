@@ -9,7 +9,7 @@ from VmaxBuilder.core.protocols import Scaffold
 
 if __name__ == "__main__":
     # Keep existing model filepath scaffold unchanged.
-    base_dir = Path(r"E:\git\SWaPAM\data\for_SWAMP")
+    base_dir = Path(r"C:\git\SWaPAM\data\for_SWAMP")
     models_dir = base_dir / "models"
     model_name = "HumanGEM_2"
     model_dir = models_dir / model_name
@@ -19,16 +19,19 @@ if __name__ == "__main__":
     expression_path = base_dir / "expression_datasets" / "NCI_60_human"
     ptr_path = base_dir / "PTR_datasets" / "Eraslan2019_human"
     proteomics_path = base_dir / "proteomics" / "NCI60"
+    output_path = Path(r"C:\git\VmaxBuilder\data\run_example_output")
+    create_dynamically_named_results = True
 
     # Stage/run toggles.
     run_all_stages = False
     run_model_stage = True
     run_protein_stage = True
-
     config = build_default_api_config()
 
     # Global/model options.
     config.validation.mode = ValidationMode.STRICT
+    config.loading.output_path = output_path
+    config.loading.create_dynamically_named_results = create_dynamically_named_results
     config.loading.model_path = model_path
     config.model.reaction_notation = ReactionNotation.STANDARD
     config.model.make_copy = True
@@ -49,17 +52,26 @@ if __name__ == "__main__":
     # PTR option group.
     config.ptr.id_type = "ensembl"
     config.ptr.level = "gene"
-    config.ptr.transformation_state = "log"
+    config.ptr.pretransformed_type = "log10"
+    config.ptr.partial_missing_imputation_statistic = "median"
+    config.ptr.partial_missing_weighted_statistic = "median"
+    config.ptr.partial_missing_use_weighted = True
+    config.ptr.unobserved_gene_imputation_strategy = "sample_after_imputation"
+    config.ptr.unobserved_gene_imputation_statistic = "median"
+    config.ptr.use_special_groups_for_unobserved_imputation = True
+    config.ptr.special_gene_groups = {
+        "transport_reactions": [],
+    }
+    config.ptr.impute_from_metabolic_genes_only = True
 
     # Proteomics option group.
     config.proteomics.id_type = "ensembl"
     config.proteomics.level = "gene"
-    config.proteomics.transformation_state = "log"
-    config.proteomics.imputation_strategy = "weighted_gene_median"
-    config.proteomics.fallback_imputation_strategy = "weighted_sample_median"
+    # config.proteomics.transformation_state = "log"
+    # config.proteomics.imputation_strategy = "weighted_gene_median"
+    # config.proteomics.fallback_imputation_strategy = "weighted_sample_median"
 
     # Protein stage mode config.
-    protein_mode = ProteinSourceMode.EXPRESSION_PTR
     config.protein.source_mode = ProteinSourceMode.EXPRESSION_PTR
     config.protein.ptr_method = "ptr_weighted_median"
     config.expression.sample_type_map = "heart"
@@ -107,6 +119,10 @@ if __name__ == "__main__":
 
     print("\n=== Scaffold artifacts keys ===")
     print(list(scaffold.get("artifacts", {}).keys()))
+
+    orchestrator_metadata = scaffold.get("metadata", {}).get("orchestrator", {})
+    print("\n=== Runtime output directories ===")
+    pprint(orchestrator_metadata, sort_dicts=False)
 
     print("\n=== Scaffold metadata ===")
     pprint(scaffold.get("metadata", {}), sort_dicts=False)

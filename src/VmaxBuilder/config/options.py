@@ -153,23 +153,23 @@ EXPRESSION_OPTION_SPECS: dict[str, OptionSpec] = {
 PTR_OPTION_SPECS: dict[str, OptionSpec] = {
     "ptr.pretransformed_type": OptionSpec(
         name="ptr.pretransformed_type",
-        allowed_values=("none", "log10", "log2", "ln"),
+        allowed_values=("linear", "log10", "log2", "ln"),
         description="Log-scale applied to raw PTR input before linear conversion.",
     ),
-    "ptr.missing_value_strategy": OptionSpec(
-        name="ptr.missing_value_strategy",
-        allowed_values=("weighted_median", "median"),
-        description="Within-sample imputation strategy for observed-but-missing PTR values.",
+    "ptr.partial_missing_use_weighted": OptionSpec(
+        name="ptr.partial_missing_use_weighted",
+        allowed_values=(True, False),
+        description="Apply weighted per-sample scaling during within-sample PTR imputation.",
+    ),
+    "ptr.partial_missing_weighted_statistic": OptionSpec(
+        name="ptr.partial_missing_weighted_statistic",
+        allowed_values=("median", "mean", "mode", "max", "min"),
+        description="Column statistic used for weighted within-sample PTR imputation.",
     ),
     "ptr.partial_missing_imputation_statistic": OptionSpec(
         name="ptr.partial_missing_imputation_statistic",
         allowed_values=("median", "mean", "mode", "max", "min"),
         description="Row statistic used for within-sample PTR imputation.",
-    ),
-    "ptr.partial_missing_use_weighted": OptionSpec(
-        name="ptr.partial_missing_use_weighted",
-        allowed_values=(True, False),
-        description="Apply tissue-scaling weights during within-sample PTR imputation.",
     ),
     "ptr.unobserved_gene_imputation_strategy": OptionSpec(
         name="ptr.unobserved_gene_imputation_strategy",
@@ -180,16 +180,6 @@ PTR_OPTION_SPECS: dict[str, OptionSpec] = {
         name="ptr.unobserved_gene_imputation_statistic",
         allowed_values=("median", "mean", "mode", "max", "min"),
         description="Per-sample statistic used when imputing unobserved genes.",
-    ),
-    "ptr.unobserved_gene_imputation_reference": OptionSpec(
-        name="ptr.unobserved_gene_imputation_reference",
-        allowed_values=(
-            "after_within_sample_imputation",
-            "before_within_sample_imputation",
-        ),
-        description=(
-            "Reference frame used to compute statistics for unobserved-gene imputation."
-        ),
     ),
     "ptr.use_special_groups_for_unobserved_imputation": OptionSpec(
         name="ptr.use_special_groups_for_unobserved_imputation",
@@ -202,10 +192,17 @@ PTR_OPTION_SPECS: dict[str, OptionSpec] = {
 
 
 LOADING_OPTION_SPECS: dict[str, OptionSpec] = {
+    "loading.create_dynamically_named_results": OptionSpec(
+        name="loading.create_dynamically_named_results",
+        allowed_values=(True, False),
+        description=(
+            "Whether to create a child output directory named from configured input paths."
+        ),
+    ),
     "loading.results_dir_name": OptionSpec(
         name="loading.results_dir_name",
         allowed_values=("VmaxResults",),
-        description="User-facing output folder name for generated results.",
+        description="Legacy output folder label retained for backward compatibility.",
     ),
     "loading.primary_output_format": OptionSpec(
         name="loading.primary_output_format",

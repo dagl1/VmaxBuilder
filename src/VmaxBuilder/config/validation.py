@@ -237,8 +237,21 @@ def validate_loading_policy(
         InvalidOptionValueError: When loading value is invalid in strict mode.
     """
 
+    if loading_policy.output_path is None:
+        raise ConfigurationError(
+            "loading.output_path is required. Set explicit output directory before running."
+        )
+
+    try:
+        loading_policy.get_resolved_output_directory()
+    except ValueError as error:
+        raise ConfigurationError(str(error)) from error
+
     loading_options: dict[str, Any] = {
         "load.resolution_mode": loading_policy.resolution_mode.value,
+        "loading.create_dynamically_named_results": (
+            loading_policy.create_dynamically_named_results
+        ),
         "loading.results_dir_name": loading_policy.results_dir_name,
         "loading.primary_output_format": loading_policy.primary_output_format.value,
         "loading.write_additional_csv": loading_policy.write_additional_csv,

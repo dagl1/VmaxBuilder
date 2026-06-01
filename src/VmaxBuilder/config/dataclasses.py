@@ -81,8 +81,11 @@ class LoadingPolicy:
         ptr_path (Path | None): Optional explicit PTR file path.
         proteomics_path (Path | None): Optional explicit proteomics file path.
         kcat_path (Path | None): Optional explicit kcat file path.
-        output_path (Path | None): Optional explicit output root path.
-        results_dir_name (str): User-facing results folder name.
+        output_path (Path): Required output directory root used directly,
+            or as parent directory when ``create_dynamically_named_results`` is enabled.
+        create_dynamically_named_results (bool): Whether to derive a run-specific
+            child directory name from configured input paths.
+        results_dir_name (str): Legacy user-facing results folder name.
         primary_output_format (PrimaryOutputFormat): Primary format for saved tables.
         write_additional_csv (bool): Whether to write additional csv copies.
         exact_paths (dict[str, Path]): Explicit artifact paths keyed by logical name.
@@ -104,6 +107,7 @@ class LoadingPolicy:
     proteomics_path: Path | None = None
     kcat_path: Path | None = None
     output_path: Path | None = None
+    create_dynamically_named_results: bool = False
     results_dir_name: str = "VmaxResults"
     primary_output_format: PrimaryOutputFormat = PrimaryOutputFormat.FEATHER
     write_additional_csv: bool = False
@@ -191,16 +195,129 @@ class LoadingPolicy:
         """Generated: validation needed.
 
         Description:
-            Return output directories that should exist before orchestration run.
+            Return resolved output directories that should exist before orchestration run.
 
         Returns:
-            tuple[Path, ...]: Output root and run-results directory when configured.
+            tuple[Path, ...]: Final output directory plus standard subdirectories.
         """
 
-        output_root = self.get_effective_exact_paths().get("output")
-        if output_root is None:
-            return ()
-        return (output_root, output_root / self.results_dir_name)
+        resolved_output_directory = self.get_resolved_output_directory()
+        return (
+            resolved_output_directory,
+            resolved_output_directory / "artifacts",
+            resolved_output_directory / "diagnostics",
+            resolved_output_directory / "metadata",
+            resolved_output_directory / "outputs",
+        )
+
+    def get_resolved_output_directory(self) -> Path:
+        """Generated: validation needed.
+
+        Description:
+            Resolve final output directory from ``output_path`` and optional
+            dynamic path naming.
+
+        Returns:
+            Path: Final run output directory.
+
+        Raises:
+            ValueError: When ``output_path`` is missing or dynamic naming cannot
+                derive any path components.
+        """
+
+        if self.output_path is None:
+            raise ValueError(
+                "loading.output_path is required. "
+                "Set explicit output directory before running."
+            )
+
+        base_output_directory = Path(self.output_path)
+        if not self.create_dynamically_named_results:
+            return base_output_directory
+        return base_output_directory / self.build_dynamic_results_directory_name()
+
+    def build_dynamic_results_directory_name(self) -> str:
+        """Generated: validation needed.
+
+        Description:
+            Build deterministic run directory name from configured input paths.
+
+        Returns:
+            str: Sanitised directory name composed from configured input-path tails.
+
+        Raises:
+            ValueError: When no configured path or in-memory input can contribute
+                a directory-name component.
+        """
+
+        path_components: list[str] = []
+        candidate_paths = {
+            "model": self.model_path,
+            "expression": self.expression_path,
+            "ptr": self.ptr_path,
+            "proteomics": self.proteomics_path,
+            "kcat": self.kcat_path,
+        }
+        for artifact_name, artifact_path in candidate_paths.items():
+            if artifact_path is not None:
+                path_components.append(
+                    self._extract_output_name_component(Path(artifact_path))
+                )
+                continue
+            if artifact_name == "model" and self.model_object is not None:
+                path_components.append(f"{artifact_name}_in_memory")
+                continue
+            if artifact_name in self.in_memory_inputs:
+                path_components.append(f"{artifact_name}_in_memory")
+
+        unique_components = list(dict.fromkeys(path_components))
+        if not unique_components:
+            raise ValueError(
+                "loading.create_dynamically_named_results requires at least one configured "
+                "model/expression/ptr/proteomics/kcat path or in-memory input."
+            )
+        return "__".join(unique_components)
+
+    @staticmethod
+    def _extract_output_name_component(path: Path) -> str:
+        """Generated: validation needed.
+
+        Description:
+            Extract sanitised trailing directory-like component from a configured path.
+
+        Args:
+            path (Path): Configured file or directory path.
+
+        Returns:
+            str: Sanitised path-tail component.
+        """
+
+        is_file_like = path.suffix != ""
+        raw_component = path.parent.name if is_file_like else path.name
+        if raw_component == "":
+            raw_component = path.stem if is_file_like else str(path)
+        return LoadingPolicy._sanitise_output_name_component(raw_component)
+
+    @staticmethod
+    def _sanitise_output_name_component(component: str) -> str:
+        """Generated: validation needed.
+
+        Description:
+            Sanitise one output-directory name component for filesystem safety.
+
+        Args:
+            component (str): Raw component text.
+
+        Returns:
+            str: Filesystem-safe component.
+        """
+
+        replaced_component = component.strip().replace(" ", "_")
+        sanitised_component = "".join(
+            character if character.isalnum() or character in {"-", "_", "."} else "_"
+            for character in replaced_component
+        ).strip("_.-")
+        return sanitised_component or "unknown"
 
     def get_discovery_prefixes(self, artifact_name: str) -> tuple[str, ...]:
         """Generated: validation needed.
@@ -320,45 +437,41 @@ class PTRInputConfig:
     Args:
         id_type (str): Identifier provider for PTR features.
         level (str): Gene or transcript level granularity.
-        transformation_state (str): Data transform state, e.g. log or linear.
         pretransformed_type (str): Log-scale used in raw PTR input before
-            linear conversion. One of ``none``, ``log10``, ``log2``, ``ln``.
-        missing_value_strategy (str): Within-sample imputation strategy for
-            observed-but-missing PTR values. One of ``weighted_median``,
-            ``median``.
+            linear conversion. One of ``linear``, ``log10``, ``log2``, ``ln``.
+        partial_missing_use_weighted (bool): Whether within-sample imputation
+            should apply per-sample weighting. ``True`` keeps weighted column
+            scaling; ``False`` uses unweighted row-statistic imputation.
+        partial_missing_weighted_statistic (str): Column statistic used for
+            weighted scaling during within-sample imputation. One of
+            ``median``, ``mean``, ``mode``, ``max``, ``min``.
         partial_missing_imputation_statistic (str): Row statistic used for
             within-sample imputation of observed-but-missing PTR values.
             One of ``median``, ``mean``, ``mode``, ``max``, ``min``.
-        partial_missing_use_weighted (bool): Whether within-sample imputation
-            should apply tissue scaling based on per-tissue statistics.
         unobserved_gene_imputation_strategy (str): Strategy used to fill genes
             present in expression but absent from PTR. One of
             ``sample_after_imputation``, ``sample_before_imputation``.
         unobserved_gene_imputation_statistic (str): Per-sample statistic used
             when imputing unobserved genes. One of ``median``, ``mean``,
             ``max``, ``min``.
-        unobserved_gene_imputation_reference (str): Reference frame used for
-            per-sample statistics in unobserved-gene imputation. One of
-            ``after_within_sample_imputation``,
-            ``before_within_sample_imputation``.
         use_special_groups_for_unobserved_imputation (bool): Whether to impute
             configured special gene groups independently.
         special_gene_groups (dict[str, list[str]] | None): Optional custom
-            grouping of genes to impute independently.
+            grouping entries to impute independently. Values may contain gene
+            IDs or reaction IDs; ``transport_reactions`` may be given with an
+            empty list to auto-resolve transport-associated genes from model.
         impute_from_metabolic_genes_only (bool): Restrict PTR prior to
             imputation to genes found in the metabolic model.
     """
 
     id_type: str = "ensembl"
     level: str = "gene"
-    transformation_state: str = "log"
-    pretransformed_type: str = "none"
-    missing_value_strategy: str = "weighted_median"
-    partial_missing_imputation_statistic: str = "median"
+    pretransformed_type: str = "linear"
     partial_missing_use_weighted: bool = True
+    partial_missing_weighted_statistic: str = "median"
+    partial_missing_imputation_statistic: str = "median"
     unobserved_gene_imputation_strategy: str = "sample_after_imputation"
     unobserved_gene_imputation_statistic: str = "median"
-    unobserved_gene_imputation_reference: str = "after_within_sample_imputation"
     use_special_groups_for_unobserved_imputation: bool = False
     special_gene_groups: dict[str, list[str]] | None = None
     impute_from_metabolic_genes_only: bool = True

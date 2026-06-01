@@ -22,7 +22,11 @@ Modifies:
 from __future__ import annotations
 
 from collections.abc import Sequence
+from enum import Enum
 from pathlib import Path
+from typing import Any
+
+import pandas as pd
 
 from VmaxBuilder.api.allocation import AllocationStageOrchestrator
 from VmaxBuilder.api.model import ModelStageOrchestrator
@@ -31,6 +35,7 @@ from VmaxBuilder.api.vmax import VmaxStageOrchestrator
 from VmaxBuilder.config import ConfigurationError
 from VmaxBuilder.config.dataclasses import APIConfig
 from VmaxBuilder.config.enums import StageName
+from VmaxBuilder.config.validation import validate_loading_policy
 from VmaxBuilder.core.protocols import (
     DiagnosticsHookProtocol,
     DiagnosticsRunnerProtocol,
@@ -39,8 +44,14 @@ from VmaxBuilder.core.protocols import (
 )
 from VmaxBuilder.diagnostics.runner import DiagnosticsRunner
 from VmaxBuilder.protein.stage_implementation import DefaultProteinStageCoordinator
+from VmaxBuilder.utils.file_handling import save_with_tries
 
 # ruff:
+
+_ARTIFACTS_DIRECTORY_NAME = "artifacts"
+_DIAGNOSTICS_DIRECTORY_NAME = "diagnostics"
+_METADATA_DIRECTORY_NAME = "metadata"
+_OUTPUTS_DIRECTORY_NAME = "outputs"
 
 
 def build_default_api_config() -> APIConfig:
@@ -166,6 +177,7 @@ class VmaxOrchestrator:
             hooks=self.diagnostics_hooks,
             method_key=self.config.model.method,
         )
+        self._persist_runtime_state(scaffold=working_scaffold, stage_name=StageName.MODEL)
         return working_scaffold
 
     def run_protein(self, scaffold: Scaffold | None = None) -> Scaffold:
@@ -194,6 +206,7 @@ class VmaxOrchestrator:
             hooks=self.diagnostics_hooks,
             method_key=self.config.protein.method,
         )
+        self._persist_runtime_state(scaffold=working_scaffold, stage_name=StageName.PROTEIN)
         return working_scaffold
 
     def run_allocation(self, scaffold: Scaffold | None = None) -> Scaffold:
@@ -221,6 +234,10 @@ class VmaxOrchestrator:
             stage_name=StageName.ALLOCATION,
             hooks=self.diagnostics_hooks,
             method_key=self.config.allocation.method,
+        )
+        self._persist_runtime_state(
+            scaffold=working_scaffold,
+            stage_name=StageName.ALLOCATION,
         )
         return working_scaffold
 
@@ -256,6 +273,7 @@ class VmaxOrchestrator:
             hooks=self.diagnostics_hooks,
             method_key=self.config.vmax.method,
         )
+        self._persist_runtime_state(scaffold=working_scaffold, stage_name=StageName.VMAX)
         return working_scaffold
 
     def run(self, stages: Sequence[StageName]) -> Scaffold:
@@ -361,6 +379,7 @@ class VmaxOrchestrator:
             ConfigurationError: When required stage inputs are missing.
         """
 
+        validate_loading_policy(self.config.loading, validation_policy=self.config.validation)
         self._prime_output_directories(scaffold=scaffold)
         if stage_name is StageName.MODEL:
             self._validate_model_inputs(scaffold=scaffold)
@@ -451,6 +470,7 @@ class VmaxOrchestrator:
             Filesystem output directories and scaffold metadata.
         """
 
+        resolved_output_directory = self.config.loading.get_resolved_output_directory()
         output_directories = self.config.loading.get_output_directories()
         current_signature = self._build_output_signature(output_directories)
         if not current_signature or current_signature == self._last_primed_output_paths:
@@ -462,10 +482,335 @@ class VmaxOrchestrator:
         orchestrator_metadata = scaffold.setdefault("metadata", {}).setdefault(
             "orchestrator", {}
         )
+        orchestrator_metadata["resolved_output_directory"] = str(resolved_output_directory)
+        orchestrator_metadata["artifact_directory"] = str(
+            resolved_output_directory / _ARTIFACTS_DIRECTORY_NAME
+        )
+        orchestrator_metadata["diagnostics_directory"] = str(
+            resolved_output_directory / _DIAGNOSTICS_DIRECTORY_NAME
+        )
+        orchestrator_metadata["metadata_directory"] = str(
+            resolved_output_directory / _METADATA_DIRECTORY_NAME
+        )
+        orchestrator_metadata["outputs_directory"] = str(
+            resolved_output_directory / _OUTPUTS_DIRECTORY_NAME
+        )
         orchestrator_metadata["primed_output_directories"] = [
             str(directory) for directory in output_directories
         ]
         self._last_primed_output_paths = current_signature
+
+    def _persist_runtime_state(self, *, scaffold: Scaffold, stage_name: StageName) -> None:
+        """Generated: validation needed.
+
+        Description:
+            Persist scaffold artifacts, diagnostics, outputs, and metadata into
+            resolved run output directories.
+
+        Args:
+            scaffold (Scaffold): Shared pipeline scaffold.
+            stage_name (StageName): Stage most recently executed.
+
+        Modifies:
+            Filesystem output directory contents and scaffold metadata manifest paths.
+        """
+
+        resolved_output_directory = self.config.loading.get_resolved_output_directory()
+        artifacts_directory = resolved_output_directory / _ARTIFACTS_DIRECTORY_NAME
+        diagnostics_directory = resolved_output_directory / _DIAGNOSTICS_DIRECTORY_NAME
+        metadata_directory = resolved_output_directory / _METADATA_DIRECTORY_NAME
+        outputs_directory = resolved_output_directory / _OUTPUTS_DIRECTORY_NAME
+
+        artifact_manifest = self._persist_named_payloads(
+            payload=scaffold.get("artifacts", {}),
+            save_directory=artifacts_directory,
+        )
+        output_manifest = self._persist_named_payloads(
+            payload=scaffold.get("outputs", {}),
+            save_directory=outputs_directory,
+        )
+        diagnostics_payload = self._make_json_safe(scaffold.get("diagnostics", {}))
+        metadata_payload = self._make_json_safe(scaffold.get("metadata", {}))
+        self._save_json_payload(
+            payload=diagnostics_payload,
+            filename="scaffold_diagnostics",
+            save_directory=diagnostics_directory,
+        )
+        self._save_json_payload(
+            payload=metadata_payload,
+            filename="scaffold_metadata",
+            save_directory=metadata_directory,
+        )
+
+        stage_diagnostics = diagnostics_payload.get(stage_name.value)
+        if stage_diagnostics is not None:
+            self._save_json_payload(
+                payload=stage_diagnostics,
+                filename=f"{stage_name.value}_diagnostics",
+                save_directory=diagnostics_directory,
+            )
+
+        orchestrator_metadata = scaffold.setdefault("metadata", {}).setdefault(
+            "orchestrator", {}
+        )
+        orchestrator_metadata["last_persisted_stage"] = stage_name.value
+        orchestrator_metadata["artifact_manifest_path"] = str(
+            artifacts_directory / "artifact_manifest.json"
+        )
+        orchestrator_metadata["output_manifest_path"] = str(
+            outputs_directory / "output_manifest.json"
+        )
+        self._save_json_payload(
+            payload=artifact_manifest,
+            filename="artifact_manifest",
+            save_directory=artifacts_directory,
+        )
+        self._save_json_payload(
+            payload=output_manifest,
+            filename="output_manifest",
+            save_directory=outputs_directory,
+        )
+        self._save_json_payload(
+            payload=self._make_json_safe(scaffold.get("metadata", {})),
+            filename="scaffold_metadata",
+            save_directory=metadata_directory,
+        )
+
+    def _persist_named_payloads(
+        self,
+        *,
+        payload: dict[str, Any],
+        save_directory: Path,
+    ) -> dict[str, dict[str, str]]:
+        """Generated: validation needed.
+
+        Description:
+            Persist serialisable scaffold payload entries and return save manifest.
+
+        Args:
+            payload (dict[str, Any]): Named scaffold section payload.
+            save_directory (Path): Directory receiving persisted files.
+
+        Returns:
+            dict[str, dict[str, str]]: Per-entry save status manifest.
+        """
+
+        manifest: dict[str, dict[str, str]] = {}
+        for payload_name, payload_value in payload.items():
+            manifest[payload_name] = self._persist_named_value(
+                payload_name=payload_name,
+                payload_value=payload_value,
+                save_directory=save_directory,
+            )
+        return manifest
+
+    def _persist_named_value(
+        self,
+        *,
+        payload_name: str,
+        payload_value: Any,
+        save_directory: Path,
+    ) -> dict[str, str]:
+        """Generated: validation needed.
+
+        Description:
+            Persist one named scaffold value when supported by runtime serializers.
+
+        Args:
+            payload_name (str): Stable scaffold payload key.
+            payload_value (Any): Payload value to persist.
+            save_directory (Path): Target directory.
+
+        Returns:
+            dict[str, str]: Save status, type, and optional path or skip reason.
+        """
+
+        if isinstance(payload_value, pd.DataFrame):
+            saved_path = self._save_tabular_payload(
+                payload=payload_value,
+                filename=payload_name,
+                save_directory=save_directory,
+                include_index=True,
+            )
+            return {
+                "status": "saved",
+                "type": type(payload_value).__name__,
+                "path": str(saved_path),
+            }
+
+        if isinstance(payload_value, pd.Series):
+            saved_path = self._save_tabular_payload(
+                payload=payload_value,
+                filename=payload_name,
+                save_directory=save_directory,
+                include_index=True,
+            )
+            return {
+                "status": "saved",
+                "type": type(payload_value).__name__,
+                "path": str(saved_path),
+            }
+
+        if isinstance(payload_value, (dict, list, tuple, set)):
+            saved_path = self._save_json_payload(
+                payload=self._make_json_safe(payload_value),
+                filename=payload_name,
+                save_directory=save_directory,
+            )
+            return {
+                "status": "saved",
+                "type": type(payload_value).__name__,
+                "path": str(saved_path),
+            }
+
+        if isinstance(payload_value, (str, int, float, bool, Path)) or payload_value is None:
+            saved_path = self._save_text_payload(
+                payload=str(payload_value),
+                filename=payload_name,
+                save_directory=save_directory,
+            )
+            return {
+                "status": "saved",
+                "type": type(payload_value).__name__,
+                "path": str(saved_path),
+            }
+
+        return {
+            "status": "skipped",
+            "type": type(payload_value).__name__,
+            "reason": "unsupported_runtime_type",
+        }
+
+    @staticmethod
+    def _save_tabular_payload(
+        *,
+        payload: pd.DataFrame | pd.Series,
+        filename: str,
+        save_directory: Path,
+        include_index: bool,
+    ) -> Path:
+        """Generated: validation needed.
+
+        Description:
+            Save tabular runtime payload as CSV for user inspection.
+
+        Args:
+            payload (pd.DataFrame | pd.Series): Tabular payload.
+            filename (str): Output filename stem.
+            save_directory (Path): Target directory.
+            include_index (bool): Whether to include index column.
+
+        Returns:
+            Path: Saved CSV path.
+        """
+
+        save_with_tries(
+            data=payload,
+            filename=filename,
+            extension="csv",
+            save_dir=save_directory,
+            overwrite=True,
+            with_index=include_index,
+        )
+        return save_directory / f"{filename}.csv"
+
+    @staticmethod
+    def _save_json_payload(
+        *,
+        payload: dict[str, Any] | list[Any],
+        filename: str,
+        save_directory: Path,
+    ) -> Path:
+        """Generated: validation needed.
+
+        Description:
+            Save JSON-serialisable runtime payload.
+
+        Args:
+            payload (dict[str, Any] | list[Any]): JSON-safe payload.
+            filename (str): Output filename stem.
+            save_directory (Path): Target directory.
+
+        Returns:
+            Path: Saved JSON path.
+        """
+
+        save_with_tries(
+            data=payload,
+            filename=filename,
+            extension="json",
+            save_dir=save_directory,
+            overwrite=True,
+        )
+        return save_directory / f"{filename}.json"
+
+    @staticmethod
+    def _save_text_payload(
+        *,
+        payload: str,
+        filename: str,
+        save_directory: Path,
+    ) -> Path:
+        """Generated: validation needed.
+
+        Description:
+            Save scalar runtime payload as plain text.
+
+        Args:
+            payload (str): Text payload.
+            filename (str): Output filename stem.
+            save_directory (Path): Target directory.
+
+        Returns:
+            Path: Saved text path.
+        """
+
+        save_with_tries(
+            data=payload,
+            filename=filename,
+            extension="txt",
+            save_dir=save_directory,
+            overwrite=True,
+        )
+        return save_directory / f"{filename}.txt"
+
+    @classmethod
+    def _make_json_safe(cls, value: Any) -> Any:
+        """Generated: validation needed.
+
+        Description:
+            Convert nested runtime payloads into JSON-safe builtin values.
+
+        Args:
+            value (Any): Runtime payload value.
+
+        Returns:
+            Any: JSON-safe builtin representation.
+        """
+
+        if isinstance(value, dict):
+            return {
+                str(key): cls._make_json_safe(nested_value)
+                for key, nested_value in value.items()
+            }
+        if isinstance(value, (list, tuple, set)):
+            return [cls._make_json_safe(item) for item in value]
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, Enum):
+            return value.value
+        if isinstance(value, pd.Index):
+            return [cls._make_json_safe(item) for item in value.tolist()]
+        if isinstance(value, pd.Series):
+            return cls._make_json_safe(value.to_dict())
+        if hasattr(value, "item") and callable(value.item):
+            try:
+                return value.item()
+            except (TypeError, ValueError):
+                pass
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        return str(value)
 
     @staticmethod
     def _build_output_signature(output_directories: tuple[Path, ...]) -> tuple[str, ...]:

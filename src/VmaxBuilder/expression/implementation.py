@@ -294,7 +294,7 @@ class DefaultExpressionImplementation:
             len(unresolved_expression_df.index)
         )
         if unresolved_expression_df.empty:
-            return aggregated_expression_df
+            return pd.DataFrame(aggregated_expression_df)
 
         combined_expression_df = pd.concat(
             [aggregated_expression_df, unresolved_expression_df]
