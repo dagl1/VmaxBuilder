@@ -150,3 +150,5 @@ data/UMAP_diagnostics_output/main_metabolite_path_finder/full_model/main_path/su
 
 staged_files.txt
 src/VmaxBuilder/to_refactor
+data
+src/VmaxBuilder/old_to_be_refactored
