@@ -150,7 +150,9 @@ class TestImputeWithinTissuePtrs:
             },
             index=["g1", "g2", "g3"],
         )
-        result = ptr_impl.impute_within_tissue_ptrs(df, strategy="weighted_median")
+        result = ptr_impl.impute_within_tissue_ptrs(
+            df, use_weighted=True, imputation_statistic="median"
+        )
         assert not result["s1"].isna().any()
 
     def test_median_fills_missing(self, ptr_impl: DefaultPTRImplementation) -> None:
@@ -158,14 +160,18 @@ class TestImputeWithinTissuePtrs:
             {"s1": [np.nan, 4.0, 6.0], "s2": [2.0, 4.0, 6.0]},
             index=["g1", "g2", "g3"],
         )
-        result = ptr_impl.impute_within_tissue_ptrs(df, strategy="median")
+        result = ptr_impl.impute_within_tissue_ptrs(
+            df, use_weighted=False, imputation_statistic="median"
+        )
         # g1 row median = mean(nan, 2.0) = 2.0 → fill s1 with row median
         assert not result["s1"].isna().any()
 
     def test_invalid_strategy_raises(self, ptr_impl: DefaultPTRImplementation) -> None:
         df = pd.DataFrame({"s1": [1.0]}, index=["g1"])
-        with pytest.raises(ValueError, match="missing_value_strategy"):
-            ptr_impl.impute_within_tissue_ptrs(df, strategy="mode")
+        with pytest.raises(ValueError, match="imputation_statistic"):
+            ptr_impl.impute_within_tissue_ptrs(
+                df, use_weighted=False, imputation_statistic="invalid_stat"
+            )
 
     def test_custom_mean_unweighted(self, ptr_impl: DefaultPTRImplementation) -> None:
         df = pd.DataFrame(
@@ -177,9 +183,8 @@ class TestImputeWithinTissuePtrs:
         )
         result = ptr_impl.impute_within_tissue_ptrs(
             df,
-            strategy="custom",
-            statistic="mean",
             use_weighted=False,
+            imputation_statistic="mean",
         )
         assert result.loc["g2", "s1"] == pytest.approx(5.0)
 
@@ -193,9 +198,8 @@ class TestImputeWithinTissuePtrs:
         )
         result = ptr_impl.impute_within_tissue_ptrs(
             df,
-            strategy="custom",
-            statistic="median",
             use_weighted=True,
+            imputation_statistic="median",
         )
         assert not pd.isna(result.loc["g2", "s1"])
 
@@ -212,40 +216,71 @@ class TestImputeWithinTissuePtrs:
 
 class TestImputeUnobservedGenes:
     def test_expands_to_expression_index(self, ptr_impl: DefaultPTRImplementation) -> None:
-        ptr = pd.DataFrame({"s1": [2.0, 4.0]}, index=["g1", "g2"])
+        ptr = pd.DataFrame({"s1": [2.0, 4.0, np.nan]}, index=["g1", "g2", "g3"])
         expr = _make_expression(["g1", "g2", "g3"], ["s1"])
-        result = ptr_impl.impute_unobserved_genes(ptr, expr)
+        result = ptr_impl.impute_unobserved_genes(ptr, expr, unobserved_gene_ids={"g3"})
         assert "g3" in result.index
         assert not result["s1"].isna().any()
 
     def test_fill_value_is_sample_median(self, ptr_impl: DefaultPTRImplementation) -> None:
-        ptr = pd.DataFrame({"s1": [2.0, 4.0]}, index=["g1", "g2"])
+        ptr = pd.DataFrame({"s1": [2.0, 4.0, np.nan]}, index=["g1", "g2", "g3"])
         expr = _make_expression(["g1", "g2", "g3"], ["s1"])
-        result = ptr_impl.impute_unobserved_genes(ptr, expr, statistic="median")
+        result = ptr_impl.impute_unobserved_genes(
+            ptr,
+            expr,
+            unobserved_gene_ids={"g3"},
+            statistic="median",
+        )
         # median of [2.0, 4.0] = 3.0
         assert result.loc["g3", "s1"] == pytest.approx(3.0)
+
+    def test_fill_values_are_computed_per_column(
+        self, ptr_impl: DefaultPTRImplementation
+    ) -> None:
+        ptr = pd.DataFrame(
+            {
+                "s1": [2.0, 4.0, np.nan],
+                "s2": [20.0, 40.0, np.nan],
+            },
+            index=["g1", "g2", "g3"],
+        )
+        expr = _make_expression(["g1", "g2", "g3"], ["s1", "s2"])
+        result = ptr_impl.impute_unobserved_genes(
+            ptr,
+            expr,
+            unobserved_gene_ids={"g3"},
+            statistic="median",
+        )
+
+        assert result.loc["g3", "s1"] == pytest.approx(3.0)
+        assert result.loc["g3", "s2"] == pytest.approx(30.0)
 
     def test_invalid_strategy_raises(self, ptr_impl: DefaultPTRImplementation) -> None:
         ptr = pd.DataFrame({"s1": [1.0]}, index=["g1"])
         expr = _make_expression(["g1"], ["s1"])
         with pytest.raises(ValueError, match="imputation_strategy"):
-            ptr_impl.impute_unobserved_genes(ptr, expr, strategy="mode")
+            ptr_impl.impute_unobserved_genes(
+                ptr, expr, unobserved_gene_ids={"g2"}, strategy="mode"
+            )
 
     def test_invalid_statistic_raises(self, ptr_impl: DefaultPTRImplementation) -> None:
         ptr = pd.DataFrame({"s1": [1.0]}, index=["g1"])
         expr = _make_expression(["g1"], ["s1"])
         with pytest.raises(ValueError, match="imputation_statistic"):
-            ptr_impl.impute_unobserved_genes(ptr, expr, statistic="percentile")
+            ptr_impl.impute_unobserved_genes(
+                ptr, expr, unobserved_gene_ids={"g2"}, statistic="percentile"
+            )
 
     def test_sample_before_uses_reference_frame(
         self, ptr_impl: DefaultPTRImplementation
     ) -> None:
-        ptr_after = pd.DataFrame({"s1": [10.0, 12.0]}, index=["g1", "g2"])
-        ptr_before = pd.DataFrame({"s1": [2.0, 4.0]}, index=["g1", "g2"])
+        ptr_after = pd.DataFrame({"s1": [10.0, 12.0, np.nan]}, index=["g1", "g2", "g3"])
+        ptr_before = pd.DataFrame({"s1": [2.0, 4.0, np.nan]}, index=["g1", "g2", "g3"])
         expr = _make_expression(["g1", "g2", "g3"], ["s1"])
         result = ptr_impl.impute_unobserved_genes(
             ptr_after,
             expr,
+            unobserved_gene_ids={"g3"},
             strategy="sample_before_imputation",
             statistic="median",
             reference_df=ptr_before,
@@ -265,6 +300,7 @@ class TestImputeUnobservedGenes:
         result = ptr_impl.impute_unobserved_genes(
             ptr,
             expr,
+            unobserved_gene_ids={"g_transport_2"},
             strategy="sample_after_imputation",
             statistic="median",
             special_gene_groups={"transport": ["g_transport_1", "g_transport_2"]},
