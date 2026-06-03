@@ -332,13 +332,13 @@ def get_transport_reaction_gene_ids(
         reaction
         for reaction in getattr(model, "reactions", [])
         if len(getattr(reaction, "compartments", ())) > 1
-        and str(getattr(reaction, "gene_reaction_rule", "")).strip() != ""
+        and str(getattr(reaction, "gene_reaction_rule", "")) != ""
     ]
     non_transport_gene_ids = {
         str(gene.id)
         for reaction in getattr(model, "reactions", [])
         if reaction not in transport_reactions
-        and str(getattr(reaction, "gene_reaction_rule", "")).strip() != ""
+        and str(getattr(reaction, "gene_reaction_rule", "")) != ""
         for gene in getattr(reaction, "genes", [])
     }
     transport_gene_ids = [

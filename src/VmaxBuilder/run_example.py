@@ -11,7 +11,7 @@ if __name__ == "__main__":
     # Keep existing model filepath scaffold unchanged.
     base_dir = Path(r"C:\git\SWaPAM\data\for_SWAMP")
     models_dir = base_dir / "models"
-    model_name = "HumanGEM_2"
+    model_name = "model_inhouse_v9_human"
     model_dir = models_dir / model_name
     model_path = model_dir
 

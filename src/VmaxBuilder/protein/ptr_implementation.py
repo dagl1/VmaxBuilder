@@ -460,10 +460,7 @@ class DefaultPTRImplementation:
             col: float(base_statistic_function(source_df[col])) for col in source_df.columns
         }
 
-        global_fill_value = float(
-            base_statistic_function(pd.Series(per_sample_values.values()))
-        )
-        return {col: global_fill_value for col in source_df.columns}
+        return per_sample_values
 
     @staticmethod
     def _apply_global_unobserved_fill(
@@ -538,7 +535,7 @@ class DefaultPTRImplementation:
             if len(group_genes_in_source) == 0:
                 group_fill_values[group_name] = dict(fallback_fill_values)
                 continue
-            group_frame = source_df.loc[group_genes_in_source]
+            group_frame = pd.DataFrame(source_df.loc[group_genes_in_source])
             group_fill_values[group_name] = (
                 DefaultPTRImplementation._compute_per_sample_fill_values(
                     group_frame,
@@ -549,6 +546,8 @@ class DefaultPTRImplementation:
         assigned_values: dict[str, dict[str, float]] = {}
         if not target_gene_ids:
             return df
+
+        df = df.copy().reindex(df.index.union(target_gene_ids))
         target_gene_mask = pd.Series(
             [str(gene_id) in target_gene_ids for gene_id in df.index],
             index=df.index,
@@ -677,8 +676,6 @@ class DefaultPTRImplementation:
             statistic,
         )
 
-        df = df.reindex(expression_df.index)
-
         if not use_special_groups or not special_gene_groups:
             return DefaultPTRImplementation._apply_global_unobserved_fill(
                 df,
@@ -773,9 +770,26 @@ class DefaultPTRImplementation:
             model_artifact=model_artifact,
             expression_gene_ids=set(map(str, expression_df.index)),
         )
-        unobserved_genes = {
-            str(gene.id) for gene in model_artifact.genes if str(gene.id) not in df.index
-        }
+
+        if (
+            not special_gene_groups
+            and ptr_cfg.use_special_groups_for_unobserved_imputation
+            and model_artifact is not None
+        ):
+            special_gene_groups = {
+                "transport_reactions": get_transport_reaction_gene_ids(
+                    model_artifact,
+                    expression_gene_ids=set(map(str, expression_df.index)),
+                )
+            }
+            _logger.debug(
+                "PTR: auto-populated transport_reactions group (%d genes).",
+                len(special_gene_groups.get("transport_reactions", [])),
+            )
+
+        unobserved_genes: set[str] = set(map(str, expression_df.index)) - set(
+            map(str, df.index)
+        )
 
         if not unobserved_genes:
             _logger.debug(
@@ -784,7 +798,7 @@ class DefaultPTRImplementation:
             return df.reindex(expression_df.index)
 
         df = self.impute_unobserved_genes(
-            df,
+            df.reindex(df.index.union(unobserved_genes), fill_value=np.nan),
             expression_df,
             unobserved_gene_ids=unobserved_genes,
             strategy=unobserved_strategy,
