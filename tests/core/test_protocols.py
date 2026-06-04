@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+from cobra import Model
+
 from VmaxBuilder.config import APIConfig, StageName
+from VmaxBuilder.config.validation import ConfigurationError
 from VmaxBuilder.core import (
     DiagnosticsHookProtocol,
     Scaffold,
     StageProtocol,
     StrategyProtocol,
+    get_scaffold_model,
 )
 
 
@@ -60,3 +65,57 @@ def test_strategy_protocol_is_runtime_checkable() -> None:
 
 def test_diagnostics_hook_protocol_is_runtime_checkable() -> None:
     assert isinstance(_DiagnosticsHookImplementation(), DiagnosticsHookProtocol)
+
+
+def test_get_scaffold_model_returns_cobra_model_when_present() -> None:
+    scaffold: Scaffold = {
+        "inputs": {},
+        "artifacts": {"model": Model("example")},
+        "outputs": {},
+        "metadata": {},
+        "diagnostics": {},
+        "extras": {},
+    }
+
+    assert isinstance(get_scaffold_model(scaffold), Model)
+
+
+def test_get_scaffold_model_returns_none_when_optional() -> None:
+    scaffold: Scaffold = {
+        "inputs": {},
+        "artifacts": {},
+        "outputs": {},
+        "metadata": {},
+        "diagnostics": {},
+        "extras": {},
+    }
+
+    assert get_scaffold_model(scaffold, required=False) is None
+
+
+def test_get_scaffold_model_raises_for_missing_required_model() -> None:
+    scaffold: Scaffold = {
+        "inputs": {},
+        "artifacts": {},
+        "outputs": {},
+        "metadata": {},
+        "diagnostics": {},
+        "extras": {},
+    }
+
+    with pytest.raises(ConfigurationError, match=r"artifacts\['model'\] missing"):
+        get_scaffold_model(scaffold)
+
+
+def test_get_scaffold_model_raises_for_invalid_artifact_type() -> None:
+    scaffold: Scaffold = {
+        "inputs": {},
+        "artifacts": {"model": "not-model"},
+        "outputs": {},
+        "metadata": {},
+        "diagnostics": {},
+        "extras": {},
+    }
+
+    with pytest.raises(ConfigurationError, match="must be cobra.Model"):
+        get_scaffold_model(scaffold)

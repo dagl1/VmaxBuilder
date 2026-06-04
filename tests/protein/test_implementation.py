@@ -24,9 +24,11 @@ class FakeTranslationService:
         *,
         gene_mapping: dict[str, str] | None = None,
         transcript_mapping: dict[str, str] | None = None,
+        protein_coding_transcripts: set[str] | None = None,
     ) -> None:
         self.gene_mapping = gene_mapping or {}
         self.transcript_mapping = transcript_mapping or {}
+        self.protein_coding_transcripts = protein_coding_transcripts or set()
         self.translate_calls: int = 0
         self.transcript_map_calls: int = 0
 
@@ -71,11 +73,12 @@ class FakeTranslationService:
             {
                 "transcript_id": transcript_id,
                 "gene_id": self.transcript_mapping[transcript_id],
+                "is_protein_coding": transcript_id in self.protein_coding_transcripts,
             }
             for transcript_id in transcript_ids
             if transcript_id in self.transcript_mapping
         ]
-        return pd.DataFrame(rows, columns=["transcript_id", "gene_id"])
+        return pd.DataFrame(rows, columns=["transcript_id", "gene_id", "is_protein_coding"])
 
 
 def test_split_protein_submodule_implementations_are_exported() -> None:
@@ -210,7 +213,9 @@ def test_expression_ptr_mode_translates_expression_ids_when_model_id_type_mismat
     }
 
 
-def test_expression_ptr_mode_stores_transcript_gene_map_artifact_and_aggregates() -> None:
+def test_expression_ptr_mode_stores_transcript_gene_map_artifact_and_aggregates(
+    tmp_path: Path,
+) -> None:
     expression_df = pd.DataFrame(
         {"sample_1": [1.0, 2.0, 4.0]},
         index=["ENST0001", "ENST0002", "ENST9999"],
@@ -229,7 +234,10 @@ def test_expression_ptr_mode_stores_transcript_gene_map_artifact_and_aggregates(
         expression_implementation=expression_implementation,
     )
     config = APIConfig(
-        loading=LoadingPolicy(in_memory_inputs={"expression": expression_df, "ptr": ptr_df}),
+        loading=LoadingPolicy(
+            in_memory_inputs={"expression": expression_df, "ptr": ptr_df},
+            output_path=tmp_path,
+        ),
     )
     config.protein.source_mode = ProteinSourceMode.EXPRESSION_PTR
     config.expression.sample_type_map = "sample_1"
@@ -249,6 +257,7 @@ def test_expression_ptr_mode_stores_transcript_gene_map_artifact_and_aggregates(
     assert list(scaffold["artifacts"]["transcript_gene_map"].columns) == [
         "transcript_id",
         "gene_id",
+        "is_protein_coding",
     ]
     assert protein_df.loc["ENSG001", "sample_1"] == 30.0
     assert protein_df.loc["ENST9999", "sample_1"] == 20.0
@@ -257,7 +266,9 @@ def test_expression_ptr_mode_stores_transcript_gene_map_artifact_and_aggregates(
     )
 
 
-def test_expression_ptr_mode_raises_for_unsupported_transcript_aggregation_policy() -> None:
+def test_expression_ptr_mode_raises_for_unsupported_transcript_aggregation_policy(
+    tmp_path: Path,
+) -> None:
     expression_df = pd.DataFrame({"sample_1": [1.0]}, index=["ENST0001"])
     ptr_df = pd.DataFrame({"sample_1": [1.0]}, index=["ENSG001"])
     fake_translation_service = FakeTranslationService(
@@ -270,12 +281,15 @@ def test_expression_ptr_mode_raises_for_unsupported_transcript_aggregation_polic
         expression_implementation=expression_implementation,
     )
     config = APIConfig(
-        loading=LoadingPolicy(in_memory_inputs={"expression": expression_df, "ptr": ptr_df}),
+        loading=LoadingPolicy(
+            in_memory_inputs={"expression": expression_df, "ptr": ptr_df},
+            output_path=tmp_path,
+        ),
     )
     config.protein.source_mode = ProteinSourceMode.EXPRESSION_PTR
     config.expression.sample_type_map = "sample_1"
     config.expression.level = "transcript"
-    config.expression.transcript_aggregation_policy = "mean"
+    config.expression.transcript_aggregation_policy = "median"
     config.run_target_transcript_gene_level = "gene"
 
     with pytest.raises(ConfigurationError, match="Unsupported transcript aggregation policy"):
@@ -283,6 +297,44 @@ def test_expression_ptr_mode_raises_for_unsupported_transcript_aggregation_polic
             config=config,
             protein_stage=ProteinStageOrchestrator(implementation=coordinator),
         ).run_protein()
+
+
+def test_expression_ptr_mode_uses_protein_coding_only_aggregation_policy(
+    tmp_path: Path,
+) -> None:
+    expression_df = pd.DataFrame({"sample_1": [1.0, 3.0]}, index=["ENST0001", "ENST0002"])
+    ptr_df = pd.DataFrame({"sample_1": [2.0]}, index=["ENSG001"])
+    fake_translation_service = FakeTranslationService(
+        transcript_mapping={"ENST0001": "ENSG001", "ENST0002": "ENSG001"},
+        protein_coding_transcripts={"ENST0002"},
+    )
+    expression_implementation = DefaultExpressionImplementation(
+        translation_service=fake_translation_service,
+    )
+    coordinator = DefaultProteinStageCoordinator(
+        expression_implementation=expression_implementation,
+    )
+
+    config = APIConfig(
+        loading=LoadingPolicy(
+            in_memory_inputs={"expression": expression_df, "ptr": ptr_df},
+            output_path=tmp_path,
+        ),
+    )
+    config.protein.source_mode = ProteinSourceMode.EXPRESSION_PTR
+    config.expression.sample_type_map = "sample_1"
+    config.expression.level = "transcript"
+    config.run_target_transcript_gene_level = "gene"
+    config.transcript_processing.protein_coding_only = True
+    config.transcript_processing.protein_coding_aggregation_policy = "mean"
+
+    scaffold = VmaxOrchestrator(
+        config=config,
+        protein_stage=ProteinStageOrchestrator(implementation=coordinator),
+    ).run_protein()
+
+    # only ENST0002 kept by protein_coding_only filter, mean policy applied
+    assert scaffold["artifacts"]["protein_abundance"].loc["ENSG001", "sample_1"] == 6.0
 
 
 def test_proteomics_mode_imputes_missing_values() -> None:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 from cobra import Metabolite, Model, Reaction
 
@@ -10,7 +12,6 @@ from VmaxBuilder.model.preprocessing import (
     _BACKWARD_SUFFIX,
     _FORWARD_SUFFIX,
     IrreversibleModelMode,
-    ModelPreprocessingResult,
     create_irreversible_model,
     preprocess_model,
 )
@@ -120,10 +121,35 @@ class TestCreateIrreversibleModel:
         # create_irreversible_model mutates the model in-place (does not copy)
         assert irrev_model is model
 
+    def test_fast_mode_splits_reversible_reactions(self) -> None:
+        model = _make_simple_model()
+
+        irrev_model, rev2irrev = create_irreversible_model(
+            model,
+            mode=IrreversibleModelMode.FAST,
+        )
+
+        reaction_ids = {reaction.id for reaction in irrev_model.reactions}
+        assert "r_rev_f" in reaction_ids
+        assert "r_rev_r" in reaction_ids
+        assert rev2irrev
+
+    def test_fast_mode_restores_default_bounds_setter_after_exit(self) -> None:
+        model = _make_simple_model()
+
+        create_irreversible_model(model, mode=IrreversibleModelMode.FAST)
+
+        reaction = Reaction("restored_bounds")
+        with pytest.raises(ValueError, match="too many values to unpack"):
+            reaction.bounds = (0.0, 1.0, True)  # type: ignore[assignment]
+
     def test_raises_on_invalid_mode(self) -> None:
         model = _make_simple_model()
         with pytest.raises(ValueError, match="Unknown IrreversibleModelMode"):
-            create_irreversible_model(model, mode="invalid_mode")  # type: ignore[arg-type]
+            create_irreversible_model(
+                model,
+                mode=cast(IrreversibleModelMode, "invalid_mode"),
+            )
 
 
 # ---------------------------------------------------------------------------
