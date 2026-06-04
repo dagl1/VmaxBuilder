@@ -206,6 +206,10 @@ class DefaultExpressionImplementation:
                     expression_df,
                     transcript_map_df,
                     aggregation_policy=config.expression.transcript_aggregation_policy,
+                    protein_coding_only=config.transcript_processing.protein_coding_only,
+                    protein_coding_aggregation_policy=(
+                        config.transcript_processing.protein_coding_aggregation_policy
+                    ),
                     diagnostics_payload=diagnostics_payload,
                 )
             return expression_df
@@ -243,6 +247,8 @@ class DefaultExpressionImplementation:
         transcript_gene_map_df: pd.DataFrame,
         *,
         aggregation_policy: str,
+        protein_coding_only: bool,
+        protein_coding_aggregation_policy: str,
         diagnostics_payload: dict[str, object],
     ) -> pd.DataFrame:
         """Generated: validation needed.
@@ -254,6 +260,9 @@ class DefaultExpressionImplementation:
             expression_df (pd.DataFrame): Transcript-level expression table.
             transcript_gene_map_df (pd.DataFrame): Transcript-to-gene mapping dataframe.
             aggregation_policy (str): Configured aggregation policy.
+            protein_coding_only (bool): Whether to keep only protein-coding transcripts.
+            protein_coding_aggregation_policy (str): Aggregation policy for
+                protein-coding transcript rows.
             diagnostics_payload (dict[str, object]): Mutable diagnostics payload.
 
         Returns:
@@ -263,14 +272,29 @@ class DefaultExpressionImplementation:
             ConfigurationError: If unsupported aggregation policy is configured.
         """
 
-        if aggregation_policy != "sum":
+        supported_policies = {"sum", "mean"}
+        if aggregation_policy not in supported_policies:
             raise ConfigurationError(
                 "Unsupported transcript aggregation policy: "
-                f"{aggregation_policy!r}. Supported values: ['sum']."
+                f"{aggregation_policy!r}. Supported values: ['sum', 'mean']."
+            )
+        if protein_coding_aggregation_policy not in supported_policies:
+            raise ConfigurationError(
+                "Unsupported protein-coding transcript aggregation policy: "
+                f"{protein_coding_aggregation_policy!r}. Supported values: ['sum', 'mean']."
             )
         if transcript_gene_map_df.empty:
             diagnostics_payload["transcript_unresolved_count"] = int(len(expression_df.index))
             return expression_df
+
+        aggregation_policy_to_use = aggregation_policy
+        if protein_coding_only and "is_protein_coding" in transcript_gene_map_df.columns:
+            transcript_gene_map_df = transcript_gene_map_df[
+                transcript_gene_map_df["is_protein_coding"]
+            ]
+            aggregation_policy_to_use = protein_coding_aggregation_policy
+            diagnostics_payload["protein_coding_only_filter"] = True
+            diagnostics_payload["protein_coding_map_rows"] = int(len(transcript_gene_map_df))
 
         transcript_to_gene = {
             str(row["transcript_id"]): str(row["gene_id"])
@@ -285,7 +309,10 @@ class DefaultExpressionImplementation:
         mapped_expression_df.index = [
             transcript_to_gene[str(index_value)] for index_value in mapped_expression_df.index
         ]
-        aggregated_expression_df = mapped_expression_df.groupby(level=0).sum()
+        if aggregation_policy_to_use == "mean":
+            aggregated_expression_df = mapped_expression_df.groupby(level=0).mean()
+        else:
+            aggregated_expression_df = mapped_expression_df.groupby(level=0).sum()
 
         unresolved_expression_df = expression_df.loc[
             [not row_is_mapped for row_is_mapped in mapped_rows]
@@ -299,6 +326,8 @@ class DefaultExpressionImplementation:
         combined_expression_df = pd.concat(
             [aggregated_expression_df, unresolved_expression_df]
         )
+        if aggregation_policy_to_use == "mean":
+            return combined_expression_df.groupby(level=0).mean()
         return combined_expression_df.groupby(level=0).sum()
 
     @staticmethod

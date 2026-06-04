@@ -31,6 +31,7 @@ from VmaxBuilder.config.dataclasses import (
     ProteomicsInputConfig,
     PTRInputConfig,
     StageConfig,
+    TranscriptProcessingConfig,
     ValidationPolicy,
     VmaxConfig,
 )

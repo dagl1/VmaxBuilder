@@ -43,6 +43,7 @@ class IdentifierTranslationService:
 
     _TARGET_FIELDS: dict[str, tuple[str, ...]] = {
         "ensembl_gene_id": ("ensembl.gene", "ensemblgene"),
+        "ensembl_transcript_id": ("ensembl.transcript",),
         "symbol": ("symbol",),
         "entrez_gene_id": ("entrezgene",),
     }
@@ -164,6 +165,122 @@ class IdentifierTranslationService:
             for transcript_id, gene_id in translation_result.mapped_identifiers.items()
         ]
         return pd.DataFrame(rows, columns=["transcript_id", "gene_id"])
+
+    def build_gene_transcript_dataframe(
+        self,
+        gene_ids: Sequence[str],
+        *,
+        gene_id_type: str,
+        species: str | None = None,
+        provider: str = "auto",
+        max_workers: int = 8,
+        batch_size: int = 500,
+    ) -> pd.DataFrame:
+        """Generated: validation needed.
+
+        Description:
+            Build transcript metadata table for model genes with transcript-level
+            annotation fields used by downstream transcript IFP expansion.
+
+        Args:
+            gene_ids (Sequence[str]): Model gene identifiers.
+            gene_id_type (str): Gene identifier namespace.
+            species (str | None): Optional species hint forwarded to provider.
+            provider (str): Translation provider key. Supported values: auto, mygene.
+            max_workers (int): Maximum number of parallel worker threads.
+            batch_size (int): Number of identifiers per provider query chunk.
+
+        Returns:
+            pd.DataFrame: Transcript metadata table with columns:
+                transcript_id, gene_id, is_protein_coding, is_canonical,
+                peptide_len, cdna_len, peptide_seq, cdna_seq.
+
+        Raises:
+            ValueError: If provider or gene identifier namespace is unsupported.
+        """
+
+        deduplicated_gene_ids = self._deduplicate_identifiers(gene_ids)
+        if not deduplicated_gene_ids:
+            return pd.DataFrame(
+                columns=[
+                    "transcript_id",
+                    "gene_id",
+                    "is_protein_coding",
+                    "is_canonical",
+                    "peptide_len",
+                    "cdna_len",
+                    "peptide_seq",
+                    "cdna_seq",
+                ]
+            )
+
+        source_scope = self._SOURCE_SCOPE_BY_ID_TYPE.get(gene_id_type)
+        if source_scope is None:
+            raise ValueError(f"Unsupported gene_id_type: {gene_id_type!r}.")
+        if provider not in {"auto", "mygene"}:
+            raise ValueError("provider must be 'auto' or 'mygene'.")
+        if provider == "auto":
+            provider = "mygene"
+        if provider != "mygene":
+            raise ValueError("Unsupported provider.")
+
+        fields = "ensembl.gene,ensembl.transcript,ensembl.canonical_transcript,type_of_gene"
+        chunks = [
+            list(deduplicated_gene_ids[index : index + batch_size])
+            for index in range(0, len(deduplicated_gene_ids), batch_size)
+        ]
+        if not chunks:
+            return pd.DataFrame(
+                columns=[
+                    "transcript_id",
+                    "gene_id",
+                    "is_protein_coding",
+                    "is_canonical",
+                    "peptide_len",
+                    "cdna_len",
+                    "peptide_seq",
+                    "cdna_seq",
+                ]
+            )
+
+        worker_count = min(max_workers, len(chunks))
+        rows: list[dict[str, Any]] = []
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = [
+                executor.submit(
+                    self._query_mygene_chunk,
+                    chunk,
+                    source_scope,
+                    fields,
+                    species,
+                )
+                for chunk in chunks
+            ]
+            for future in as_completed(futures):
+                for hit in future.result():
+                    rows.extend(self._extract_transcript_rows_from_hit(hit))
+
+        transcript_df = pd.DataFrame(
+            rows,
+            columns=[
+                "transcript_id",
+                "gene_id",
+                "is_protein_coding",
+                "is_canonical",
+                "peptide_len",
+                "cdna_len",
+                "peptide_seq",
+                "cdna_seq",
+            ],
+        )
+        if transcript_df.empty:
+            return transcript_df
+        transcript_df = transcript_df.dropna(subset=["transcript_id", "gene_id"])
+        transcript_df["transcript_id"] = transcript_df["transcript_id"].astype(str)
+        transcript_df["gene_id"] = transcript_df["gene_id"].astype(str)
+        transcript_df = transcript_df.drop_duplicates(subset=["transcript_id", "gene_id"])
+        return transcript_df.reset_index(drop=True)
 
     @staticmethod
     def _deduplicate_identifiers(identifiers: Sequence[str]) -> list[str]:
@@ -359,4 +476,92 @@ class IdentifierTranslationService:
             normalised_candidate = str(candidate_value).strip()
             if normalised_candidate.upper().startswith("ENS"):
                 return normalised_candidate
+        return None
+
+    def _extract_transcript_rows_from_hit(self, hit: dict[str, Any]) -> list[dict[str, Any]]:
+        """Generated: validation needed.
+
+        Description:
+            Extract transcript metadata rows from one MyGene hit payload.
+
+        Args:
+            hit (dict[str, Any]): MyGene hit record.
+
+        Returns:
+            list[dict[str, Any]]: Transcript metadata rows.
+        """
+
+        if hit.get("notfound"):
+            return []
+
+        canonical_transcript = self._extract_canonical_transcript_identifier(hit)
+        gene_is_protein_coding = str(hit.get("type_of_gene", "")).lower() == "protein-coding"
+        fallback_gene_id = self._extract_ensembl_gene_identifier(hit)
+
+        transcript_rows: list[dict[str, Any]] = []
+        ensembl_payload = hit.get("ensembl")
+        entries: list[dict[str, Any]] = []
+        if isinstance(ensembl_payload, dict):
+            entries = [ensembl_payload]
+        elif isinstance(ensembl_payload, list):
+            entries = [entry for entry in ensembl_payload if isinstance(entry, dict)]
+
+        for entry in entries:
+            transcript_id = entry.get("transcript")
+            gene_id = entry.get("gene") or fallback_gene_id
+            if not transcript_id or not gene_id:
+                continue
+
+            peptide_seq = entry.get("peptide_seq")
+            cdna_seq = entry.get("cdna_seq")
+            peptide_len = entry.get("peptide_len")
+            cdna_len = entry.get("cdna_len")
+            if peptide_len is None and isinstance(peptide_seq, str):
+                peptide_len = len(peptide_seq)
+            if cdna_len is None and isinstance(cdna_seq, str):
+                cdna_len = len(cdna_seq)
+
+            transcript_rows.append(
+                {
+                    "transcript_id": str(transcript_id),
+                    "gene_id": str(gene_id),
+                    "is_protein_coding": bool(gene_is_protein_coding),
+                    "is_canonical": bool(
+                        canonical_transcript is not None
+                        and str(transcript_id) == canonical_transcript
+                    ),
+                    "peptide_len": peptide_len,
+                    "cdna_len": cdna_len,
+                    "peptide_seq": peptide_seq,
+                    "cdna_seq": cdna_seq,
+                }
+            )
+
+        return transcript_rows
+
+    @staticmethod
+    def _extract_canonical_transcript_identifier(hit: dict[str, Any]) -> str | None:
+        """Generated: validation needed.
+
+        Description:
+            Extract canonical transcript identifier from one MyGene hit payload.
+
+        Args:
+            hit (dict[str, Any]): MyGene hit record.
+
+        Returns:
+            str | None: Canonical transcript identifier when available.
+        """
+
+        candidates: list[Any] = [
+            hit.get("ensembl.canonical_transcript"),
+            hit.get("canonical_transcript"),
+        ]
+        ensembl_payload = hit.get("ensembl")
+        if isinstance(ensembl_payload, dict):
+            candidates.append(ensembl_payload.get("canonical_transcript"))
+
+        for candidate in candidates:
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
         return None

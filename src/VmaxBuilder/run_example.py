@@ -40,6 +40,7 @@ if __name__ == "__main__":
 
     # Pipeline target granularity.
     config.run_target_transcript_gene_level = "gene"
+    config.maximum_transcript_ifp_expansion = 20000
 
     # Expression option group.
     config.expression.id_type = "ensembl"

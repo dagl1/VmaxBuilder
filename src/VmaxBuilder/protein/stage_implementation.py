@@ -14,7 +14,7 @@ import pandas as pd
 from VmaxBuilder.config.dataclasses import APIConfig
 from VmaxBuilder.config.enums import ProteinSourceMode
 from VmaxBuilder.config.validation import ConfigurationError
-from VmaxBuilder.core.protocols import Scaffold
+from VmaxBuilder.core.protocols import Scaffold, get_scaffold_model
 from VmaxBuilder.expression.implementation import DefaultExpressionImplementation
 from VmaxBuilder.protein.proteomics_implementation import DefaultProteomicsImplementation
 from VmaxBuilder.protein.ptr_implementation import DefaultPTRImplementation
@@ -184,8 +184,8 @@ class DefaultProteinStageCoordinator:
 
         # Extract metabolic genes from scaffold model when available.
         metabolic_genes: list[str] | None = None
-        model_artifact = scaffold.get("artifacts", {}).get("model")
-        if model_artifact is not None and hasattr(model_artifact, "genes"):
+        model_artifact = get_scaffold_model(scaffold, required=False)
+        if model_artifact is not None:
             metabolic_genes = [gene.id for gene in model_artifact.genes]
 
         ptr_df = self.ptr_implementation.prepare_ptr_frame(

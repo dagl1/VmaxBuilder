@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
+import pandas as pd
 from cobra import Model
 
 from VmaxBuilder.config.dataclasses import APIConfig
@@ -12,8 +13,46 @@ from VmaxBuilder.config.validation import (
     validate_model_config,
 )
 from VmaxBuilder.core.protocols import Scaffold
+from VmaxBuilder.database_retrieval.identifier_translation import (
+    IdentifierTranslationService,
+)
 from VmaxBuilder.model.preprocessing import preprocess_model
 from VmaxBuilder.utils.file_handling import load_existing_file_based_on_extension
+
+
+class TranscriptMetadataServiceProtocol(Protocol):
+    """Generated: validation needed.
+
+    Description:
+        Protocol for model-stage transcript metadata lookup services.
+    """
+
+    def build_gene_transcript_dataframe(
+        self,
+        gene_ids: list[str],
+        *,
+        gene_id_type: str,
+        species: str | None,
+        provider: str,
+        max_workers: int,
+        batch_size: int,
+    ) -> pd.DataFrame:
+        """Generated: validation needed.
+
+        Description:
+            Build transcript metadata dataframe for one list of model genes.
+
+        Args:
+            gene_ids (list[str]): Model gene identifiers.
+            gene_id_type (str): Gene identifier namespace.
+            species (str | None): Optional species hint.
+            provider (str): Translation provider key.
+            max_workers (int): Maximum worker thread count.
+            batch_size (int): Query batch size.
+
+        Returns:
+            pd.DataFrame: Transcript metadata dataframe.
+        """
 
 
 class DefaultModelStageImplementation:
@@ -28,6 +67,22 @@ class DefaultModelStageImplementation:
     Modifies:
         scaffold payload for model stage artifacts and metadata.
     """
+
+    def __init__(
+        self,
+        translation_service: TranscriptMetadataServiceProtocol | None = None,
+    ) -> None:
+        """Generated: validation needed.
+
+        Description:
+            Initialize model-stage implementation dependencies.
+
+        Args:
+            translation_service (TranscriptMetadataServiceProtocol | None): Optional
+                transcript metadata lookup service override.
+        """
+
+        self._translation_service = translation_service or IdentifierTranslationService()
 
     def run(self, scaffold: Scaffold, config: APIConfig) -> Scaffold:
         """Generated: validation needed.
@@ -60,11 +115,119 @@ class DefaultModelStageImplementation:
         artifacts_payload["model_reference"] = model_reference
         artifacts_payload["model"] = preprocessing_result["irreversible_model"]
         artifacts_payload["rev2irrev"] = preprocessing_result["rev2irrev"]
+        if config.run_target_transcript_gene_level.lower() == "transcript":
+            transcript_artifacts = self._build_transcript_artifacts_for_model(
+                model=preprocessing_result["irreversible_model"],
+                config=config,
+            )
+            artifacts_payload.update(transcript_artifacts)
         metadata_payload["model_stage"] = {
             "reaction_notation": config.model.reaction_notation.value,
             "make_copy": config.model.make_copy,
         }
         return scaffold
+
+    def _build_transcript_artifacts_for_model(
+        self,
+        *,
+        model: Model,
+        config: APIConfig,
+    ) -> dict[str, Any]:
+        """Generated: validation needed.
+
+        Description:
+            Build transcript metadata artifacts for model genes when transcript
+            target level is requested.
+
+        Args:
+            model (Model): Irreversible cobra model.
+            config (APIConfig): Root API configuration.
+
+        Returns:
+            dict[str, Any]: Transcript metadata and mapping artifacts.
+        """
+
+        genes_in_model = [gene.id for gene in model.genes]
+        model_id_type = self._build_id_type_name(config.model.id_type, config.model.level)
+        if model_id_type is None:
+            transcript_df = pd.DataFrame(
+                columns=[
+                    "transcript_id",
+                    "gene_id",
+                    "is_protein_coding",
+                    "is_canonical",
+                    "peptide_len",
+                    "cdna_len",
+                    "peptide_seq",
+                    "cdna_seq",
+                ]
+            )
+        else:
+            transcript_df = self._translation_service.build_gene_transcript_dataframe(
+                genes_in_model,
+                gene_id_type=model_id_type,
+                species=config.transcript_processing.id_translation_species,
+                provider=config.transcript_processing.id_translation_provider,
+                max_workers=config.transcript_processing.id_translation_max_workers,
+                batch_size=config.transcript_processing.id_translation_batch_size,
+            )
+
+        transcript_to_gene_mapping = transcript_df.set_index("transcript_id")[
+            "gene_id"
+        ].to_dict()
+        gene_to_transcript_mapping = (
+            transcript_df.groupby("gene_id")["transcript_id"].agg(list).to_dict()
+            if not transcript_df.empty
+            else {}
+        )
+        protein_coding_transcripts = transcript_df[transcript_df["is_protein_coding"]][
+            "transcript_id"
+        ].tolist()
+        canonical_transcripts = transcript_df[transcript_df["is_canonical"]][
+            "transcript_id"
+        ].tolist()
+        transcript_sequences = transcript_df[
+            [
+                "transcript_id",
+                "gene_id",
+                "peptide_len",
+                "cdna_len",
+                "peptide_seq",
+                "cdna_seq",
+            ]
+        ]
+
+        return {
+            "gene_transcript_mapping": transcript_df,
+            "transcript_to_gene_mapping": transcript_to_gene_mapping,
+            "gene_to_transcript_mapping": gene_to_transcript_mapping,
+            "protein_coding_transcripts": protein_coding_transcripts,
+            "canonical_transcripts": canonical_transcripts,
+            "transcript_sequences": transcript_sequences,
+            "genes_in_model": genes_in_model,
+        }
+
+    @staticmethod
+    def _build_id_type_name(provider: str | None, level: str) -> str | None:
+        """Generated: validation needed.
+
+        Description:
+            Build full identifier type name from provider and granularity level.
+
+        Args:
+            provider (str | None): Identifier provider value.
+            level (str): Gene/transcript level.
+
+        Returns:
+            str | None: Full identifier type name or None when provider missing.
+        """
+
+        if provider is None:
+            return None
+        level_lower = level.lower()
+        if provider == "ensembl":
+            return f"ensembl_{level_lower}_id"
+        return provider
 
     def _resolve_model_input(
         self, config: APIConfig, scaffold: Scaffold

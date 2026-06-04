@@ -28,4 +28,5 @@ from VmaxBuilder.core.protocols import (
     Scaffold,
     StageProtocol,
     StrategyProtocol,
+    get_scaffold_model,
 )

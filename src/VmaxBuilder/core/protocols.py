@@ -7,10 +7,13 @@ Description:
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, Protocol, TypedDict, runtime_checkable
+from typing import Any, Literal, Protocol, TypedDict, overload, runtime_checkable
+
+from cobra import Model
 
 from VmaxBuilder.config.dataclasses import APIConfig
 from VmaxBuilder.config.enums import DiagnosticSeverity, StageName
+from VmaxBuilder.config.validation import ConfigurationError
 
 
 class Scaffold(TypedDict):
@@ -34,6 +37,48 @@ class Scaffold(TypedDict):
     metadata: dict[str, Any]
     diagnostics: dict[str, Any]
     extras: dict[str, Any]
+
+
+@overload
+def get_scaffold_model(scaffold: Scaffold, *, required: Literal[True] = True) -> Model: ...
+
+
+@overload
+def get_scaffold_model(scaffold: Scaffold, *, required: Literal[False]) -> Model | None: ...
+
+
+def get_scaffold_model(scaffold: Scaffold, *, required: bool = True) -> Model | None:
+    """Generated: validation needed.
+
+    Description:
+        Return scaffold model artifact with runtime validation and precise typing.
+
+    Args:
+        scaffold (Scaffold): Shared pipeline scaffold.
+        required (bool): Whether missing model artifact should raise.
+
+    Returns:
+        cobra.Model | None: Scaffold model artifact, or ``None`` when optional.
+
+    Raises:
+        ConfigurationError: When model artifact is missing while required, or when
+            stored artifact is not ``cobra.Model``.
+    """
+
+    model_artifact = scaffold.get("artifacts", {}).get("model")
+    if model_artifact is None:
+        if required:
+            raise ConfigurationError(
+                "Scaffold artifacts['model'] missing. Run model stage before "
+                "requesting model-dependent artifacts."
+            )
+        return None
+    if not isinstance(model_artifact, Model):
+        raise ConfigurationError(
+            "Scaffold artifacts['model'] must be cobra.Model. "
+            f"Received {type(model_artifact).__name__}."
+        )
+    return model_artifact
 
 
 class DiagnosticRecordCore(TypedDict):

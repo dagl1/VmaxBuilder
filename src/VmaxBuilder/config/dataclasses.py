@@ -428,6 +428,34 @@ class ExpressionInputConfig:
 
 
 @dataclass(slots=True)
+class TranscriptProcessingConfig:
+    """Generated: validation needed.
+
+    Description:
+        Transcript-level processing options shared across expression preprocessing
+        and model-stage transcript metadata retrieval.
+
+    Args:
+        protein_coding_only (bool): Whether transcript->gene aggregation should keep
+            only transcript rows marked as protein-coding when annotation is available.
+        protein_coding_aggregation_policy (str): Aggregation policy for protein-coding
+            transcript rows. Supported values: ``sum``, ``mean``.
+        id_translation_provider (str): Translation provider key used when building
+            model gene->transcript metadata.
+        id_translation_species (str | None): Optional species hint for transcript lookup.
+        id_translation_max_workers (int): Worker thread count for transcript lookup.
+        id_translation_batch_size (int): Query batch size for transcript lookup.
+    """
+
+    protein_coding_only: bool = False
+    protein_coding_aggregation_policy: str = "sum"
+    id_translation_provider: str = "auto"
+    id_translation_species: str | None = None
+    id_translation_max_workers: int = 8
+    id_translation_batch_size: int = 500
+
+
+@dataclass(slots=True)
 class PTRInputConfig:
     """Generated: validation needed.
 
@@ -571,6 +599,8 @@ class APIConfig:
         loading (LoadingPolicy): File/path loading policy.
         run_target_transcript_gene_level (str): Target analysis granularity,
             transcript or gene.
+        transcript_processing (TranscriptProcessingConfig): Transcript processing
+            options for aggregation and transcript metadata retrieval.
         model (ModelConfig): Model stage configuration.
         expression (ExpressionInputConfig): Expression input option group.
         ptr (PTRInputConfig): PTR input option group.
@@ -584,6 +614,10 @@ class APIConfig:
     validation: ValidationPolicy = field(default_factory=ValidationPolicy)
     loading: LoadingPolicy = field(default_factory=LoadingPolicy)
     run_target_transcript_gene_level: str = "gene"
+    maximum_transcript_ifp_expansion: int = 20000
+    transcript_processing: TranscriptProcessingConfig = field(
+        default_factory=TranscriptProcessingConfig
+    )
     model: ModelConfig = field(default_factory=ModelConfig)
     expression: ExpressionInputConfig = field(default_factory=ExpressionInputConfig)
     ptr: PTRInputConfig = field(default_factory=PTRInputConfig)

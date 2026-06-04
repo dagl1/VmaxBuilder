@@ -8,11 +8,14 @@ Description:
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from enum import Enum
 from time import perf_counter
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from cobra import Model, Reaction
+from cobra.util.context import resettable
 
 if TYPE_CHECKING:
     from VmaxBuilder.config.dataclasses import ModelConfig
@@ -60,7 +63,55 @@ def _set_id_with_model_slim(self: Reaction, value: str) -> None:
         value (str): New reaction identifier.
     Requires:
         Caller must rebuild index: model.reactions._generate_index()
+    Modifies:
+        self._id: updated without triggering per-rename model index rebuild.
     """
+
+    self._id = value
+
+
+@contextmanager
+def _temporary_fast_reaction_patches() -> Iterator[None]:
+    """Generated: validation needed.
+    Description:
+        Temporarily patch `cobra.Reaction` internals used by FAST irreversible split.
+        Adds 3-tuple slim bounds support and no-op ID model index hook, then restores
+        original methods on exit even when an exception is raised.
+    Yields:
+        None: Active patch scope.
+    Modifies:
+        `cobra.Reaction.bounds` and `cobra.Reaction._set_id_with_model` for context scope.
+    """
+
+    original_set_id_with_model = Reaction._set_id_with_model  # type: ignore[attr-defined]
+    original_bounds_property = Reaction.bounds
+
+    @original_bounds_property.setter
+    @resettable  # ty: ignore[invalid-argument-type]
+    def patched_bounds(
+        self: Reaction,
+        value: tuple[float, float, bool] | tuple[float, float] | Sequence[float],
+    ) -> None:
+        if isinstance(value, tuple) and len(value) == 3:
+            lower_bound, upper_bound, is_slim = value
+        else:
+            lower_bound, upper_bound = value
+            is_slim = False
+
+        self._check_bounds(lower_bound, upper_bound)
+        self._lower_bound = lower_bound
+        self._upper_bound = upper_bound
+        if not is_slim:
+            self.update_variable_bounds()
+
+    reaction_class = cast(Any, Reaction)
+    try:
+        reaction_class._set_id_with_model = _set_id_with_model_slim
+        reaction_class.bounds = patched_bounds
+        yield
+    finally:
+        reaction_class._set_id_with_model = original_set_id_with_model
+        reaction_class.bounds = original_bounds_property
 
 
 def _split_reversible_reactions_safe(
@@ -124,8 +175,7 @@ def _split_reversible_reactions_fast(
         reactions in bulk, then restores the method and calls _generate_index once.
         Finishes by rebuilding the solver from scratch.
         Use only when model will undergo full solver rebuild immediately after.
-        Requires cobrapy_overwrites.cobrapy_reaction import to be active for slim
-        bound sets (3-tuple syntax).
+        Applies temporary `Reaction` monkeypatches only inside a safe context.
     Args:
         irreversible_model (cobra.Model): Model containing the reversible reactions
             (already copied from the source model).
@@ -134,48 +184,44 @@ def _split_reversible_reactions_fast(
     Returns:
         tuple[cobra.Model, list[list[int]]]: Updated model and rev2irrev mapping.
             rev2irrev[i] is a list of 1-based reaction indices for the i-th reaction.
-    Requires:
-        cobrapy_overwrites.cobrapy_reaction must be imported to enable slim bounds setter.
     Modifies:
         irreversible_model: reaction IDs, bounds, stoichiometry, and solver rebuilt.
     """
-    original_set_id_with_model = Reaction._set_id_with_model  # type: ignore[attr-defined]
-    Reaction._set_id_with_model = _set_id_with_model_slim  # type: ignore[attr-defined]
-    for forward_reaction, backward_reaction in additional_reactions.items():
-        forward_reaction.id = forward_reaction.id + _FORWARD_SUFFIX
-        backward_reaction.id = backward_reaction.id + _BACKWARD_SUFFIX
-    Reaction._set_id_with_model = original_set_id_with_model  # type: ignore[attr-defined]
-    irreversible_model.reactions._generate_index()
-    original_reaction_count = len(irreversible_model.reactions)
-    indices_by_id: dict[str, int] = {
-        reaction.id: idx for idx, reaction in enumerate(irreversible_model.reactions)
-    }
-    rev2irrev: list[list[int]] = [[idx + 1] for idx in range(original_reaction_count)]
-    for backward_reaction_idx, (forward_reaction, _) in enumerate(
-        additional_reactions.items()
-    ):
-        forward_reaction_idx = indices_by_id[forward_reaction.id]
-        rev2irrev[forward_reaction_idx].append(
-            backward_reaction_idx + 1 + original_reaction_count
-        )
-    add_start = perf_counter()
-    irreversible_model.add_reactions(list(additional_reactions.values()))
-    logger.debug("Fast split: add_reactions took %.2fs.", perf_counter() - add_start)
-    bounds_start = perf_counter()
-    for forward_reaction, backward_reaction in additional_reactions.items():
-        backward_reaction.bounds = (0.0, -forward_reaction.lower_bound, True)  # type: ignore[assignment]
-        backward_reaction.add_metabolites(
-            {met: -1 * coeff for met, coeff in forward_reaction.metabolites.items()},
-            combine=False,
-            reversibly=False,
-        )
-        forward_reaction.bounds = (0.0, forward_reaction.upper_bound, True)  # type: ignore[assignment]
-    logger.debug("Fast split: bound update took %.2fs.", perf_counter() - bounds_start)
+    with _temporary_fast_reaction_patches():
+        for forward_reaction, backward_reaction in additional_reactions.items():
+            forward_reaction.id = forward_reaction.id + _FORWARD_SUFFIX
+            backward_reaction.id = backward_reaction.id + _BACKWARD_SUFFIX
+
+        irreversible_model.reactions._generate_index()
+        original_reaction_count = len(irreversible_model.reactions)
+        indices_by_id: dict[str, int] = {
+            reaction.id: idx for idx, reaction in enumerate(irreversible_model.reactions)
+        }
+        rev2irrev: list[list[int]] = [[idx + 1] for idx in range(original_reaction_count)]
+        for backward_reaction_idx, (forward_reaction, _) in enumerate(
+            additional_reactions.items()
+        ):
+            forward_reaction_idx = indices_by_id[forward_reaction.id]
+            rev2irrev[forward_reaction_idx].append(
+                backward_reaction_idx + 1 + original_reaction_count
+            )
+
+        add_start = perf_counter()
+        irreversible_model.add_reactions(list(additional_reactions.values()))
+        logger.debug("Fast split: add_reactions took %.2fs.", perf_counter() - add_start)
+
+        bounds_start = perf_counter()
+        for forward_reaction, backward_reaction in additional_reactions.items():
+            backward_reaction.bounds = (0.0, -forward_reaction.lower_bound, True)  # type: ignore[assignment]
+            backward_reaction.add_metabolites(
+                {met: -1 * coeff for met, coeff in forward_reaction.metabolites.items()},
+                combine=False,
+                reversibly=False,
+            )
+            forward_reaction.bounds = (0.0, forward_reaction.upper_bound, True)  # type: ignore[assignment]
+        logger.debug("Fast split: bound update took %.2fs.", perf_counter() - bounds_start)
     solver_start = perf_counter()
-    irreversible_model._populate_solver(  # type: ignore[attr-defined]
-        list(irreversible_model.reactions),
-        list(irreversible_model.metabolites),
-    )
+    irreversible_model._populate_solver(list(irreversible_model.reactions))  # type: ignore[attr-defined]
     logger.debug("Fast split: solver rebuild took %.2fs.", perf_counter() - solver_start)
     return irreversible_model, rev2irrev
 
@@ -192,7 +238,7 @@ def create_irreversible_model(
         Two modes available:
         - SAFE: Standard cobrapy methods, index rebuilt after each rename.
         - FAST: Batch rename with temporary no-op ID hook, single index rebuild,
-          slim bound setter. Requires cobrapy_overwrites.cobrapy_reaction active.
+          and context-scoped slim bounds setter.
     Args:
         cobra_model (cobra.Model): Source model. Will be mutated in-place.
         mode (IrreversibleModelMode): Splitting strategy. Default SAFE.
@@ -203,8 +249,6 @@ def create_irreversible_model(
             [forward_idx, backward_idx] for split reversible reactions.
     Raises:
         ValueError: When mode is not a valid IrreversibleModelMode.
-    Requires:
-        When mode is FAST: cobrapy_overwrites.cobrapy_reaction must be imported.
     Modifies:
         cobra_model: reaction IDs, bounds, and stoichiometry updated in-place.
     Example:
@@ -238,7 +282,7 @@ def create_irreversible_model(
 def preprocess_model(
     cobra_model: Model,
     config: ModelConfig,
-    mode: IrreversibleModelMode = IrreversibleModelMode.SAFE,
+    mode: IrreversibleModelMode = IrreversibleModelMode.FAST,
 ) -> ModelPreprocessingResult:
     """Generated: validation needed.
     Description:
@@ -257,8 +301,6 @@ def preprocess_model(
             - rev2irrev: Mapping from original to irreversible reaction indices.
     Raises:
         ValueError: Propagated from create_irreversible_model on invalid mode.
-    Requires:
-        When mode is FAST: cobrapy_overwrites.cobrapy_reaction must be imported.
     Modifies:
         cobra_model (or its copy): boundary reactions closed, reversible reactions split.
     Example:
