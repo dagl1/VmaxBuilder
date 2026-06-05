@@ -12,6 +12,7 @@ from VmaxBuilder.utils.lookup_cache import (
     gene_result_to_dict,
     get_default_cache_dir,
     sequence_cache_key,
+    smiles_cache_key,
 )
 
 
@@ -77,3 +78,65 @@ def test_gene_result_round_trip_conversion() -> None:
         )
         == "human:BRCA1:canonical_only"
     )
+
+
+@pytest.mark.unit
+def test_lookup_cache_clear_removes_all_entries(tmp_path: Path) -> None:
+    cache = LookupCache(tmp_path, "ns")
+    cache.set_many({"x": 1, "y": 2})
+    assert len(cache) == 2
+
+    cache.clear()
+
+    assert len(cache) == 0
+    assert "x" not in cache
+
+
+@pytest.mark.unit
+def test_lookup_cache_keys_returns_snapshot(tmp_path: Path) -> None:
+    cache = LookupCache(tmp_path, "ns")
+    cache.set_many({"a": 1, "b": 2})
+
+    keys = cache.keys()
+
+    assert sorted(keys) == ["a", "b"]
+
+
+@pytest.mark.unit
+def test_lookup_cache_repr_contains_namespace(tmp_path: Path) -> None:
+    cache = LookupCache(tmp_path, "my_ns")
+    assert "my_ns" in repr(cache)
+
+
+@pytest.mark.unit
+def test_lookup_cache_autosave_false_does_not_write_immediately(tmp_path: Path) -> None:
+    cache = LookupCache(tmp_path, "lazy", autosave=False)
+    cache.set("key", "value")
+
+    # File not yet written
+    cache_file = tmp_path / "lazy.json"
+    assert not cache_file.exists()
+
+    cache.save()
+    assert cache_file.exists()
+
+
+@pytest.mark.unit
+def test_lookup_cache_handles_corrupt_json_gracefully(tmp_path: Path) -> None:
+    cache_file = tmp_path / "corrupt.json"
+    cache_file.write_text("{{not valid json", encoding="utf-8")
+
+    cache = LookupCache(tmp_path, "corrupt")
+    assert len(cache) == 0
+
+
+@pytest.mark.unit
+def test_smiles_cache_key_format() -> None:
+    key = smiles_cache_key("chebi", "CHEBI:15422")
+    assert key == "chebi:CHEBI:15422"
+
+
+@pytest.mark.unit
+def test_lookup_cache_get_missing_key_returns_none(tmp_path: Path) -> None:
+    cache = LookupCache(tmp_path, "empty")
+    assert cache.get("nonexistent") is None
