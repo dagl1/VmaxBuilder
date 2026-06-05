@@ -49,6 +49,8 @@ class DefaultKcatGPRImplementation:
         """
 
         cobra_model = get_scaffold_model(scaffold, required=False)
+        if cobra_model is None:
+            raise ValueError("No COBRA model found in scaffold for GPR processing.")
         gpr_rules = get_unique_gpr_rules(cobra_model)
         ifp_mapping = self._convert_gene_gpr_rules_to_ifp(gpr_rules)
         if config.run_target_transcript_gene_level.lower() == "transcript":
