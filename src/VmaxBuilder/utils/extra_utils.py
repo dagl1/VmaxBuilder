@@ -130,14 +130,14 @@ def _metabolite_has_same_charge(
     return met_1_charge == met_2_charge
 
 
-def extract_compartment(old_id: str) -> str:
+def extract_compartment(old_id: Any) -> str:
     """Generated: validation needed.
 
     Description:
         Extract compartment suffix from metabolite identifier.
 
     Args:
-        old_id (str): Identifier to inspect.
+        old_id (Any): Identifier to inspect. Non-string values return empty string.
 
     Returns:
         str: Extracted compartment or empty string when absent.
@@ -159,17 +159,17 @@ def extract_compartment(old_id: str) -> str:
     return ""
 
 
-def remove_compartment(old_id: str) -> str:
+def remove_compartment(old_id: Any) -> Any:
     """Generated: validation needed.
 
     Description:
         Remove compartment suffix from metabolite identifier.
 
     Args:
-        old_id (str): Identifier to normalise.
+        old_id (Any): Identifier to normalise. Non-string values are returned unchanged.
 
     Returns:
-        str: Identifier without compartment suffix when pattern matches.
+        Any: Identifier without compartment suffix when pattern matches.
     """
     if not isinstance(old_id, str):
         return old_id
@@ -211,6 +211,18 @@ def convert_camel_case_to_snake_case(name: str) -> str:
 def convert_model_to_cobra_model(
     model: Union["Model", Dict[str, Any]], make_copy: Optional[bool] = False
 ) -> "Model":
+    """Generated: validation needed.
+
+    Description:
+        Convert a model-like object to a COBRApy Model.  Not yet implemented.
+
+    Args:
+        model (Model | Dict[str, Any]): Source model or raw dictionary.
+        make_copy (Optional[bool]): Reserved for future copy semantics.
+
+    Raises:
+        NotImplementedError: Always raised; conversion not yet implemented.
+    """
     raise NotImplementedError(
         "This function is not implemented in the VmaxBuilder package. "
         "Please use the appropriate method from the VmaxBuilder package to convert models."
@@ -356,7 +368,17 @@ def get_transport_reaction_gene_ids(
 def compare_dicts(
     dict1: Dict[str, Any],
     dict2: Dict[str, Any],
-):
+) -> None:
+    """Generated: validation needed.
+
+    Description:
+        Print a human-readable diff of two dictionaries to stdout, listing keys
+        unique to each dict and value differences for shared keys.
+
+    Args:
+        dict1 (Dict[str, Any]): First dictionary.
+        dict2 (Dict[str, Any]): Second dictionary.
+    """
     if dict1 == dict2:
         print("Dictionaries are equal.")
         return

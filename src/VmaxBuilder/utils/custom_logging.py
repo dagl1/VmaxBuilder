@@ -55,7 +55,20 @@ DEFAULT_DECORATOR_TIME_DECIMALS = 4
 DEFAULT_BACKUP_LOGGER_PRINT_LEVEL = 3
 
 
-def parse_log_file(log_path):  # noqa: C901
+def parse_log_file(log_path: str | Path) -> pd.DataFrame:  # noqa: C901
+    """Generated: validation needed.
+
+    Description:
+        Parse a log file written by :class:`CustomLogger` and return a DataFrame
+        pairing each STARTING entry with its corresponding FINISHED entry.
+
+    Args:
+        log_path (str | Path): Path to the ``.log`` file to parse.
+
+    Returns:
+        pd.DataFrame: DataFrame with columns ``function``, ``file``, ``start_time``,
+            ``end_time``, ``duration``, ``lineno``, and ``calls``.
+    """
     pattern_start = re.compile(r"STARTING - Starting: (.*?) \((.*?):(\d+)\)")
     pattern_finish = re.compile(
         r"FINISHED - Finished: (.*?) in: ([\d.]+) seconds \((.*?):(\d+)\)"
@@ -148,6 +161,19 @@ class CustomLogger:
         print_level: int = 2,
         auto_parse: bool = False,
     ):
+        """Generated: validation needed.
+
+        Description:
+            Initialise logger, attach console and file handlers, optionally
+            register an atexit log-parser.
+
+        Args:
+            name (str): Logger name; also used as log filename stem.
+            log_files_location (str | Path | None): Directory for log files.
+                Defaults to ``utils/logs/`` when None.
+            print_level (int): Maximum print-level passed through to console handler.
+            auto_parse (bool): When True register :meth:`_run_log_parser` at exit.
+        """
         if log_files_location is None:
             log_files_location_path = Path(__file__).resolve().parent / "logs"
         else:
@@ -188,7 +214,15 @@ class CustomLogger:
             atexit.register(self._run_log_parser)
 
     def set_log_files_location(self, log_files_location: str, mode: str = "w") -> None:
-        """Rebind the file handler to a new directory while preserving console logging."""
+        """Generated: validation needed.
+
+        Description:
+            Rebind the file handler to a new directory while preserving console logging.
+
+        Args:
+            log_files_location (str): New directory path for the log file.
+            mode (str): File open mode passed to :class:`~logging.FileHandler`.
+        """
         log_files_location_path = Path(log_files_location)
         log_files_location_path.mkdir(parents=True, exist_ok=True)
 
@@ -215,7 +249,20 @@ class CustomLogger:
         self.log_file_path = log_file_path
 
     @staticmethod
-    def fix_non_ascii_messages_decorator(func):
+    def fix_non_ascii_messages_decorator(func: Callable) -> Callable:
+        """Generated: validation needed.
+
+        Description:
+            Decorator that sanitises log messages to cp1252-safe strings before
+            passing them to the wrapped logging method.
+
+        Args:
+            func (Callable): Logging method to wrap.
+
+        Returns:
+            Callable: Wrapped method with message sanitisation.
+        """
+
         @wraps(func)
         def wrapper(self, message, *args, **kwargs):
             if not isinstance(message, str):
@@ -236,8 +283,22 @@ class CustomLogger:
 
         return wrapper
 
-    def process_stack(self, stack_):
-        # go through stack until first occurrence not equal to __name__ of this file
+    def process_stack(self, stack_: list) -> tuple[str, int]:
+        """Generated: validation needed.
+
+        Description:
+            Walk the call stack and return filename and line number of the first
+            frame outside this module.
+
+        Args:
+            stack_ (list): Frame list from :func:`inspect.stack`.
+
+        Returns:
+            tuple[str, int]: Caller filename (basename) and line number.
+
+        Raises:
+            ValueError: When no caller frame outside this module is found.
+        """
         caller_frame = None
         for frame in stack_:
             name = __name__.replace(".", "\\")
@@ -318,8 +379,15 @@ class CustomLogger:
             },
         )
 
-    def set_print_level(self, level):
-        """Change print level dynamically"""
+    def set_print_level(self, level: int) -> None:
+        """Generated: validation needed.
+
+        Description:
+            Change the console handler print level dynamically.
+
+        Args:
+            level (int): New maximum print level to pass through to console.
+        """
         self.print_level = level
         self.filter.print_level = level
 
@@ -594,10 +662,24 @@ def decorator_provide_time_information(function: Callable) -> Callable:
     return decorator_provide_time_information_2(function, print_level=2)
 
 
-def profile_time(func):
+def profile_time(func: Callable) -> Callable:
+    """Generated: validation needed.
+
+    Description:
+        Decorator that profiles a function using both cProfile and line_profiler,
+        printing timing statistics to stdout.
+
+    Args:
+        func (Callable): Function to profile.
+
+    Returns:
+        Callable: Wrapped function that prints timing stats on each call.
+    """
+
     @wraps(func)
-    def wrapper(*args, **kwargs):
-        print(f"\n--- Profiling (Time) for {func.__name__} ---")
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        func_name = cast(Any, func).__name__
+        print(f"\n--- Profiling (Time) for {func_name} ---")
 
         # Line profiler
         profiler = line_profiler.LineProfiler()
@@ -629,10 +711,24 @@ def profile_time(func):
     return wrapper
 
 
-def profile_memory_full(func):
+def profile_memory_full(func: Callable) -> Callable:
+    """Generated: validation needed.
+
+    Description:
+        Decorator that profiles memory usage of a function using tracemalloc,
+        psutil, and memory_profiler, printing a full memory report to stdout.
+
+    Args:
+        func (Callable): Function to profile.
+
+    Returns:
+        Callable: Wrapped function that prints memory stats on each call.
+    """
+
     @wraps(func)
-    def wrapper(*args, **kwargs):
-        print(f"\n--- Profiling (Memory) for {func.__name__} ---")
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        func_name = cast(Any, func).__name__
+        print(f"\n--- Profiling (Memory) for {func_name} ---")
         start_time = perf_counter()
 
         # Start tracemalloc

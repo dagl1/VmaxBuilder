@@ -14,22 +14,63 @@ ListOrDict = Union[List[Any], Dict[Any, Any]]
 
 @dataclass(frozen=True)
 class TypeNode:
+    """Generated: validation needed.
+
+    Description:
+        Immutable node representing a concrete named type with optional type arguments.
+
+    Args:
+        name (str): Type name, e.g. ``"int"`` or ``"List"``.
+        args (Tuple[TypeNode | UnionNode, ...]): Optional nested type arguments.
+    """
+
     name: str
     args: Tuple[Union["TypeNode", "UnionNode"], ...] = ()
 
 
 @dataclass(frozen=True)
 class UnionNode:
+    """Generated: validation needed.
+
+    Description:
+        Immutable node representing a union of multiple type nodes.
+
+    Args:
+        members (FrozenSet[TypeNode]): Set of member type nodes forming the union.
+    """
+
     members: FrozenSet[TypeNode]
 
 
-def _merge_types(types: set) -> UnionNode:
+def _merge_types(types: set) -> UnionNode | TypeNode:
+    """Generated: validation needed.
+
+    Description:
+        Collapse a set of type nodes into a single node or union node.
+
+    Args:
+        types (set): Set of ``TypeNode`` or ``UnionNode`` instances.
+
+    Returns:
+        UnionNode | TypeNode: Single node when set has one member, otherwise UnionNode.
+    """
     if len(types) == 1:
         return next(iter(types))
     return UnionNode(frozenset(types))
 
 
-def _infer_type(obj):  # noqa: C901
+def _infer_type(obj: Any) -> TypeNode | UnionNode:  # noqa: C901
+    """Generated: validation needed.
+
+    Description:
+        Recursively infer the structural type of a Python object.
+
+    Args:
+        obj (Any): Object to inspect.
+
+    Returns:
+        TypeNode | UnionNode: Inferred type node tree.
+    """
     if obj is None:
         return TypeNode("None")
 
@@ -91,7 +132,19 @@ def _infer_type(obj):  # noqa: C901
     return TypeNode(type(obj).__name__)
 
 
-def _render_type(node, *, use_Union: bool = False) -> str:
+def _render_type(node: TypeNode | UnionNode, *, use_Union: bool = False) -> str:
+    """Generated: validation needed.
+
+    Description:
+        Render a type node tree to a human-readable type hint string.
+
+    Args:
+        node (TypeNode | UnionNode): Root of the type node tree to render.
+        use_Union (bool): When True use ``Union[...]`` syntax; otherwise use ``|``.
+
+    Returns:
+        str: Rendered type hint string.
+    """
     if isinstance(node, UnionNode):
         members = sorted((_render_type(m, use_Union=use_Union) for m in node.members))
         if use_Union:
@@ -110,15 +163,21 @@ def _render_type(node, *, use_Union: bool = False) -> str:
 
 
 def parse_type_hint(_object: object, *, use_Union: bool = False) -> str:
-    """
-    Infer and render the type hint for a given object.
-    Args:
-        _object (object): The object to infer the type hint for.
+    """Generated: validation needed.
 
-        use_Union (Optional[bool]): Whether to use 'Union' syntax instead of '|'.
+    Description:
+        Infer and render the type hint for a given object.
+
+    Args:
+        _object (object): Object to infer the type hint for.
+        use_Union (bool): Whether to use ``Union[...]`` syntax instead of ``|``.
 
     Returns:
-        return_string (str): The inferred type hint as a string.
+        str: Inferred type hint as a string.
+
+    Example:
+        >>> parse_type_hint({"key": [1, 2]})
+        'Dict[str, List[int]]'
     """
     inferred = _infer_type(_object)
     return_string = _render_type(inferred, use_Union=use_Union)

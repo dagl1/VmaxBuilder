@@ -1,3 +1,9 @@
+"""
+Transformation utilities for converting dataframes between log and linear spaces.
+
+Supports ``linear``, ``log10``, ``log2``, and ``ln`` transformations.
+"""
+
 import numpy as np
 import pandas as pd
 
@@ -120,10 +126,10 @@ def transform_dataframe(
         ValueError: When ``pretransformed_type`` is unrecognised.
     """
     df = df.copy().replace({pd.NA: np.nan})
-    df = df.infer_objects(copy=False).astype(float)
     _validate_transformation_type(pretransformed_type, field_name="pretransformed_type")
     _validate_transformation_type(target_transformation, field_name="target_transformation")
     data_cols = _resolve_data_columns(df)
+    df[data_cols] = df[data_cols].infer_objects(copy=False).astype(float)
     df[data_cols] = df[data_cols].apply(
         lambda series: _apply_target_transformation(
             _apply_forward_transformation(series, pretransformed_type),
