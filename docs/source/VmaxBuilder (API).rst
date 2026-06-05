@@ -1,12 +1,23 @@
 VmaxBuilder (API)
 ========================
+
 .. autosummary::
    :caption: API Reference
    :template: custom_module.rst
    :toctree: generated/
    :recursive:
 
-   VmaxBuilder.input_diagnostics <input_diagnostics>
-   VmaxBuilder.input_preprocessing <input_preprocessing>
-   VmaxBuilder.preprocessing <preprocessing>
-   VmaxBuilder.utils <utils>
+   VmaxBuilder.api
+   VmaxBuilder.config
+   VmaxBuilder.core
+   VmaxBuilder.expression
+   VmaxBuilder.model
+   VmaxBuilder.protein
+   VmaxBuilder.Kcat
+   VmaxBuilder.allocation
+   VmaxBuilder.Vmax
+   VmaxBuilder.diagnostics
+   VmaxBuilder.registries
+   VmaxBuilder.database_retrieval
+   VmaxBuilder.cobrapy_overwrites
+   VmaxBuilder.utils
