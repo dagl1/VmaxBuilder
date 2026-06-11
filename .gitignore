@@ -152,3 +152,4 @@ staged_files.txt
 src/VmaxBuilder/to_refactor
 data
 src/VmaxBuilder/old_to_be_refactored
+.nvim-run.json
