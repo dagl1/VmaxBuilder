@@ -115,7 +115,7 @@ class LoadingPolicy:
     in_memory_inputs: dict[str, Any] = field(default_factory=dict)
     discovery_prefixes: dict[str, tuple[str, ...]] = field(
         default_factory=lambda: {
-            "model": ("model",),
+            "model": ("model_",),
             "expression": ("data__",),
             "ptr": ("ptr__",),
             "proteomics": ("data__",),
@@ -142,6 +142,7 @@ class LoadingPolicy:
         Returns:
             dict[str, Path]: Effective explicit path mapping keyed by artifact name.
         """
+        self._extend_user_paths()
 
         typed_paths = {
             "model": self.model_path,
@@ -156,6 +157,27 @@ class LoadingPolicy:
             if artifact_path is not None:
                 merged_paths[artifact_name] = artifact_path
         return merged_paths
+
+    def _extend_user_paths(self) -> None:
+        """
+        Description:
+            Takes userpaths and checks if `~` is present, if so, calls Path.expanduser()
+            and modifies Config.
+        """
+        typed_paths = {
+            "model_path": self.model_path,
+            "expression_path": self.expression_path,
+            "ptr_path": self.ptr_path,
+            "proteomics_path": self.proteomics_path,
+            "kcat_path": self.kcat_path,
+            "output_path": self.output_path,
+        }
+        for artifact_name, artifact_path in typed_paths.items():
+            if artifact_path is None:
+                continue
+            if "~/" in str(artifact_path):
+                print(f"Changing path from {artifact_path} to {artifact_path.expanduser()}")
+                setattr(self, artifact_name, artifact_path.expanduser())
 
     def iter_search_roots(self, artifact_name: str) -> tuple[Path, ...]:
         """Generated: validation needed.

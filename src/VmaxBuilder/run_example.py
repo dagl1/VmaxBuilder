@@ -8,8 +8,10 @@ from VmaxBuilder.config import ProteinSourceMode, ReactionNotation, ValidationMo
 from VmaxBuilder.core.protocols import Scaffold
 
 if __name__ == "__main__":
+    print("file")
     # Keep existing model filepath scaffold unchanged.
-    base_dir = Path(r"C:\git\SWaPAM\data\for_SWAMP")
+    # base_dir = Path(r"C:\git\SWaPAM\data\for_SWAMP")
+    base_dir = Path("~/git/SWAPAM/data/for_SWAMP/")
     models_dir = base_dir / "models"
     model_name = "model_inhouse_v9_human"
     model_dir = models_dir / model_name
@@ -19,7 +21,7 @@ if __name__ == "__main__":
     expression_path = base_dir / "expression_datasets" / "NCI_60_human"
     ptr_path = base_dir / "PTR_datasets" / "Eraslan2019_human"
     proteomics_path = base_dir / "proteomics" / "NCI60"
-    output_path = Path(r"C:\git\VmaxBuilder\data\run_example_output")
+    output_path = Path("~:/git/VmaxBuilder/data/run_example_output")
     create_dynamically_named_results = True
 
     # Stage/run toggles.
@@ -127,3 +129,5 @@ if __name__ == "__main__":
 
     print("\n=== Scaffold metadata ===")
     pprint(scaffold.get("metadata", {}), sort_dicts=False)
+
+    print("some text")

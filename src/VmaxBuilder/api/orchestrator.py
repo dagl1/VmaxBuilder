@@ -21,12 +21,14 @@ Modifies:
 
 from __future__ import annotations
 
+import stat
 from collections.abc import Sequence
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from sympy.codegen.cnodes import static
 
 from VmaxBuilder.api.allocation import AllocationStageOrchestrator
 from VmaxBuilder.api.model import ModelStageOrchestrator
@@ -143,6 +145,7 @@ class VmaxOrchestrator:
         """
 
         self.config = config or APIConfig()
+        self._ensure_expanduser_paths(config)
         self.model_stage = model_stage or ModelStageOrchestrator()
         self.protein_stage = protein_stage or ProteinStageOrchestrator()
         self.allocation_stage = allocation_stage or AllocationStageOrchestrator()
@@ -827,3 +830,7 @@ class VmaxOrchestrator:
         """
 
         return tuple(sorted(str(directory.resolve()) for directory in output_directories))
+
+    @staticmethod
+    def _ensure_expanduser_paths(config: APIConfig):
+        config.loading._extend_user_paths()

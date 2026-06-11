@@ -328,6 +328,7 @@ class DefaultModelStageImplementation:
                 )
             return model_path
 
+        print(f" model path is {model_path}, is_dir = {model_path.is_dir()}")
         if model_path.is_dir():
             model_candidates = sorted(
                 candidate
