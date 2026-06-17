@@ -11,7 +11,7 @@ from typing import Any
 
 from VmaxBuilder.config.dataclasses import APIConfig
 from VmaxBuilder.core.protocols import Scaffold, get_scaffold_model
-from VmaxBuilder.Kcat.gpr_preprocessing import (
+from VmaxBuilder.GPR.gpr_preprocessing import (
     build_gene_to_transcripts_mapping,
     build_ifp_mapping_from_gpr_rules,
     build_reaction_ifp_indexes,
@@ -23,7 +23,7 @@ from VmaxBuilder.Kcat.gpr_preprocessing import (
 )
 
 
-class DefaultKcatGPRImplementation:
+class DefaultGPRImplementation:
     """Generated: validation needed.
 
     Description:
@@ -31,6 +31,7 @@ class DefaultKcatGPRImplementation:
     """
 
     def run(self, scaffold: Scaffold, config: APIConfig) -> dict[str, Any]:
+        # todo return scaffold instead of dict, and move ifp_mapping into scaffold artifacts
         """Generated: validation needed.
 
         Description:

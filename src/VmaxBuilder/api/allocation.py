@@ -39,17 +39,6 @@ class AllocationStageOrchestrator(StageProtocol):
         implementation (DefaultAllocationStageImplementation | None):
             Optional allocation implementation override.
 
-    Returns:
-        None.
-
-    Raises:
-        None.
-
-    Requires:
-        name (StageName): Stage identifier.
-
-    Modifies:
-        None.
     """
 
     name: StageName = StageName.ALLOCATION
@@ -72,12 +61,6 @@ class AllocationStageOrchestrator(StageProtocol):
 
         Returns:
             Scaffold: Updated scaffold.
-
-        Raises:
-            None.
-
-        Requires:
-            None.
 
         Modifies:
             scaffold payload.

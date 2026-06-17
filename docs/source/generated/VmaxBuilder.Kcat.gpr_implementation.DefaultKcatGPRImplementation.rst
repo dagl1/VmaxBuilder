@@ -2,7 +2,7 @@
    :heading-level: 1
 
 
-.. currentmodule:: VmaxBuilder.Kcat.gpr_implementation
+.. currentmodule:: VmaxBuilder.GPR.gpr_implementation
 
 .. autoclass:: DefaultKcatGPRImplementation
    :members:

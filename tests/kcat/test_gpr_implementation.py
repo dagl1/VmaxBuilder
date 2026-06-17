@@ -5,7 +5,7 @@ from cobra import Metabolite, Model, Reaction
 
 from VmaxBuilder.config import APIConfig
 from VmaxBuilder.core.protocols import Scaffold
-from VmaxBuilder.Kcat import DefaultKcatGPRImplementation
+from VmaxBuilder.Kcat import DefaultGPRImplementation
 
 
 def _make_model_with_gpr_rules() -> Model:
@@ -41,7 +41,7 @@ def _make_scaffold_with_model(model: Model) -> Scaffold:
 
 
 def test_simplify_gpr_rule_textual_operators() -> None:
-    implementation = DefaultKcatGPRImplementation()
+    implementation = DefaultGPRImplementation()
 
     simplified = implementation._simplify_gpr_rule("(gene_a and gene_b) or gene_c")
 
@@ -49,7 +49,7 @@ def test_simplify_gpr_rule_textual_operators() -> None:
 
 
 def test_simplify_gpr_rule_symbolic_operators() -> None:
-    implementation = DefaultKcatGPRImplementation()
+    implementation = DefaultGPRImplementation()
 
     simplified = implementation._simplify_gpr_rule("(gene_a & gene_b) | gene_c")
 
@@ -57,7 +57,7 @@ def test_simplify_gpr_rule_symbolic_operators() -> None:
 
 
 def test_simplify_gpr_rule_supports_mixed_case_and_unicode_symbols() -> None:
-    implementation = DefaultKcatGPRImplementation()
+    implementation = DefaultGPRImplementation()
 
     simplified = implementation._simplify_gpr_rule("gene_a AnD (gene_b ∨ gene_c)")
 
@@ -65,14 +65,14 @@ def test_simplify_gpr_rule_supports_mixed_case_and_unicode_symbols() -> None:
 
 
 def test_simplify_gpr_rule_rejects_malformed_expression() -> None:
-    implementation = DefaultKcatGPRImplementation()
+    implementation = DefaultGPRImplementation()
 
     with pytest.raises(ValueError, match="Unexpected end|Unmatched parenthesis"):
         implementation._simplify_gpr_rule("gene_a and (")
 
 
 def test_simplification_cache_records_hits_for_repeated_rule() -> None:
-    implementation = DefaultKcatGPRImplementation()
+    implementation = DefaultGPRImplementation()
     implementation.clear_simplification_cache()
 
     implementation._simplify_gpr_rule("gene_a and gene_b")
@@ -84,7 +84,7 @@ def test_simplification_cache_records_hits_for_repeated_rule() -> None:
 
 
 def test_run_builds_ifp_mapping_for_unique_model_rules() -> None:
-    implementation = DefaultKcatGPRImplementation()
+    implementation = DefaultGPRImplementation()
     scaffold = _make_scaffold_with_model(_make_model_with_gpr_rules())
 
     result = implementation.run(scaffold, APIConfig())
@@ -100,7 +100,7 @@ def test_run_builds_ifp_mapping_for_unique_model_rules() -> None:
 
 
 def test_run_assigns_bidirectional_reaction_ifp_indexes() -> None:
-    implementation = DefaultKcatGPRImplementation()
+    implementation = DefaultGPRImplementation()
     scaffold = _make_scaffold_with_model(_make_model_with_gpr_rules())
 
     implementation.run(scaffold, APIConfig())
@@ -117,7 +117,7 @@ def test_run_assigns_bidirectional_reaction_ifp_indexes() -> None:
 
 
 def test_run_converts_gene_ifps_to_transcript_ifps_when_requested() -> None:
-    implementation = DefaultKcatGPRImplementation()
+    implementation = DefaultGPRImplementation()
     scaffold = _make_scaffold_with_model(_make_model_with_gpr_rules())
     scaffold["artifacts"]["gene_transcript_mapping"] = {
         "gene_a": ["transcript_a1", "transcript_a2"],
@@ -149,7 +149,7 @@ def test_run_converts_gene_ifps_to_transcript_ifps_when_requested() -> None:
 
 
 def test_run_keeps_gene_ifp_and_reports_when_transcript_expansion_exceeds_threshold() -> None:
-    implementation = DefaultKcatGPRImplementation()
+    implementation = DefaultGPRImplementation()
     scaffold = _make_scaffold_with_model(_make_model_with_gpr_rules())
     scaffold["artifacts"]["gene_transcript_mapping"] = {
         "gene_a": ["transcript_a1", "transcript_a2"],

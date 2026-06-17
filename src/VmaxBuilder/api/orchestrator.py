@@ -3,20 +3,6 @@
 Description:
     Main orchestrator for refactored VmaxBuilder stage execution.
 
-Args:
-    None.
-
-Returns:
-    None.
-
-Raises:
-    None.
-
-Requires:
-    None.
-
-Modifies:
-    None.
 """
 
 from __future__ import annotations
@@ -31,6 +17,7 @@ import pandas as pd
 from sympy.codegen.cnodes import static
 
 from VmaxBuilder.api.allocation import AllocationStageOrchestrator
+from VmaxBuilder.api.gpr import GPRStageOrchestrator
 from VmaxBuilder.api.model import ModelStageOrchestrator
 from VmaxBuilder.api.protein import ProteinStageOrchestrator
 from VmaxBuilder.api.vmax import VmaxStageOrchestrator
@@ -91,18 +78,6 @@ class VmaxOrchestrator:
             Optional diagnostics runner override.
         diagnostics_hooks (Sequence[DiagnosticsHookProtocol] | None):
             Optional diagnostics hooks.
-
-    Returns:
-        None.
-
-    Raises:
-        None.
-
-    Requires:
-        None.
-
-    Modifies:
-        None.
     """
 
     def __init__(
@@ -110,6 +85,7 @@ class VmaxOrchestrator:
         config: APIConfig | None = None,
         *,
         model_stage: StageProtocol | None = None,
+        gpr_stage: StageProtocol | None = None,
         protein_stage: StageProtocol | None = None,
         allocation_stage: StageProtocol | None = None,
         vmax_stage: StageProtocol | None = None,
@@ -131,24 +107,17 @@ class VmaxOrchestrator:
                 Diagnostics runner override.
             diagnostics_hooks (Sequence[DiagnosticsHookProtocol] | None): Diagnostics hooks.
 
-        Returns:
-            None.
-
-        Raises:
-            None.
-
-        Requires:
-            None.
-
         Modifies:
             self.config and stage implementation references.
         """
 
         self.config = config or APIConfig()
-        self._ensure_expanduser_paths(config)
+        self._ensure_expanduser_paths(self.config)
         self.model_stage = model_stage or ModelStageOrchestrator()
+        self.GPR_stage = gpr_stage or GPRStageOrchestrator()
         self.protein_stage = protein_stage or ProteinStageOrchestrator()
         self.allocation_stage = allocation_stage or AllocationStageOrchestrator()
+
         self.vmax_stage = vmax_stage or VmaxStageOrchestrator()
         self.diagnostics_runner = diagnostics_runner or DiagnosticsRunner()
         self.diagnostics_hooks = tuple(diagnostics_hooks or ())
@@ -349,6 +318,7 @@ class VmaxOrchestrator:
 
         Modifies:
             scaffold dictionary keys when missing.
+
         """
 
         if scaffold is None:
@@ -834,3 +804,7 @@ class VmaxOrchestrator:
     @staticmethod
     def _ensure_expanduser_paths(config: APIConfig):
         config.loading._extend_user_paths()
+
+
+def some_function(a: int, b: str) -> str:
+    return f"Received integer: {a} and string: '{b}'"

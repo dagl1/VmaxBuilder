@@ -4,7 +4,7 @@ gpr\_implementation
 
 .. currentmodule:: VmaxBuilder.Kcat
 
-.. automodule:: VmaxBuilder.Kcat.gpr_implementation
+.. automodule:: VmaxBuilder.GPR.gpr_implementation
 
 
 

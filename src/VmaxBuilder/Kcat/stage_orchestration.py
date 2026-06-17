@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from VmaxBuilder.config.dataclasses import APIConfig
 from VmaxBuilder.core.protocols import Scaffold
-from VmaxBuilder.Kcat.gpr_implementation import DefaultKcatGPRImplementation
+from VmaxBuilder.GPR.gpr_implementation import DefaultGPRImplementation
 from VmaxBuilder.Kcat.kcat_preprocessing_implementation import (
     DefaultKcatPreprocessingImplementation,
 )
@@ -26,7 +26,7 @@ class DefaultKcatStageCoordinator:
         Placeholder coordinator scaffold for kcat stage orchestration.
 
     Args:
-        gpr_implementation (DefaultKcatGPRImplementation | None): Optional GPR step override.
+        gpr_implementation (DefaultGPRImplementation | None): Optional GPR step override.
         smiles_getters_implementation (DefaultSmilesGettersImplementation | None):
             Optional SMILES step override.
         preprocessing_implementation (DefaultKcatPreprocessingImplementation | None):
@@ -37,12 +37,12 @@ class DefaultKcatStageCoordinator:
 
     def __init__(
         self,
-        gpr_implementation: DefaultKcatGPRImplementation | None = None,
+        gpr_implementation: DefaultGPRImplementation | None = None,
         smiles_getters_implementation: DefaultSmilesGettersImplementation | None = None,
         preprocessing_implementation: DefaultKcatPreprocessingImplementation | None = None,
         prediction_implementation: DefaultUniKPImplementation | None = None,
     ) -> None:
-        self.gpr_implementation = gpr_implementation or DefaultKcatGPRImplementation()
+        self.gpr_implementation = gpr_implementation or DefaultGPRImplementation()
         self.smiles_getters_implementation = (
             smiles_getters_implementation or DefaultSmilesGettersImplementation()
         )

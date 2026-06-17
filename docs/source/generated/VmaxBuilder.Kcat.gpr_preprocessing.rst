@@ -4,7 +4,7 @@ gpr\_preprocessing
 
 .. currentmodule:: VmaxBuilder.Kcat
 
-.. automodule:: VmaxBuilder.Kcat.gpr_preprocessing
+.. automodule:: VmaxBuilder.GPR.gpr_preprocessing
 
 
 

@@ -2,7 +2,7 @@
    :heading-level: 1
 
 
-.. currentmodule:: VmaxBuilder.Kcat.gpr_preprocessing
+.. currentmodule:: VmaxBuilder.GPR.gpr_preprocessing
 
 .. autoclass:: TranscriptIfpExpansionOutcome
    :members:

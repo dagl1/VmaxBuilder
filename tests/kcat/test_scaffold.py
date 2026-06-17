@@ -4,15 +4,15 @@ from cobra import Metabolite, Model, Reaction
 
 from VmaxBuilder.config import APIConfig
 from VmaxBuilder.core.protocols import Scaffold
+from VmaxBuilder.GPR.gpr_preprocessing import get_unique_gpr_rules
 from VmaxBuilder.Kcat import (
-    DefaultKcatGPRImplementation,
+    DefaultGPRImplementation,
     DefaultKcatPreprocessingImplementation,
     DefaultKcatStageCoordinator,
     DefaultSmilesGettersImplementation,
     DefaultUniKPImplementation,
     KcatStageOrchestrator,
 )
-from VmaxBuilder.Kcat.gpr_preprocessing import get_unique_gpr_rules
 
 
 def _make_scaffold() -> Scaffold:
@@ -32,7 +32,7 @@ def test_kcat_scaffold_exports_are_available() -> None:
         DefaultKcatPreprocessingImplementation(),
         DefaultKcatPreprocessingImplementation,
     )
-    assert isinstance(DefaultKcatGPRImplementation(), DefaultKcatGPRImplementation)
+    assert isinstance(DefaultGPRImplementation(), DefaultGPRImplementation)
     assert isinstance(
         DefaultSmilesGettersImplementation(),
         DefaultSmilesGettersImplementation,

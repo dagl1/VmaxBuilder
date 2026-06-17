@@ -13,7 +13,7 @@ from time import perf_counter
 import pytest
 from cobra.io import load_json_model
 
-from VmaxBuilder.Kcat import DefaultKcatGPRImplementation
+from VmaxBuilder.Kcat import DefaultGPRImplementation
 
 MODEL_PATH = Path(
     r"C:\git\SWaPAM\data\for_SWAMP\models\model_inhouse_v9_human\model_inhouse_v9.json"
@@ -89,7 +89,7 @@ def _legacy_build_ifps(gpr_rules: set[str]) -> dict[str, list[str]]:
 
 
 def _current_build_ifps(
-    implementation: DefaultKcatGPRImplementation,
+    implementation: DefaultGPRImplementation,
     gpr_rules: set[str],
 ) -> dict[str, list[str]]:
     current_mapping = implementation._convert_gene_gpr_rules_to_ifp(gpr_rules)
@@ -118,7 +118,7 @@ def test_gpr_simplification_performance_current_is_faster_than_legacy() -> None:
         if reaction.gene_reaction_rule and reaction.gene_reaction_rule.strip()
     }
 
-    implementation = DefaultKcatGPRImplementation()
+    implementation = DefaultGPRImplementation()
     implementation.clear_simplification_cache()
 
     # Warmup to reduce one-time import/interpreter effects.

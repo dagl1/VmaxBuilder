@@ -9,6 +9,7 @@ from VmaxBuilder.core.protocols import Scaffold
 
 if __name__ == "__main__":
     print("file")
+    # quack
     # Keep existing model filepath scaffold unchanged.
     # base_dir = Path(r"C:\git\SWaPAM\data\for_SWAMP")
     base_dir = Path("~/git/SWAPAM/data/for_SWAMP/")
@@ -28,6 +29,7 @@ if __name__ == "__main__":
     run_all_stages = False
     run_model_stage = True
     run_protein_stage = True
+
     config = build_default_api_config()
 
     # Global/model options.
@@ -88,12 +90,15 @@ if __name__ == "__main__":
     elif config.protein.source_mode is ProteinSourceMode.PROTEOMICS:
         config.loading.proteomics_path = proteomics_path
 
-    # Optional in-memory usage example (uncomment if you already have tables loaded):
+    # Optional in memory usage example (uncomment if you already have tables loaded):
     # config.loading.in_memory_inputs["expression"] = pd.DataFrame(...)
     # config.loading.in_memory_inputs["ptr"] = pd.DataFrame(...)
     # config.loading.in_memory_inputs["proteomics"] = pd.DataFrame(...)
 
     orchestrator = VmaxOrchestrator(config=config)
+    # todo make tab possible in insert mode
+    # todo GPR rules that cannot be converted into GTPR require additional QP bound to
+    # ensure that both the gene and its transcripts in other GPRS are linked
 
     if run_all_stages:
         scaffold = orchestrator.run_all()
@@ -115,6 +120,7 @@ if __name__ == "__main__":
     print(f"model_path: {config.loading.model_path}")
     print(f"protein_mode: {config.protein.source_mode.value}")
     print(f"run_target_transcript_gene_level: {config.run_target_transcript_gene_level}")
+    # TODO: some text
 
     print("\n=== Protein required inputs by mode ===")
     print("EXPRESSION_PTR -> expression + ptr")

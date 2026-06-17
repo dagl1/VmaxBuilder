@@ -2,21 +2,6 @@
 
 Description:
     Allocation-stage placeholder implementation until strategy migration is completed.
-
-Args:
-    None.
-
-Returns:
-    None.
-
-Raises:
-    None.
-
-Requires:
-    None.
-
-Modifies:
-    None.
 """
 
 from __future__ import annotations
@@ -30,18 +15,6 @@ class DefaultAllocationStageImplementation:
 
     Description:
         Record placeholder metadata for allocation stage during staged refactor.
-
-    Args:
-        None.
-
-    Returns:
-        None.
-
-    Raises:
-        None.
-
-    Requires:
-        None.
 
     Modifies:
         scaffold["metadata"] payload.
@@ -59,12 +32,6 @@ class DefaultAllocationStageImplementation:
 
         Returns:
             Scaffold: Updated scaffold.
-
-        Raises:
-            None.
-
-        Requires:
-            None.
 
         Modifies:
             scaffold["metadata"].
