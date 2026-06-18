@@ -2,7 +2,7 @@
 
 Description:
     GPR stage implementation for deriving independently functioning protein
-    (IFP) complex mappings for kcat workflows.
+    (IFP) complex mappings for model workflows.
 """
 
 from __future__ import annotations
@@ -30,8 +30,7 @@ class DefaultGPRImplementation:
         GPR simplification scaffold for deriving gene-level IFP mappings.
     """
 
-    def run(self, scaffold: Scaffold, config: APIConfig) -> dict[str, Any]:
-        # todo return scaffold instead of dict, and move ifp_mapping into scaffold artifacts
+    def run(self, scaffold: Scaffold, config: APIConfig) -> Scaffold:
         """Generated: validation needed.
 
         Description:
@@ -62,16 +61,14 @@ class DefaultGPRImplementation:
             )
         scaffold = self._assign_ifps_to_reactions(scaffold, ifp_mapping)
 
-        metadata_payload = scaffold.setdefault("metadata", {}).setdefault("kcat_stage", {})
+        metadata_payload = scaffold.setdefault("metadata", {}).setdefault("gpr_stage", {})
         metadata_payload["gpr"] = {
             "implementation": type(self).__name__,
             "status": "implemented_gene_rule_simplifier",
             "rule_count": len(gpr_rules),
             "cache_info": self.get_simplification_cache_info(),
         }
-        return {
-            "ifp_mapping": ifp_mapping,
-        }
+        return scaffold
 
     def _assign_ifps_to_reactions(
         self,
@@ -135,9 +132,9 @@ class DefaultGPRImplementation:
         """
 
         artifacts_payload = scaffold.setdefault("artifacts", {})
-        metadata_payload = scaffold.setdefault("metadata", {}).setdefault("kcat_stage", {})
+        metadata_payload = scaffold.setdefault("metadata", {}).setdefault("gpr_stage", {})
         diagnostics_payload = scaffold.setdefault("diagnostics", {}).setdefault(
-            "kcat_stage", {}
+            "gpr_stage", {}
         )
 
         mapping_artifact = artifacts_payload.get("gene_transcript_mapping")

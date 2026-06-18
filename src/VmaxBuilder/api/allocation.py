@@ -2,21 +2,6 @@
 
 Description:
     API-level allocation stage orchestrator.
-
-Args:
-    None.
-
-Returns:
-    None.
-
-Raises:
-    None.
-
-Requires:
-    None.
-
-Modifies:
-    None.
 """
 
 from __future__ import annotations

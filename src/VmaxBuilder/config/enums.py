@@ -7,6 +7,8 @@ Description:
 from __future__ import annotations
 
 from enum import Enum
+from functools import wraps
+from typing import Any, Callable, Sequence, TypeVar
 
 
 class ValidationMode(str, Enum):
@@ -28,6 +30,7 @@ class StageName(str, Enum):
     """
 
     MODEL = "model"
+    GPR = "gpr"
     PROTEIN = "protein"
     ALLOCATION = "allocation"
     VMAX = "vmax"

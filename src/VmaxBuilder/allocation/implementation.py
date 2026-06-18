@@ -36,6 +36,10 @@ class DefaultAllocationStageImplementation:
         Modifies:
             scaffold["metadata"].
         """
+        # ensure we have the IFP mapping from the GPR stage
+        # ensure we have protein abundance data from the protein stage
+        # implement gene trimming
+        IFP_mapping = scaffold.get("IFP_mapping")
 
         metadata_payload = scaffold.setdefault("metadata", {})
         metadata_payload["allocation_stage"] = {

@@ -6,6 +6,7 @@ Description:
 
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -579,16 +580,52 @@ class AllocationConfig(StageConfig):
         Configuration for IFP allocation and reaction capacity staging.
 
     Args:
-        trim_genes (bool): Enable gene trimming before allocation.
-        gpr_or_strategy (str): OR-rule aggregation strategy.
-        gpr_and_strategy (str): AND-rule aggregation strategy.
+        trim_entities (bool): Enable gene/transcript trimming before allocation.
+        trim_assesment_method (str): Method for determining trimmable entities,
+            defaults to "M_value".
+
         impute_expressionless_reactions (bool): Enable fallback imputation.
+        trim_minimum_entities_threshold (int): Minimum number of entities required
+            in an IFP for iterative lowest-abundance trimming to proceed. Trimming
+            inspects lowest-abundance entity and, if marked trimmable, removes it
+            and repeats. If a non-trimmable entity is encountered or remaining
+            entity count would fall below this threshold, trimming stops.
     """
 
-    trim_genes: bool = True
-    gpr_or_strategy: str = "sum"
-    gpr_and_strategy: str = "trimmin3"
+    trim_entities: bool = True
+    trim_assesment_method: str = "M_value"
+
+    trim_minimum_entities_threshold: int = 3
     impute_expressionless_reactions: bool = True
+
+
+@dataclass(slots=True)
+class MValueTrimmingConfig:
+    """Generated: validation needed.
+
+    Description:
+        Configuration for M_value trimming. To assess trimmability, M_value assumes that
+
+        expression data is in linear space (not log transformed), and then checks for each
+        gene across the samples if the high and low percentile values (denoted by the
+        trim_percentiles config) of the gene's expression differ by more or less than the
+        denoted threshold in log 2 (log2(high/low)). Note that trimmable genes are not
+        automatically trimmed, only marked to be eligible for trimming during IFP allocation.
+
+    Args:
+        trim_correction_addition (float): Value added to all reactions' IFP sums during
+            trimming to prevent extremely lowly expressed genes to be denoted as unstable.
+        trim_percentiles (tuple[float, float]): Lower and upper percentiles used to
+            determine whether gene is trimmable.
+        trim_threshold (float): Threshold used to determine whether gene is trimmable:
+            In particular genes whose upper and lower percentiles after addition of
+            trim_correction_addition are below this threshold will be considered stable
+            enough to be trimmed.
+    """
+
+    trim_correction_addition: float = 2
+    trim_percentiles: tuple[float, float] = (2.5, 97.5)
+    trim_threshold: float = 0.585  # is 1.5 in log2
 
 
 @dataclass(slots=True)
@@ -633,21 +670,64 @@ class APIConfig:
         metadata (dict[str, Any]): Arbitrary run metadata.
     """
 
-    validation: ValidationPolicy = field(default_factory=ValidationPolicy)
-    loading: LoadingPolicy = field(default_factory=LoadingPolicy)
+    trimming: MValueTrimmingConfig = field(default_factory=MValueTrimmingConfig)
     run_target_transcript_gene_level: str = "gene"
-    maximum_transcript_ifp_expansion: int = 20000
+    model: ModelConfig = field(default_factory=ModelConfig)
+    expression: ExpressionInputConfig = field(default_factory=ExpressionInputConfig)
     transcript_processing: TranscriptProcessingConfig = field(
         default_factory=TranscriptProcessingConfig
     )
-    model: ModelConfig = field(default_factory=ModelConfig)
-    expression: ExpressionInputConfig = field(default_factory=ExpressionInputConfig)
     ptr: PTRInputConfig = field(default_factory=PTRInputConfig)
     proteomics: ProteomicsInputConfig = field(default_factory=ProteomicsInputConfig)
     protein: ProteinConfig = field(default_factory=ProteinConfig)
     allocation: AllocationConfig = field(default_factory=AllocationConfig)
     vmax: VmaxConfig = field(default_factory=VmaxConfig)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    def resolve_trimming_implementation(self) -> tuple[type, type | None]:
+        """Resolve trimming implementation and expected trimming-config class.
+
+        Returns:
+            tuple[type, type|None]: (implementation class, trimming-config class or None)
+
+        Behavior:
+            - Look up implementation FQCN from allocation.trim_assesment_method.
+            - Import implementation class dynamically.
+            - Read implementation attributejjjjjjjjj `CONFIG_CLASS` if present to indicate
+              which trimming config class pairs with implementation.
+
+        Raises:
+            ValueError: When method unknown or allocation.trim_assesment_method empty.
+            ImportError / AttributeError: If module/class cannot be imported.
+        """
+        method_raw = (self.allocation.trim_assesment_method or "").strip().lower()
+        if not method_raw:
+            raise ValueError("allocation.trim_assesment_method not set")
+
+        # normalise key
+        key = method_raw.replace("-", "").replace("_", "")
+
+        registry: dict[str, str] = {
+            "mvalue": (
+                "VmaxBuilder.expression.trimming_implementations.MValueTrimmingImplementation"
+            ),
+        }
+
+        fqcn = registry.get(key)
+        if fqcn is None:
+            raise ValueError(
+                f"Unknown trimming assessment method: "
+                f"{self.allocation.trim_assesment_method!r}"
+            )
+
+        module_name, class_name = fqcn.rsplit(".", 1)
+        module = importlib.import_module(module_name)
+        impl = getattr(module, class_name)
+
+        # implementation may advertise expected config class via CONFIG_CLASS attribute
+        impl_config_cls = getattr(impl, "CONFIG_CLASS", None)
+
+        return impl, impl_config_cls
 
     def get_stage_config(
         self,

@@ -151,6 +151,6 @@ data/UMAP_diagnostics_output/main_metabolite_path_finder/full_model/main_path/su
 empty_files_that_we_dont_need
 staged_files.txt
 src/VmaxBuilder/to_refactor
-data
+data/
 src/VmaxBuilder/old_to_be_refactored
 .nvim-run.json

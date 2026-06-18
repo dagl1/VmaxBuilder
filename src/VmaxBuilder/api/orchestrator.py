@@ -24,6 +24,7 @@ from VmaxBuilder.api.vmax import VmaxStageOrchestrator
 from VmaxBuilder.config import ConfigurationError
 from VmaxBuilder.config.dataclasses import APIConfig
 from VmaxBuilder.config.enums import StageName
+from VmaxBuilder.config.registry import get_implementation
 from VmaxBuilder.config.validation import validate_loading_policy
 from VmaxBuilder.core.protocols import (
     DiagnosticsHookProtocol,
@@ -113,6 +114,7 @@ class VmaxOrchestrator:
 
         self.config = config or APIConfig()
         self._ensure_expanduser_paths(self.config)
+        self._set_implementations(self.config)
         self.model_stage = model_stage or ModelStageOrchestrator()
         self.GPR_stage = gpr_stage or GPRStageOrchestrator()
         self.protein_stage = protein_stage or ProteinStageOrchestrator()
@@ -122,6 +124,31 @@ class VmaxOrchestrator:
         self.diagnostics_runner = diagnostics_runner or DiagnosticsRunner()
         self.diagnostics_hooks = tuple(diagnostics_hooks or ())
         self._last_primed_output_paths: tuple[str, ...] | None = None
+
+    def _resolve_implementation(self, category: type, method_key: str) -> type:
+        """Generated: validation needed.
+
+        Description:
+            Resolve implementation class for given category and method key.
+
+        Args:
+            category (type): Implementation category type.
+            method_key (str): Method key for implementation lookup.
+
+        Returns:
+            type: Resolved implementation class.
+
+        Raises:
+            ConfigurationError: When no implementation is registered for the method key.
+        """
+
+        implementation = get_implementation(category, method_key)
+        if implementation is None:
+            raise ConfigurationError(
+                f"No implementation registered for category {category.__name__} "
+                f"with method key '{method_key}'."
+            )
+        return implementation
 
     def run_model(self, scaffold: Scaffold | None = None) -> Scaffold:
         """Generated: validation needed.
@@ -150,6 +177,34 @@ class VmaxOrchestrator:
             method_key=self.config.model.method,
         )
         self._persist_runtime_state(scaffold=working_scaffold, stage_name=StageName.MODEL)
+        return working_scaffold
+
+    def run_gpr(self, scaffold: Scaffold | None = None) -> Scaffold:
+        """Generated: validation needed.
+
+        Description:
+            Execute GPR stage and return updated scaffold.
+
+        Args:
+            scaffold (Scaffold | None): Optional existing scaffold.
+
+        Returns:
+            Scaffold: Updated scaffold after GPR stage execution.
+
+        Modifies:
+            scaffold payload.
+        """
+
+        working_scaffold = self._initialise_scaffold(scaffold)
+        self._ensure_runtime_ready(stage_name=StageName.GPR, scaffold=working_scaffold)
+        working_scaffold = self.GPR_stage.run(working_scaffold, self.config)
+        working_scaffold = self.diagnostics_runner.run_hooks(
+            working_scaffold,
+            config=self.config,
+            stage_name=StageName.GPR,
+            hooks=self.diagnostics_hooks,
+        )
+        self._persist_runtime_state(scaffold=working_scaffold, stage_name=StageName.GPR)
         return working_scaffold
 
     def run_protein(self, scaffold: Scaffold | None = None) -> Scaffold:
@@ -355,6 +410,8 @@ class VmaxOrchestrator:
         validate_loading_policy(self.config.loading, validation_policy=self.config.validation)
         self._prime_output_directories(scaffold=scaffold)
         if stage_name is StageName.MODEL:
+            self._validate_model_inputs(scaffold=scaffold)
+        elif stage_name is StageName.GPR:
             self._validate_model_inputs(scaffold=scaffold)
         elif stage_name is StageName.PROTEIN:
             self._validate_protein_inputs(scaffold=scaffold)

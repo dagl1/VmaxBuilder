@@ -22,17 +22,6 @@ class ProteinStageOrchestrator(StageProtocol):
         implementation (DefaultProteinStageCoordinator | None):
             Optional protein implementation override.
 
-    Returns:
-        None.
-
-    Raises:
-        None.
-
-    Requires:
-        name (StageName): Stage identifier.
-
-    Modifies:
-        None.
     """
 
     name: StageName = StageName.PROTEIN

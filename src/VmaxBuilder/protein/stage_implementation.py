@@ -174,6 +174,16 @@ class DefaultProteinStageCoordinator:
             expression_df,
             config,
         )
+        trimmable_genes: set[str] = set()
+        if config.allocation.trim_entities:
+            trimming_implementation, trimming_config = (
+                config.resolve_trimming_implementation()
+            )
+            trimmable_genes = trimming_implementation._get_trimmable_genes(
+                scaffold,
+                expression_df,
+                trimming_config,
+            )
         ptr_df = self.ptr_implementation.resolve_ptr_frame(scaffold, config)
         if ptr_df is None:
             raise ConfigurationError(

@@ -22,13 +22,14 @@ if __name__ == "__main__":
     expression_path = base_dir / "expression_datasets" / "NCI_60_human"
     ptr_path = base_dir / "PTR_datasets" / "Eraslan2019_human"
     proteomics_path = base_dir / "proteomics" / "NCI60"
-    output_path = Path("~:/git/VmaxBuilder/data/run_example_output")
+    output_path = Path("~/git/VmaxBuilder/data/run_example_output")
     create_dynamically_named_results = True
 
     # Stage/run toggles.
     run_all_stages = False
     run_model_stage = True
-    run_protein_stage = True
+    run_gpr_stage = True
+    run_protein_stage = False
 
     config = build_default_api_config()
 
@@ -113,6 +114,8 @@ if __name__ == "__main__":
         }
         if run_model_stage:
             scaffold = orchestrator.run_model(scaffold)
+        if run_gpr_stage:
+            scaffold = orchestrator.run_gpr(scaffold)
         if run_protein_stage:
             scaffold = orchestrator.run_protein(scaffold)
 
@@ -120,7 +123,6 @@ if __name__ == "__main__":
     print(f"model_path: {config.loading.model_path}")
     print(f"protein_mode: {config.protein.source_mode.value}")
     print(f"run_target_transcript_gene_level: {config.run_target_transcript_gene_level}")
-    # TODO: some text
 
     print("\n=== Protein required inputs by mode ===")
     print("EXPRESSION_PTR -> expression + ptr")
@@ -135,5 +137,3 @@ if __name__ == "__main__":
 
     print("\n=== Scaffold metadata ===")
     pprint(scaffold.get("metadata", {}), sort_dicts=False)
-
-    print("some text")

@@ -1,6 +1,7 @@
 # VmaxBuilder Refactored Config Guide
 
 ## Purpose
+
 This document shows how to configure refactored VmaxBuilder from API-development perspective.
 It explains:
 
@@ -10,6 +11,7 @@ It explains:
 - which options are still unresolved
 
 ## Mental Model
+
 Use one root config object: `APIConfig`.
 
 It contains:
@@ -32,6 +34,7 @@ Rule of thumb:
 ## Where to Put Values
 
 ### 1. Global behavior
+
 Put global behavior in `APIConfig.validation` and `APIConfig.loading`.
 
 Examples:
@@ -51,6 +54,7 @@ config.protein.tissue_type = "heart"
 ```
 
 ### 2. Stage strategy key
+
 Put selected strategy name in `StageConfig.method`.
 
 Examples:
@@ -60,6 +64,7 @@ Examples:
 - vmax/kcat strategy key
 
 ### 3. Strategy-specific parameters
+
 Put strategy-specific values in `StageConfig.options`.
 
 Examples:
@@ -70,11 +75,13 @@ Examples:
 - kcat predictor or resolver sub-parameters
 
 ### 4. Allowed values
+
 Put shared allowed values in `src/VmaxBuilder/config/options.py`.
 
 That file contains `OPTION_SPECS`, which is the canonical catalogue for values that should fail fast.
 
 ### 5. Validation overrides
+
 Put per-field or per-stage strictness in `ValidationPolicy`.
 
 Examples:
@@ -140,8 +147,6 @@ config = APIConfig(
     ),
     allocation=AllocationConfig(
         trim_genes=True,
-        gpr_or_strategy="sum",
-        gpr_and_strategy="trimmin3",
         impute_expressionless_reactions=True,
     ),
     vmax=VmaxConfig(
@@ -168,8 +173,6 @@ protein_strategy_options = {
 }
 
 allocation_strategy_options = {
-    "gpr_or_aggregation": "sum",
-    "gpr_and_aggregation": "trimmin3",
     "trim_genes_percentile": (2.5, 97.5),
 }
 
@@ -245,6 +248,7 @@ Central allowed values remain in `src/VmaxBuilder/config/options.py`.
 ## Where Specific Strategy Values Should Go
 
 ### Protein stage
+
 Put protein strategy selection in:
 
 - `protein.method`
@@ -261,6 +265,7 @@ Examples:
 - expression transformation details
 
 ### Allocation stage
+
 Put allocation strategy selection in:
 
 - `allocation.method`
@@ -277,6 +282,7 @@ Examples:
 - imputation fallback policy
 
 ### Vmax stage
+
 Put kcat strategy selection in:
 
 - `vmax.method`
@@ -295,12 +301,15 @@ Examples:
 ## Validation and Discovery Rules
 
 ### Strict default
+
 Validation should fail early by default.
 
 ### Lenient opt-in
+
 Lenient mode is allowed, but only when explicitly requested.
 
 ### Field-level leniency
+
 Some fields should not be globally strict.
 
 Example:
@@ -308,10 +317,12 @@ Example:
 - `protein.tissue_type` should be lenient, because tissue labels may be noisy metadata
 
 ### Stage-level early validation
+
 If PTR is enabled, PTR-related values should be validated as soon as protein stage is initialized.
 That keeps bad config from failing after expensive runtime work.
 
 ### File discovery
+
 Use this order:
 
 1. explicit path from config
@@ -319,6 +330,7 @@ Use this order:
 3. error if not found or ambiguous, unless lenient discovery is explicitly enabled
 
 ## Options Still Unclear
+
 These are the current refactor gaps I would not freeze yet.
 
 | Option / Area | Why unclear | Suggested direction | Current state |
@@ -339,6 +351,7 @@ These are the current refactor gaps I would not freeze yet.
 | `stage.options` | Too generic for long-term typed config | Use as temporary strategy payload bag | transitional |
 
 ## Practical Recommendation
+
 For this phase:
 
 - keep config simple
@@ -349,6 +362,7 @@ For this phase:
 - document unresolved values before they become hard-coded
 
 ## Next Refactor Step
+
 After the legacy orchestration files are pasted, map every old option into one of:
 
 - `typed field`
