@@ -21,9 +21,12 @@ from VmaxBuilder.config.enums import (
     StageName,
     ValidationMode,
 )
+from VmaxBuilder.config.registry import (
+    get_config_class,
+    get_implementation,
+)
 
-
-@dataclass(slots=True)
+dataclass(slots=True)
 class ValidationPolicy:
     """Generated: validation needed.
 
@@ -582,8 +585,7 @@ class AllocationConfig(StageConfig):
     Args:
         trim_entities (bool): Enable gene/transcript trimming before allocation.
         trim_assesment_method (str): Method for determining trimmable entities,
-            defaults to "M_value".
-
+            defaults to "M-value".
         impute_expressionless_reactions (bool): Enable fallback imputation.
         trim_minimum_entities_threshold (int): Minimum number of entities required
             in an IFP for iterative lowest-abundance trimming to proceed. Trimming
@@ -594,7 +596,6 @@ class AllocationConfig(StageConfig):
 
     trim_entities: bool = True
     trim_assesment_method: str = "M_value"
-
     trim_minimum_entities_threshold: int = 3
     impute_expressionless_reactions: bool = True
 
@@ -604,8 +605,7 @@ class MValueTrimmingConfig:
     """Generated: validation needed.
 
     Description:
-        Configuration for M_value trimming. To assess trimmability, M_value assumes that
-
+        Configuration for M-value trimming. To assess trimmability, M-value assumes that
         expression data is in linear space (not log transformed), and then checks for each
         gene across the samples if the high and low percentile values (denoted by the
         trim_percentiles config) of the gene's expression differ by more or less than the
@@ -684,6 +684,16 @@ class APIConfig:
     vmax: VmaxConfig = field(default_factory=VmaxConfig)
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    def _resolve_config_class(self, implementation_class: type) -> type | None:
+        """Resolve expected trimming-config class for one implementation.
+
+        Args:
+            implementation_class (type): Trimming implementation class.
+        """
+        config_class_str = 
+
+
+
     def resolve_trimming_implementation(self) -> tuple[type, type | None]:
         """Resolve trimming implementation and expected trimming-config class.
 
@@ -704,28 +714,12 @@ class APIConfig:
         if not method_raw:
             raise ValueError("allocation.trim_assesment_method not set")
 
-        # normalise key
-        key = method_raw.replace("-", "").replace("_", "")
-
-        registry: dict[str, str] = {
-            "mvalue": (
-                "VmaxBuilder.expression.trimming_implementations.MValueTrimmingImplementation"
-            ),
-        }
-
-        fqcn = registry.get(key)
-        if fqcn is None:
-            raise ValueError(
-                f"Unknown trimming assessment method: "
-                f"{self.allocation.trim_assesment_method!r}"
-            )
-
-        module_name, class_name = fqcn.rsplit(".", 1)
-        module = importlib.import_module(module_name)
-        impl = getattr(module, class_name)
-
+        implementation
         # implementation may advertise expected config class via CONFIG_CLASS attribute
         impl_config_cls = getattr(impl, "CONFIG_CLASS", None)
+        
+        # alternatively we find it in the registry 
+        trimming_implementation_config_registry
 
         return impl, impl_config_cls
 

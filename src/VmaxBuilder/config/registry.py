@@ -110,7 +110,7 @@ def get_implementation(category: type, name: str) -> type:
         ) from None
 
 
-def get_config_class(category: type, name: str) -> type | None:
+def get_config_class(category: type, name: str) -> str | None:
     return _REGISTRIES[category][name].config_class
 
 

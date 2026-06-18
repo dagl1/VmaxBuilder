@@ -84,6 +84,7 @@ class DefaultProteinStageCoordinator:
         mode_requirements = self.get_mode_requirements(config.protein.source_mode)
 
         if config.protein.source_mode is ProteinSourceMode.EXPRESSION_PTR:
+            # todo should call implementation
             protein_abundance, mode_metadata, inter_stage_artifacts = (
                 self._run_expression_ptr_flow(
                     scaffold,
