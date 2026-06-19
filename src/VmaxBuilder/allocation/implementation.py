@@ -7,11 +7,11 @@ Description:
 from __future__ import annotations
 
 from VmaxBuilder.config.dataclasses import APIConfig
+from VmaxBuilder.config.registry import AllocationImplementation, register_implementation
 from VmaxBuilder.core.protocols import Scaffold
-from VmaxBuilder.config.registry import register_implementation, AllocationImplementation
 
 
-@register_implementation(AllocationImplementation, "default_placeholder")
+# @register_implementation(AllocationImplementation, "default_placeholder")
 class DefaultAllocationStageImplementation:
     """Generated: validation needed.
 

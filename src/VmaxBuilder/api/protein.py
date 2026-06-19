@@ -45,12 +45,6 @@ class ProteinStageOrchestrator(StageProtocol):
         Returns:
             Scaffold: Updated scaffold.
 
-        Raises:
-            None.
-
-        Requires:
-            None.
-
         Modifies:
             scaffold payload.
         """

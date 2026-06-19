@@ -123,30 +123,143 @@ def get_available_options(category: type) -> list[str]:
 
 
 # ============================================================
-# Example Configs
+# protocol/architecture
 # ============================================================
+"""
+orchestrator ->
+    stages:
+        populated by implementation,
+            if CHILD implmeplentations, then no config
+            if no CHILD_IMPLEMENTATIONS then implemnetation has config
+
+## creating a final implemenation requires only a config class and run method
+## compositing multiple implementations into a single stage is done by creating a new
+    implementation that has CHILD_IMPLEMENTATIONS and no config class
+## optionally an implementation can have a diagnostics hook attached
+
+# implementation file structure should look like:
+    Required:
+        stage_name/implementation_name/implementation.py (imports config, diagnostics, enums, dataclasses)
+
+    Required if no child implementations:
+        stage_name/implementation_name/config.py
+
+    Optionally:
+        stage_name/implementation_name/diangostics.py
+        stage_name/implementation_name/enums.py
+        stage_name/implementation_name/dataclasses.py
+
+# each implementation has a stage_name attached to it, such that we can check
+# whether the implemneation follows the protocol, or following the child implementations in order
+# follows the protocols (so last protocol returns the final scaffold, according to SpecificStageProtocol)
+# required inputs are defined in the implementation
+# to validate that scaffold is properly updated on return, the actual protocol check is
+to_load_inputs will designate which inputs should be preloaded versus created by the implementation
+#
 
 
-# ============================================================
-# Example Implementations
-# ============================================================
+## each stage has a protocol on what it should return
+
+to validate inputs, we walk down the implementations and ensure that the required inputs
+are present, for child implementations we ensure that the get_scaffold_objects returns the
+required inputs for the next implementation, and so on. We then also cast it such that
+type checking can be done on the scaffold,
+and we can ensure that the final scaffold is properly typed.
+specific time, debug, and save artifacts are present on all implementations.
 
 
-@register_implementation(
-    ExpressionImplementation,
-    name="minimal",
-    config_class="MinimalExpressionConfig",
-    description="Simple percentile-based filtering",
-)
-class MinimalExpression:
-    pass
+"""
 
 
-@register_implementation(
-    ExpressionImplementation,
-    name="tpm",
-    config_class="TPMExpressionConfig",
-    description="TPM normalization",
-)
-class TPMExpression:
-    pass
+class BaseStageProtocol:
+    """Protocol for stage orchestrators."""
+
+    name: str | None = None
+
+
+class ModelStageProtocol(BaseStageProtocol):
+    """Protocol for model stage orchestrators."""
+
+    name: str = "model"
+
+    def run(self, scaffold: dict, config: Any) -> dict:
+        """Run the model stage.
+
+        Args:
+            scaffold (dict): Shared pipeline scaffold.
+            config (Any): Root API configuration.
+
+        Returns:
+            dict: Updated scaffold.
+        """
+        raise NotImplementedError
+
+    def get_implementation(self, name: str) -> type:
+        """Get the implementation class for a given name.
+
+        Args:
+            name (str): Name of the implementation.
+
+        """
+
+
+@dataclass
+class InputInfo:
+    """Information about a required input for a stage implementation."""
+
+    name: str
+    description: str = ""
+    type: type | None = None
+    optional: bool = False
+    suffix: str | None = None
+
+
+class ImplementationProtocol:
+    """Protocol for stage implementations."""
+
+    STAGE_NAME: str | None = None
+    required_inputs: list[str] = []  # from scaffold
+    to_load_inputs: list[
+        InputInfo
+    ] = []  # tells stage orchestrator which files should be preloaded from disk
+    CHILD_IMPLEMENTATIONS: dict[str, type] = {}
+    CONFIG_CLASS: str | None = None
+
+    def run(self, scaffold: dict, config: Any) -> dict:
+        """Run the stage implementation.
+
+        Args:
+            scaffold (dict): Shared pipeline scaffold.
+            config (Any): Root API configuration.
+
+        Returns:
+            dict: Updated scaffold.
+        """
+        if not CHILD_IMPLEMENTATIONS:
+            self.validate_scaffold(scaffold)
+            self.validate_config(config)
+            self.validate_required_inputs(
+                scaffold
+            )  # first validates inputs at this level, then walks down the child implementations to validate their required inputs
+            scaffold_objects = self.get_scaffold_objects(scaffold)
+            scaffold.update(scaffold_objects)
+            return scaffold
+        for child_name, child_impl in self.CHILD_IMPLEMENTATIONS.items():
+            child_instance = child_impl()
+            scaffold = child_instance.run(scaffold, config)
+
+    def get_scaffold_objects(self, scaffold: dict) -> dict:
+        """Get the required scaffold objects for this implementation.
+
+        Args:
+            scaffold (dict): Shared pipeline scaffold.
+
+        Returns:
+            dict: Required scaffold objects.
+        """
+
+
+class BaseImplementation:
+    STAGE_NAME: str | None = None
+    CONFIG_CLASS: str | None = None
+    CHILD_IMPLEMENTATIONS: dict[str, type] = {}
