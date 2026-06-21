@@ -3,20 +3,6 @@
 Description:
     Public configuration exports for refactored VmaxBuilder API.
 
-Args:
-    None.
-
-Returns:
-    None.
-
-Raises:
-    None.
-
-Requires:
-    None.
-
-Modifies:
-    None.
 """
 
 # ruff:

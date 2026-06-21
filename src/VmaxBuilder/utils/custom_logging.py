@@ -315,10 +315,10 @@ class CustomLogger:
         return filename, lineno
 
     @fix_non_ascii_messages_decorator
-    def info(self, message, print_level=2, *args, **kwargs):
+    def debug(self, message, print_level=4, *args, **kwargs):
         stack_ = stack()
         filename, lineno = self.process_stack(stack_)
-        self.logger.info(
+        self.logger.debug(
             message,
             extra={
                 "print_level": print_level,
@@ -328,10 +328,10 @@ class CustomLogger:
         )
 
     @fix_non_ascii_messages_decorator
-    def debug(self, message, print_level=3, *args, **kwargs):
+    def info(self, message, print_level=3, *args, **kwargs):
         stack_ = stack()
         filename, lineno = self.process_stack(stack_)
-        self.logger.debug(
+        self.logger.info(
             message,
             extra={
                 "print_level": print_level,

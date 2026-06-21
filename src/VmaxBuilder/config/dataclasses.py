@@ -27,6 +27,8 @@ from VmaxBuilder.config.registry import (
 )
 
 dataclass(slots=True)
+
+
 class ValidationPolicy:
     """Generated: validation needed.
 
@@ -683,45 +685,6 @@ class APIConfig:
     allocation: AllocationConfig = field(default_factory=AllocationConfig)
     vmax: VmaxConfig = field(default_factory=VmaxConfig)
     metadata: dict[str, Any] = field(default_factory=dict)
-
-    def _resolve_config_class(self, implementation_class: type) -> type | None:
-        """Resolve expected trimming-config class for one implementation.
-
-        Args:
-            implementation_class (type): Trimming implementation class.
-        """
-        config_class_str = 
-
-
-
-    def resolve_trimming_implementation(self) -> tuple[type, type | None]:
-        """Resolve trimming implementation and expected trimming-config class.
-
-        Returns:
-            tuple[type, type|None]: (implementation class, trimming-config class or None)
-
-        Behavior:
-            - Look up implementation FQCN from allocation.trim_assesment_method.
-            - Import implementation class dynamically.
-            - Read implementation attributejjjjjjjjj `CONFIG_CLASS` if present to indicate
-              which trimming config class pairs with implementation.
-
-        Raises:
-            ValueError: When method unknown or allocation.trim_assesment_method empty.
-            ImportError / AttributeError: If module/class cannot be imported.
-        """
-        method_raw = (self.allocation.trim_assesment_method or "").strip().lower()
-        if not method_raw:
-            raise ValueError("allocation.trim_assesment_method not set")
-
-        implementation
-        # implementation may advertise expected config class via CONFIG_CLASS attribute
-        impl_config_cls = getattr(impl, "CONFIG_CLASS", None)
-        
-        # alternatively we find it in the registry 
-        trimming_implementation_config_registry
-
-        return impl, impl_config_cls
 
     def get_stage_config(
         self,
