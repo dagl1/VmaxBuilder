@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from VmaxBuilder.config.enums import ReactionNotation
+from VmaxBuilder.base.enums import ReactionNotation
 
 
 @dataclass(slots=True)

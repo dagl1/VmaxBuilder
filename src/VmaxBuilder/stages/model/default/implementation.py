@@ -58,4 +58,8 @@ class DefaultIrreversibleModelImplementation(BaseImplementation):
     ]
     OUTPUTS: list[OutputSpec] = []
     CONFIG_CLASS = ModelConfig
-    diagnostics = ModelDiagnostics()
+    DIAGNOSTICS = ModelDiagnostics()
+
+    def run(self, scaffold):
+        # For this default implementation, we simply return the scaffold as is.
+        return scaffold

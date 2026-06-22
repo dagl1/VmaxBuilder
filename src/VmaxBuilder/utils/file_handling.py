@@ -6,6 +6,7 @@ many different datatypes.
 import json
 import warnings
 from collections.abc import Sequence
+from enum import Enum
 from pathlib import Path
 from pickle import dump as pickle_dump
 from pickle import load as pickle_load
@@ -456,3 +457,149 @@ def save_with_tries(  # noqa: C901
                 else:
                     logger.warning(error_message)
                 raise Exception(error_message) from exc
+
+
+def _save_tabular_payload(
+    *,
+    payload: pd.DataFrame | pd.Series,
+    filename: str,
+    save_directory: Path,
+    include_index: bool,
+) -> Path:
+    """Generated: validation needed.
+
+    Description:
+        Save tabular runtime payload as CSV for user inspection.
+
+    Args:
+        payload (pd.DataFrame | pd.Series): Tabular payload.
+        filename (str): Output filename stem.
+        save_directory (Path): Target directory.
+        include_index (bool): Whether to include index column.
+
+    Returns:
+        Path: Saved CSV path.
+    """
+
+    save_with_tries(
+        data=payload,
+        filename=filename,
+        extension="csv",
+        save_dir=save_directory,
+        overwrite=True,
+        with_index=include_index,
+    )
+    return save_directory / f"{filename}.csv"
+
+
+def _save_json_payload(
+    *,
+    payload: dict[str, Any] | list[Any],
+    filename: str,
+    save_directory: Path,
+) -> Path:
+    """Generated: validation needed.
+
+    Description:
+        Save JSON-serialisable runtime payload.
+
+    Args:
+        payload (dict[str, Any] | list[Any]): JSON-safe payload.
+        filename (str): Output filename stem.
+        save_directory (Path): Target directory.
+
+    Returns:
+        Path: Saved JSON path.
+    """
+
+    save_with_tries(
+        data=payload,
+        filename=filename,
+        extension="json",
+        save_dir=save_directory,
+        overwrite=True,
+    )
+    return save_directory / f"{filename}.json"
+
+
+def _save_text_payload(
+    *,
+    payload: str,
+    filename: str,
+    save_directory: Path,
+) -> Path:
+    """Generated: validation needed.
+
+    Description:
+        Save scalar runtime payload as plain text.
+
+    Args:
+        payload (str): Text payload.
+        filename (str): Output filename stem.
+        save_directory (Path): Target directory.
+
+    Returns:
+        Path: Saved text path.
+    """
+
+    save_with_tries(
+        data=payload,
+        filename=filename,
+        extension="txt",
+        save_dir=save_directory,
+        overwrite=True,
+    )
+    return save_directory / f"{filename}.txt"
+
+
+def _make_json_safe(cls, value: Any) -> Any:
+    """Generated: validation needed.
+
+    Description:
+        Convert nested runtime payloads into JSON-safe builtin values.
+
+    Args:
+        value (Any): Runtime payload value.
+
+    Returns:
+        Any: JSON-safe builtin representation.
+    """
+
+    if isinstance(value, dict):
+        return {
+            str(key): cls._make_json_safe(nested_value) for key, nested_value in value.items()
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [cls._make_json_safe(item) for item in value]
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, pd.Index):
+        return [cls._make_json_safe(item) for item in value.tolist()]
+    if isinstance(value, pd.Series):
+        return cls._make_json_safe(value.to_dict())
+    if hasattr(value, "item") and callable(value.item):
+        try:
+            return value.item()
+        except (TypeError, ValueError):
+            pass
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
+def _build_output_signature(output_directories: tuple[Path, ...]) -> tuple[str, ...]:
+    """Generated: validation needed.
+
+    Description:
+        Build stable output-directory signature used for output re-prime checks.
+
+    Args:
+        output_directories (tuple[Path, ...]): Candidate output directories.
+
+    Returns:
+        tuple[str, ...]: Sorted normalized output path strings.
+    """
+
+    return tuple(sorted(str(directory.resolve()) for directory in output_directories))

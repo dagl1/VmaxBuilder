@@ -3,9 +3,10 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import wraps
-from typing import Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
-from VmaxBuilder.base.classes import BaseImplementation
+if TYPE_CHECKING:
+    from VmaxBuilder.base.classes import BaseImplementation
 
 T = TypeVar("T")
 

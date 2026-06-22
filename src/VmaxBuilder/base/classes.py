@@ -1,29 +1,47 @@
-from typing import Any
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any
 
-from VmaxBuilder.base.configs import InputSpec, OutputSpec
+if TYPE_CHECKING:
+    from VmaxBuilder.base.configs import InputSpec, OutputSpec, Scaffold
 
 
-class DiagnosticsMixin:
+class BaseStageDiagnostics:
+    """
+    Only used for implementation-independent diagnostics used to verify stage output
+    based on stage contracts.
+    """
+
+    def after_run(self, scaffold): ...
+
+
+class ImplementationDiagnostics:
+    """
+    Used for implementation-specific diagnostics, which may include verifying
+    stage output but also more detailed checks that may be specific
+    to the implementation's approach.
+    """
+
     def before_run(self, scaffold): ...
     def after_run(self, scaffold): ...
     def on_error(self, error): ...
 
 
-class BaseImplementation(DiagnosticsMixin):
+class BaseImplementation(ABC):
     STAGE_NAME: str
     IMPL_NAME: str
 
     CONFIG_CLASS: type | None = None
 
-    INPUTS: list[InputSpec] = []
-    OUTPUTS: list[OutputSpec] = []
+    INPUTS: list["InputSpec"] = []
+    OUTPUTS: list["OutputSpec"] = []
 
     CHILD_IMPLEMENTATIONS: dict[str, str] = {}
 
-    def validate(self, scaffold: dict):
-        for inp in self.INPUTS:
-            if not inp.optional and inp.name not in scaffold:
-                raise ValueError(f"Missing required input: {inp.name}")
+    DIAGNOSTICS: list[ImplementationDiagnostics] = []
 
-    def run(self, scaffold: dict, config: Any) -> dict:
-        raise NotImplementedError
+    def run(self, scaffold: "Scaffold") -> "Scaffold":
+            scaffold_objects =
+
+
+
+    @abstractmethod

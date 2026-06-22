@@ -1,4 +1,5 @@
-from dataclasses import asdict, dataclass, field
+import inspect
+from dataclasses import asdict, dataclass, field, fields, is_dataclass, make_dataclass
 from pathlib import Path
 from pprint import pprint
 from typing import Any, cast, get_type_hints
@@ -15,11 +16,12 @@ from VmaxBuilder.base.configs import (
     ImplementationConfig,
     InputSpec,
     PathInfo,
-    Paths,
     RunConfig,
+    Scaffold,
     StageLoadingInfo,
     Stages,
 )
+from VmaxBuilder.base.exceptions import ImplementationConfigConflictError
 from VmaxBuilder.base.registry import IMPLEMENTATION_REGISTRY
 from VmaxBuilder.stages.model.model import ModelStage
 from VmaxBuilder.utils.custom_logging import CustomLogger
@@ -27,33 +29,52 @@ from VmaxBuilder.utils.custom_logging import CustomLogger
 run_config_type_hints = get_type_hints(RunConfig)
 PrintLevelType = run_config_type_hints.get("print_level", str)
 
+"""
+Users can provide one or more directories for a specific stage, in which all inputspes
+with their denoted extension and file keys will be sought. Alternatively users
+can provide a dictionary with filepaths for each input spec of a specific stage.
+
+add check if at least one dir or path is provided
+then search based on inputs if not found we raise error
+
+"""
+
 
 class Orchestrator:
     registry: dict[str, type[BaseImplementation]] = IMPLEMENTATION_REGISTRY
-    stages = ["model"]
+    stages = {
+        "model": ModelStage,
+        # "protein": ProteinStage,
+        # "allocation": AllocationStage,
+        # add more stages here as needed
+        # "stage_name": StageClass,
+    }
 
-    def __init__(self, stage_implmentations: Stages, run_config: RunConfig):
+    def __init__(self, stage_implementations: Stages, run_config: RunConfig):
+        # base initialization
         self.logger = CustomLogger("Orchestrator")
         self.discovered_inputs: dict[str, dict[str, Path | None]] = {
             stage: {} for stage in self.stages
         }
+        self.config = self._build_default_config(run_config=run_config)
+
+        # get user input for loading and implementations
         self.loading_info = {
-            stage: getattr(stage_implmentations, f"{stage}_loading_info")
+            stage: getattr(stage_implementations, f"{stage}_loading_info")
             for stage in self.stages
         }
-        model_stage_implementation = self._resolve_implementation(
-            "model", stage_implmentations.model_implementation.value
-        )
-        model_stage_config = self._get_implementation_config_class(
-            implementation=model_stage_implementation,
-        )
-
-        self.model_stage = ModelStage(model_stage_implementation, model_stage_config)
-        self.config = self._build_default_config(run_config=run_config)
+        self._resolve_stage_implementations(stage_implementations=stage_implementations)
         self._discover_user_submitted_paths()
 
     def show_config(self, sections: list[str] | str | None = None):
-        if sections is None:
+        if not hasattr(self.config, "run") or self.config.run is None:
+            raise ValueError(
+                "Config must have a 'run' section witha valid RunConfig instance."
+            )
+        if (sections is not None) and not isinstance(sections, (str, list)):
+            raise ValueError("Sections must be None, a string, or a list of strings.")
+
+        elif sections is None:
             pprint(asdict(self.config))
         elif isinstance(sections, str):
             pprint(asdict(getattr(self.config, sections)))
@@ -61,15 +82,10 @@ class Orchestrator:
             for section in sections:
                 if not hasattr(self.config, section):
                     raise ValueError(f"Section '{section}' not found in config.")
-                if not isinstance(
-                    getattr(self.config, section), (ImplementationConfig, RunConfig, Paths)
-                ):
+                allowed_types = tuple(f.type for f in fields(self.config))
+                if not isinstance(getattr(self.config, section), allowed_types):
                     raise ValueError(f"Section '{section}' is not a valid config section.")
                 pprint(asdict(getattr(self.config, section)))
-        raise ValueError("Sections must be None, a string, or a list of strings.")
-
-    def set_results_dir(self, path: Path):
-        self.config.paths.results_dir = path
 
     def set_stage_loading_info(self, stage: str, loading_info: StageLoadingInfo):
         if stage not in self.stages:
@@ -80,13 +96,13 @@ class Orchestrator:
     def set_stage_implementation(
         self,
         stage: str,
-        implmentation_name: MODEL_IMPLEMENTATIONS
+        implementation_name: MODEL_IMPLEMENTATIONS
         | PROTEIN_IMPLEMENTATIONS
         | ALLOCATION_IMPLEMENTATIONS,
     ):
         if stage not in self.stages:
             raise ValueError(f"Stage '{stage}' is not a valid stage.")
-        impl_cls = self._resolve_implementation(stage, implmentation_name.value)
+        impl_cls = self._resolve_implementation(stage, implementation_name.value)
         config_cls = self._get_implementation_config_class(implementation=impl_cls)
         setattr(
             self,
@@ -95,8 +111,9 @@ class Orchestrator:
         )
 
         self.logger.info(
-            f"Set implementation for stage '{stage}' to '{implmentation_name.value}'."
+            f"Set implementation for stage '{stage}' to '{implementation_name.value}'."
         )
+        self._discover_user_submitted_paths()
 
     def set_print_level(self, level: str | int):
         mapping = {
@@ -124,7 +141,7 @@ class Orchestrator:
         self.logger.set_print_level(level_int)
 
         self.logger.info(f"Print level set to: {level_literal}")
-        self.config.run.print_level = cast(PrintLevelType, level_literal)
+        self.config.run._print_level = cast(PrintLevelType, level_literal)
 
     def return_user_submitted_paths(self) -> list[PathInfo]:
         user_submitted_paths = []
@@ -144,6 +161,36 @@ class Orchestrator:
         )
 
         return user_submitted_paths
+
+    @staticmethod
+    def _initialise_scaffold(scaffold: Scaffold | None = None) -> Scaffold:
+        if scaffold is None:
+            return {
+                "inputs": {},
+                "artifacts": {},
+                "outputs": {},
+                "metadata": {},
+                "diagnostics": {},
+                "extras": {},
+            }
+        scaffold.setdefault("inputs", {})
+        scaffold.setdefault("artifacts", {})
+        scaffold.setdefault("outputs", {})
+        scaffold.setdefault("metadata", {})
+        scaffold.setdefault("diagnostics", {})
+        scaffold.setdefault("extras", {})
+        return scaffold
+
+    def _resolve_stage_implementations(self, stage_implementations: Stages):
+        for stage in self.stages:
+            impl_name = getattr(stage_implementations, f"{stage}_implementation")
+            impl_cls = self._resolve_implementation(stage, impl_name)
+            config_cls = self._get_implementation_config_class(implementation=impl_cls)
+            setattr(
+                self,
+                f"{stage}_stage",
+                self.stages[stage](impl_cls, config_cls),
+            )
 
     def _resolve_implementation(self, stage: str, impl_name: str) -> type[BaseImplementation]:
         key = f"{stage}:{impl_name}"
@@ -167,13 +214,102 @@ class Orchestrator:
             )
 
         impl_cls = self._resolve_implementation(stage, impl_name)
-        return getattr(impl_cls, "CONFIG_CLASS", None)
+        stage_configs = self._collect_implementation_configs(impl_cls)
+        self._validate_config_conflicts(stage_configs)
+        flattened_stage_config = self._build_flattened_config(stage_configs)
+
+        return flattened_stage_config
+
+    def _collect_implementation_configs(
+        self,
+        implementation: type[BaseImplementation],
+    ) -> list[type]:
+        configs = []
+
+        config_cls = getattr(
+            implementation,
+            "CONFIG_CLASS",
+            None,
+        )
+
+        if config_cls is not None:
+            configs.append(config_cls)
+
+        for (
+            child_stage,
+            child_impl_name,
+        ) in implementation.CHILD_IMPLEMENTATIONS.items():
+            child_impl = self._resolve_implementation(
+                child_stage,
+                child_impl_name,
+            )
+
+            configs.extend(self._collect_implementation_configs(child_impl))
+
+        return configs
+
+    def _validate_config_conflicts(
+        self,
+        config_classes: list[type],
+    ):
+        key_owners = {}
+        for config_cls in config_classes:
+            source_file = inspect.getfile(config_cls)
+            _, line_number = inspect.getsourcelines(config_cls)
+            if not is_dataclass(config_cls):
+                raise TypeError(
+                    f"Config class '{config_cls.__name__}' "
+                    f"in {source_file} is not a dataclass."
+                )
+
+            for _field in fields(config_cls):
+                if _field.name in key_owners:
+                    previous = key_owners[_field.name]
+                    if not isinstance(previous["config"], type) or not isinstance(
+                        config_cls, type
+                    ):
+                        raise ValueError(
+                            f"Conflict detected for config key '{_field.name}' between "
+                            f"{previous['config']} and {config_cls},"
+                            "but one of them is not a class."
+                        )
+
+                    raise ImplementationConfigConflictError(
+                        key=_field.name,
+                        config_a=previous["config"],
+                        config_b=config_cls,
+                        file_a=f"{previous['file']}:{previous['line']}",
+                        file_b=f"{source_file}:{line_number}",
+                    )
+
+                key_owners[_field.name] = {
+                    "config": config_cls,
+                    "file": source_file,
+                    "line": line_number,
+                }
 
     def _build_default_config(self, run_config: RunConfig) -> FullConfig:
         return FullConfig(
-            model=ImplementationConfig(),
-            run=run_config,
-            paths=Paths(_results_dir=run_config.output_dir),
+            model=ImplementationConfig(), run=run_config, paths=run_config.paths
+        )
+
+    def _build_flattened_config(self, config_classes: list[type]) -> type:
+        combined_fields = []
+
+        for config_cls in config_classes:
+            for _field in fields(config_cls):
+                combined_fields.append(
+                    (
+                        _field.name,
+                        _field.type,
+                        _field,
+                    )
+                )
+
+        return make_dataclass(
+            cls_name="CombinedConfig",
+            fields=combined_fields,
+            bases=(ImplementationConfig,),
         )
 
     def _discover_user_submitted_paths(self):
@@ -320,26 +456,18 @@ if __name__ == "__main__":
             "transcript_df": model_dir / "transcript_df.csv",
         },
     )
-    """
-    Users can provide one or more directories for a specific stage, in which all inputspes
-    with their denoted extension and file keys will be sought. Alternatively users
-    can provide a dictionary with filepaths for each input spec of a specific stage.
-
-    add check if at least one dir or path is provided
-    then search based on inputs if not found we raise error
-
-    """
 
     # Protein inputs (set whichever mode needs).
-    stage_implmentations = Stages(
+    stage_implementations = Stages(
         model_implementation=implementations.model.default,
         model_loading_info=model_stage_loading_info,
         # protein_stage=implementations.protein.dummy_protein,
     )
     run_config = RunConfig(
         output_dir=output_path,
-        run_name=model_name,
+        run_name="VmaxBuilder_Run",
         create_dynamically_named_results=create_dynamically_named_results,
     )
-    orchestrator = Orchestrator(stage_implmentations, run_config)
+
+    orchestrator = Orchestrator(stage_implementations, run_config)
     # orchestrator.config.model.

@@ -1,2 +1,0 @@
-class ModelStageContractError(Exception):
-    pass
