@@ -1,6 +1,6 @@
 from dataclasses import InitVar, dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Iterable, Literal, TypeAlias, cast
 
 from cobra import Model
 from typing_extensions import TypedDict, overload
@@ -85,6 +85,11 @@ class RunConfig:
     _output_dir: Path
     _run_name: str
     _print_level: str
+    _ignore_fields: ClassVar[tuple[str, ...]] = (
+        "_output_dir",
+        "_run_name",
+        "_print_level",
+    )
 
     def __init__(
         self,
@@ -208,7 +213,6 @@ class InputSpec:
     name: str
     data_type: type | None = None
     optional: bool = False
-    scaffold_key: str | None = None  # scaffold key for loading from scaffold
     loader: Callable | None = None  # file → object loader
     loader_args: dict[str, Any] | None = None  # additional args for loader
     file_key: str | None = None  # file key for loading from files
@@ -221,7 +225,8 @@ class OutputSpec:
     data_type: type | None = None
 
 
-class Scaffold(TypedDict):
+@dataclass
+class Scaffold:
     """Generated: validation needed.
 
     Description:
@@ -243,44 +248,33 @@ class Scaffold(TypedDict):
     diagnostics: dict[str, Any]
     extras: dict[str, Any]
 
+    def get_scaffold_location(self, key: str) -> str | None:
+        """
+        searches the scaffold for the given key in the following order:
+        1. inputs
+        2. outputs
+        3. extras
+        4. artifacts
+        5. metadata
+        6. diagnostics
+        """
+        sections = ["inputs", "outputs", "extras", "artifacts", "metadata", "diagnostics"]
+        for section in sections:
+            if key in getattr(self, section):
+                return section
 
-@overload
-def get_scaffold_model(scaffold: Scaffold, *, required: Literal[True] = True) -> Model: ...
-
-
-@overload
-def get_scaffold_model(scaffold: Scaffold, *, required: Literal[False]) -> Model | None: ...
-
-
-def get_scaffold_model(scaffold: Scaffold, *, required: bool = True) -> Model | None:
-    """Generated: validation needed.
-
-    Description:
-        Return scaffold model artifact with runtime validation and precise typing.
-
-    Args:
-        scaffold (Scaffold): Shared pipeline scaffold.
-        required (bool): Whether missing model artifact should raise.
-
-    Returns:
-        cobra.Model | None: Scaffold model artifact, or ``None`` when optional.
-
-    Raises:
-        ConfigurationError: When model artifact is missing while required, or when
-            stored artifact is not ``cobra.Model``.
-    """
-
-    model_artifact = scaffold.get("artifacts", {}).get("model")
-    if model_artifact is None:
-        if required:
-            raise ConfigurationError(
-                "Scaffold artifacts['model'] missing. Run model stage before "
-                "requesting model-dependent artifacts."
-            )
         return None
-    if not isinstance(model_artifact, Model):
-        raise ConfigurationError(
-            "Scaffold artifacts['model'] must be cobra.Model. "
-            f"Received {type(model_artifact).__name__}."
-        )
-    return model_artifact
+
+    def update_scaffold(self, new_scaffold_objects) -> None:
+        """
+        Updates the scaffold with the given key-value pair in the specified section.
+        If the section does not exist, it will be created.
+        """
+        for key, value in new_scaffold_objects.items():
+            location = self.get_scaffold_location(key)  # Ensure the scaffold location exists
+            if location is None:
+                self.outputs[key] = value  # Add new output if location doesn't exist
+            else:
+                getattr(self, location)[key] = (
+                    value  # Update existing output if location exists
+                )

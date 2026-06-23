@@ -26,3 +26,7 @@ class ExpressionPTRImplementation(BaseImplementation):
         for impl in self.child_implementations:
             scaffold = impl.run(scaffold)
         return scaffold
+
+    def generate_outputs(self, scaffold: Scaffold) -> dict[str, any]:
+        # This implementation does not generate new outputs directly, it relies on child implementations
+        return {}

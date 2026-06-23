@@ -1,5 +1,13 @@
 import inspect
-from dataclasses import asdict, dataclass, field, fields, is_dataclass, make_dataclass
+from collections.abc import Iterator
+from dataclasses import (  # asdict,
+    dataclass,
+    field,
+    fields,
+    is_dataclass,
+    make_dataclass,
+)
+from lib2to3.pytree import Base
 from pathlib import Path
 from pprint import pprint
 from typing import Any, cast, get_type_hints
@@ -40,6 +48,32 @@ then search based on inputs if not found we raise error
 """
 
 
+# todo: move to utils.py
+def custom_asdict(obj):
+    """ """
+    if is_dataclass(obj):
+        result = {}
+        # Controleer of deze specifieke klasse velden wil negeren
+        ignored = getattr(obj, "_ignore_fields", set())
+
+        for f in fields(obj):
+            if f.name in ignored:
+                continue  # Sla dit veld volledig over
+
+            value = getattr(obj, f.name)
+            result[f.name] = custom_asdict(value)
+        return result
+
+    elif isinstance(obj, list):
+        return [custom_asdict(v) for v in obj]
+    elif isinstance(obj, dict):
+        return {k: custom_asdict(v) for k, v in obj.items()}
+    elif isinstance(obj, tuple):
+        return tuple(custom_asdict(v) for v in obj)
+
+    return obj
+
+
 class Orchestrator:
     registry: dict[str, type[BaseImplementation]] = IMPLEMENTATION_REGISTRY
     stages = {
@@ -57,6 +91,7 @@ class Orchestrator:
             stage: {} for stage in self.stages
         }
         self.config = self._build_default_config(run_config=run_config)
+        self.scaffold = self._initialise_scaffold()
 
         # get user input for loading and implementations
         self.loading_info = {
@@ -64,7 +99,6 @@ class Orchestrator:
             for stage in self.stages
         }
         self._resolve_stage_implementations(stage_implementations=stage_implementations)
-        self._discover_user_submitted_paths()
 
     def show_config(self, sections: list[str] | str | None = None):
         if not hasattr(self.config, "run") or self.config.run is None:
@@ -74,10 +108,10 @@ class Orchestrator:
         if (sections is not None) and not isinstance(sections, (str, list)):
             raise ValueError("Sections must be None, a string, or a list of strings.")
 
-        elif sections is None:
-            pprint(asdict(self.config))
+        elif sections is None or sections == "all":
+            pprint(custom_asdict(self.config))
         elif isinstance(sections, str):
-            pprint(asdict(getattr(self.config, sections)))
+            pprint(custom_asdict(getattr(self.config, sections)))
         elif isinstance(sections, list):
             for section in sections:
                 if not hasattr(self.config, section):
@@ -85,7 +119,7 @@ class Orchestrator:
                 allowed_types = tuple(f.type for f in fields(self.config))
                 if not isinstance(getattr(self.config, section), allowed_types):
                     raise ValueError(f"Section '{section}' is not a valid config section.")
-                pprint(asdict(getattr(self.config, section)))
+                pprint(custom_asdict(getattr(self.config, section)))
 
     def set_stage_loading_info(self, stage: str, loading_info: StageLoadingInfo):
         if stage not in self.stages:
@@ -103,11 +137,12 @@ class Orchestrator:
         if stage not in self.stages:
             raise ValueError(f"Stage '{stage}' is not a valid stage.")
         impl_cls = self._resolve_implementation(stage, implementation_name.value)
-        config_cls = self._get_implementation_config_class(implementation=impl_cls)
+        implementation = impl_cls()
+        config_cls = self._get_implementation_config_class(implementation=implementation)
         setattr(
             self,
             f"{stage}_stage",
-            getattr(self, f"{stage}_stage").__class__(impl_cls, config_cls),
+            self.stages[stage](implementation=implementation, config=config_cls),
         )
 
         self.logger.info(
@@ -157,40 +192,83 @@ class Orchestrator:
                 )
         self.logger.info(
             "User submitted paths:"
-            f"{[asdict(path_info) for path_info in user_submitted_paths]}"
+            f"{[custom_asdict(path_info) for path_info in user_submitted_paths]}"
         )
 
         return user_submitted_paths
 
+    def load_inputs(self) -> None:
+        for stage_name in self.stages:
+            stage = getattr(self, f"{stage_name}_stage")
+            stage_implementation: BaseImplementation = stage.implementation
+            for implementation in self._iter_implementations(stage_implementation):
+                if isinstance(implementation, type):
+                    continue
+                implementation.load_inputs(scaffold=self.scaffold)
+
+    def validate_inputs(self, scaffold: Scaffold) -> Scaffold:
+        """
+        Validates inputs after loading using the InputSpecs validation function.
+        Note that his does not
+
+
+        """
+        return scaffold
+
+    def _iter_implementations(
+        self,
+        implementation: type[BaseImplementation] | BaseImplementation,
+    ) -> Iterator[BaseImplementation | type[BaseImplementation]]:
+        yield implementation
+
+        child_implementations: list[BaseImplementation] = getattr(
+            implementation, "child_implementations", []
+        )
+
+        for child_implementation in child_implementations:
+            yield from self._iter_implementations(child_implementation)
+
     @staticmethod
     def _initialise_scaffold(scaffold: Scaffold | None = None) -> Scaffold:
         if scaffold is None:
-            return {
-                "inputs": {},
-                "artifacts": {},
-                "outputs": {},
-                "metadata": {},
-                "diagnostics": {},
-                "extras": {},
-            }
-        scaffold.setdefault("inputs", {})
-        scaffold.setdefault("artifacts", {})
-        scaffold.setdefault("outputs", {})
-        scaffold.setdefault("metadata", {})
-        scaffold.setdefault("diagnostics", {})
-        scaffold.setdefault("extras", {})
-        return scaffold
+            return Scaffold(
+                inputs={},
+                artifacts={},
+                outputs={},
+                metadata={},
+                diagnostics={},
+                extras={},
+            )
+        else:
+            raise ValueError("Scaffold must be None or a valid Scaffold instance.")
 
     def _resolve_stage_implementations(self, stage_implementations: Stages):
         for stage in self.stages:
             impl_name = getattr(stage_implementations, f"{stage}_implementation")
-            impl_cls = self._resolve_implementation(stage, impl_name)
-            config_cls = self._get_implementation_config_class(implementation=impl_cls)
-            setattr(
-                self,
-                f"{stage}_stage",
-                self.stages[stage](impl_cls, config_cls),
-            )
+            self.set_stage_implementation(stage, impl_name)
+
+    def walk_implementation_dag(self) -> list[tuple[str, str]]:
+        """
+        This function walks through each implementation and its child implementations,
+        and checks, in order, what the state and return state of different implementations
+        are. This also deals with optional inputs that lead to a decision tree (if present
+        don't run the extra code, otherwise do run it). It assumes that files are either
+        created at some point earlier and thus present, or are denoted loadable and thus
+        can be loaded. It does not check whether files are actually present on those locations
+        nor whether they are valid.
+        """
+        pass
+        dag: list[tuple[str, str]] = []
+        return dag
+
+    def validate_virtual_inputs_outputs(self):
+        """
+        Only checks the mermaid plot created to ensure that the full orchestration
+        implementation is valid and that no implementation requires any inputs that
+        are not provided or loaded by other implementations. Specifically ensures that
+        optional inputs (for isntance ensembl data) are created if they were not present.
+        """
+        pass
 
     def _resolve_implementation(self, stage: str, impl_name: str) -> type[BaseImplementation]:
         key = f"{stage}:{impl_name}"
@@ -201,7 +279,7 @@ class Orchestrator:
     def _get_implementation_config_class(
         self,
         *,
-        implementation: type[BaseImplementation] | None = None,
+        implementation: BaseImplementation | type[BaseImplementation] | None = None,
         stage: str | None = None,
         impl_name: str | None = None,
     ) -> type | None:
@@ -213,8 +291,8 @@ class Orchestrator:
                 "Either 'implementation' or both 'stage' and 'impl_name' must be provided."
             )
 
-        impl_cls = self._resolve_implementation(stage, impl_name)
-        stage_configs = self._collect_implementation_configs(impl_cls)
+        implementation_cls = self._resolve_implementation(stage, impl_name)
+        stage_configs = self._collect_implementation_configs(implementation_cls)
         self._validate_config_conflicts(stage_configs)
         flattened_stage_config = self._build_flattened_config(stage_configs)
 
@@ -222,29 +300,14 @@ class Orchestrator:
 
     def _collect_implementation_configs(
         self,
-        implementation: type[BaseImplementation],
+        implementation: type[BaseImplementation] | BaseImplementation,
     ) -> list[type]:
         configs = []
 
-        config_cls = getattr(
-            implementation,
-            "CONFIG_CLASS",
-            None,
-        )
-
-        if config_cls is not None:
-            configs.append(config_cls)
-
-        for (
-            child_stage,
-            child_impl_name,
-        ) in implementation.CHILD_IMPLEMENTATIONS.items():
-            child_impl = self._resolve_implementation(
-                child_stage,
-                child_impl_name,
-            )
-
-            configs.extend(self._collect_implementation_configs(child_impl))
+        for impl in self._iter_implementations(implementation):
+            config_cls = getattr(impl, "CONFIG_CLASS", None)
+            if config_cls is not None:
+                configs.append(config_cls)
 
         return configs
 
@@ -335,6 +398,7 @@ class Orchestrator:
             or input_spec.extensions is None
         ):
             return None
+        print(f"[INFO] Discovering input '{input_spec.name}'...")
         explicit_path = self._resolve_explicit_filepath(
             input_spec,
             loading_info,
@@ -470,4 +534,28 @@ if __name__ == "__main__":
     )
 
     orchestrator = Orchestrator(stage_implementations, run_config)
-    # orchestrator.config.model.
+    print("Initial config:")
+    orchestrator.show_config()
+    print("setting print level to DEBUG...")
+    orchestrator.set_print_level("DEBUG")
+    print("showing user submitted  paths:")
+    orchestrator.return_user_submitted_paths()
+    print("setting new  user submitted paths...")
+    orchestrator.set_stage_loading_info(
+        "model",
+        StageLoadingInfo(
+            stage_name="model",
+            directories=model_dir,
+            filepaths={
+                "smiles_df": model_dir / "final_SMILES_metabolite_df.csv",
+                "transcript_df": model_dir / "final_transcript_df.csv",
+            },
+        ),
+    )
+    print("showing updated user submitted paths:")
+    orchestrator.return_user_submitted_paths()
+    # orchestrator.set_stage_implementation("protein",
+    #                                       implementations.protein.proteomic)
+
+    print("Loading inputs...")
+    orchestrator.load_inputs()

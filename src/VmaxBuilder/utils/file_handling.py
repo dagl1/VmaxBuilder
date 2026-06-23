@@ -106,6 +106,10 @@ def load_existing_file_based_on_extension(  # noqa: C901
     Raises:
         ValueError: If file extension is unsupported.
     """
+    print(
+        f"Loading file from {location} with"
+        f"index_col={index_col} and is_cobra_model={is_cobra_model}"
+    )
     location_path = Path(location)
 
     if is_cobra_model:

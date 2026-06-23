@@ -14,7 +14,6 @@ class SimplePTRImputationImplementation(BaseImplementation):
         InputSpec(
             name="expression_df",
             data_type=DataFrame,
-            scaffold_key="expression_df",
             loader=load_existing_file_based_on_extension,
             file_key="expression_df",
             extensions=(
@@ -26,7 +25,6 @@ class SimplePTRImputationImplementation(BaseImplementation):
         InputSpec(
             name="transcript_df",
             data_type=DataFrame,
-            scaffold_key="transcript_df",
             optional=True,
         ),
     ]

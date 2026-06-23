@@ -17,7 +17,6 @@ class DefaultIrreversibleModelImplementation(BaseImplementation):
         InputSpec(
             name="cobra_model",
             data_type=Model,
-            scaffold_key="cobra_model",
             loader=load_existing_file_based_on_extension,
             loader_args={"is_cobra_model": True},
             file_key="model_",
@@ -32,7 +31,6 @@ class DefaultIrreversibleModelImplementation(BaseImplementation):
         InputSpec(
             name="transcript_df",
             data_type=DataFrame,
-            scaffold_key="transcript_df",
             optional=True,
             loader=load_existing_file_based_on_extension,
             file_key="transcript_df",
@@ -45,7 +43,6 @@ class DefaultIrreversibleModelImplementation(BaseImplementation):
         InputSpec(
             name="smiles_df",
             data_type=DataFrame,
-            scaffold_key="smiles_df",
             optional=True,
             loader=load_existing_file_based_on_extension,
             file_key="smiles_df",
@@ -63,3 +60,7 @@ class DefaultIrreversibleModelImplementation(BaseImplementation):
     def run(self, scaffold):
         # For this default implementation, we simply return the scaffold as is.
         return scaffold
+
+    def generate_outputs(self, scaffold):
+        # This implementation does not generate new outputs directly, it relies on child implementations
+        return {}
