@@ -77,6 +77,8 @@ class BaseImplementation(ABC):
                 continue
             elif input_spec.loader and input_spec.file_key:
                 # If a loader and file_key are specified, use the loader to load the input
+                # todo: add file discovery based on extensions and file_key
+
                 loaded_input = input_spec.loader(
                     input_spec.file_key,
                     **(input_spec.loader_args or {}),
