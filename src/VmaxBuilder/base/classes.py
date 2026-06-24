@@ -21,10 +21,30 @@ class BaseStage:
     NECESSARY_OUTPUTS: list["OutputSpec"] = []
 
     def __init__(self, implementation: "BaseImplementation", config: FullConfig):
+        """Generated: validation needed.
+
+        Description:
+            Initialise stage wrapper with concrete implementation and full config.
+
+        Args:
+            implementation (BaseImplementation): Stage implementation instance.
+            config (FullConfig): Full run configuration.
+        """
         self.config = config
         self.implementation = implementation
 
     def run(self, scaffold):
+        """Generated: validation needed.
+
+        Description:
+            Execute diagnostics hooks around implementation run and return scaffold.
+
+        Args:
+            scaffold (Scaffold): Shared scaffold payload.
+
+        Returns:
+            Scaffold: Updated scaffold after stage execution.
+        """
         # Run diagnostics before the stage execution
         for diagnostic in self.DIAGNOSTICS:
             diagnostic.before_run(scaffold)
@@ -107,6 +127,14 @@ class BaseImplementation(ABC):
     DIAGNOSTICS: list[ImplementationDiagnostics] = []
 
     def __init__(self, full_config: FullConfig):
+        """Generated: validation needed.
+
+        Description:
+            Initialise implementation with shared configuration and child implementations.
+
+        Args:
+            full_config (FullConfig): Full run configuration object.
+        """
         self.child_implementations = [
             impl(full_config) for impl in self.CHILD_IMPLEMENTATIONS
         ]
@@ -125,6 +153,17 @@ class BaseImplementation(ABC):
         ...
 
     def run(self, scaffold: "Scaffold") -> "Scaffold":
+        """Generated: validation needed.
+
+        Description:
+            Execute current implementation or recursively execute child implementations.
+
+        Args:
+            scaffold (Scaffold): Shared scaffold payload.
+
+        Returns:
+            Scaffold: Updated scaffold.
+        """
         if not self.child_implementations:
             new_scaffold_objects = self.generate_outputs(scaffold)
             scaffold.update_scaffold(new_scaffold_objects)
@@ -135,9 +174,18 @@ class BaseImplementation(ABC):
         return scaffold
 
     def load_inputs(self, scaffold: "Scaffold") -> None:
-        """
-        Load the inputs specified in the INPUTS specification into the scaffold.
-        This method can be overridden by subclasses to provide custom loading logic.
+        """Generated: validation needed.
+
+        Description:
+            Load stage inputs into scaffold using discovered input file paths and loaders.
+
+        Args:
+            scaffold (Scaffold): Shared scaffold payload.
+
+        Raises:
+            KeyError: Raised when `self.STAGE_NAME` key is absent in
+                `scaffold.discovered_inputs`.
+            ValueError: Raised when required input cannot be loaded.
         """
         for input_spec in self.INPUTS:
             if scaffold.get_scaffold_location(input_spec.name):
@@ -164,6 +212,19 @@ class BaseImplementation(ABC):
     def validate_input(
         self, scaffold: "Scaffold", input_spec: "InputSpec", location="inputs"
     ) -> tuple["Scaffold", dict[str, bool | str] | None]:
+        """Generated: validation needed.
+
+        Description:
+            Validate single input spec from scaffold, with fallback from inputs to outputs.
+
+        Args:
+            scaffold (Scaffold): Shared scaffold payload.
+            input_spec (InputSpec): Input specification including validator.
+            location (str): Scaffold section to inspect first.
+
+        Returns:
+            tuple[Scaffold, dict[str, bool | str] | None]: Scaffold and validation result.
+        """
         FALLBACK_LOCATION = "outputs"
         if not input_spec.validator:
             self.logger.warning(
@@ -250,6 +311,18 @@ def fallback_provider(
     provides: str,
     requires: set[str] | None = None,
 ):
+    """Generated: validation needed.
+
+    Description:
+        Mark method as fallback provider for scaffold value discovery.
+
+    Args:
+        provides (str): Scaffold key produced by provider.
+        requires (set[str] | None): Required scaffold keys before provider can run.
+
+    Returns:
+        Callable[[Callable[..., Any]], Callable[..., Any]]: Decorator attaching metadata.
+    """
     requires_frozen = frozenset(requires or ())
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -264,6 +337,17 @@ def fallback_provider(
 
 
 def get_fallback_providers(cls):
+    """Generated: validation needed.
+
+    Description:
+        Collect fallback provider metadata from class methods.
+
+    Args:
+        cls (type): Class containing potential fallback provider methods.
+
+    Returns:
+        dict[str, FallbackProviderMetadata]: Provider metadata keyed by provided key.
+    """
     providers = {}
 
     for _, method in getmembers(cls, isfunction):

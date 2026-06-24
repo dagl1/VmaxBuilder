@@ -508,12 +508,12 @@ class Orchestrator:
         loading_info: StageLoadingInfo,
     ) -> Path | None:
         matches = []
-        print(f"[INFO] Searching directories for '{input_spec.name}'...")
-        print(f"[INFO] Directories to search: {loading_info.directories}")
+        self.logger.info(f"Searching directories for '{input_spec.name}'.")
+        self.logger.info(f"Directories to search: {loading_info.directories}")
 
         for directory in self._normalize_directories(loading_info.directories):
             if not directory.exists():
-                print(f"[WARNING] Directory not found: {directory}")
+                self.logger.warning(f"Directory not found: {directory}")
                 continue
 
             matches.extend(
@@ -548,23 +548,26 @@ class Orchestrator:
         input_spec: InputSpec,
     ) -> Path | None:
         if len(matches) == 0:
-            print(f"[WARNING] No file found for '{input_spec.name}'.")
+            self.logger.warning(f"No file found for '{input_spec.name}'.")
             return None
 
         if len(matches) > 1:
-            # sort mathces by order of extensions
+            # Sort matches by extension priority if provided.
             if input_spec.extensions:
-                print(
-                    f"[WARNING] Multiple files found for '{input_spec.name}', "
-                    "but no extensions specified for sorting. Using first match."
-                )
                 extension_order = {ext: i for i, ext in enumerate(input_spec.extensions)}
                 matches.sort(key=lambda x: extension_order.get(x.suffix, float("inf")))
-            print(
-                f"[WARNING] Multiple files found "
-                f"for '{input_spec.name}'. "
-                f"Using first match:\n"
-                f"{matches}"
+                self.logger.warning(
+                    f"Multiple files found for '{input_spec.name}'. "
+                    "Sorting by extension priority and using first match."
+                )
+            else:
+                self.logger.warning(
+                    f"Multiple files found for '{input_spec.name}'. "
+                    "No extension priority configured; using first match."
+                )
+            self.logger.warning(
+                f"Candidate matches for '{input_spec.name}': {matches}. "
+                f"Selected: {matches[0]}"
             )
 
         return matches[0]
