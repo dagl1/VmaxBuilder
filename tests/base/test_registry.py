@@ -72,6 +72,28 @@ def test_get_available_implementations_returns_sorted_names_for_stage() -> None:
 
 
 @pytest.mark.unit
+def test_get_available_implementations_returns_empty_for_unknown_stage() -> None:
+    @register_implementation("model", "alpha")
+    class _Alpha:
+        pass
+
+    assert get_available_implementations("unknown") == []
+
+
+@pytest.mark.unit
+def test_register_implementation_overwrites_registry_key_with_latest_class() -> None:
+    @register_implementation("model", "demo")
+    class _First:
+        pass
+
+    @register_implementation("model", "demo")
+    class _Second:
+        pass
+
+    assert IMPLEMENTATION_REGISTRY["model:demo"] is _Second
+
+
+@pytest.mark.unit
 def test_get_implementation_info_returns_expected_payload() -> None:
     @dataclass
     class _Config:

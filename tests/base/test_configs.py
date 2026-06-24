@@ -60,6 +60,23 @@ def test_scaffold_get_scaffold_location_uses_priority_order() -> None:
 
 
 @pytest.mark.unit
+def test_scaffold_get_scaffold_location_returns_none_for_missing_key() -> None:
+    scaffold = Scaffold(
+        inputs={},
+        artifacts={},
+        outputs={},
+        metadata={},
+        diagnostics={},
+        extras={},
+        discovered_inputs={},
+    )
+
+    location = scaffold.get_scaffold_location("missing")
+
+    assert location is None
+
+
+@pytest.mark.unit
 def test_scaffold_update_scaffold_updates_existing_key_location() -> None:
     scaffold = Scaffold(
         inputs={"existing": 1},
@@ -92,3 +109,20 @@ def test_scaffold_update_scaffold_adds_new_key_to_outputs() -> None:
     scaffold.update_scaffold({"new_output": 123})
 
     assert scaffold.outputs["new_output"] == 123
+
+
+@pytest.mark.unit
+def test_scaffold_update_scaffold_updates_outputs_when_key_exists_only_in_outputs() -> None:
+    scaffold = Scaffold(
+        inputs={},
+        artifacts={},
+        outputs={"existing_out": 10},
+        metadata={},
+        diagnostics={},
+        extras={},
+        discovered_inputs={},
+    )
+
+    scaffold.update_scaffold({"existing_out": 20})
+
+    assert scaffold.outputs["existing_out"] == 20
