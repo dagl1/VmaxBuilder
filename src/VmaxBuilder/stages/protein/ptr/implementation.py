@@ -12,10 +12,9 @@ class SimplePTRImputationImplementation(BaseImplementation):
     CHILD_IMPLEMENTATIONS = []
     INPUTS: list[InputSpec] = [
         InputSpec(
-            name="expression_df",
+            name="PTR_df",
             data_type=DataFrame,
-            loader=load_existing_file_based_on_extension,
-            file_key="expression_df",
+            prefix="PTR__",
             extensions=(
                 ".json",
                 ".csv",
@@ -25,6 +24,7 @@ class SimplePTRImputationImplementation(BaseImplementation):
         InputSpec(
             name="transcript_df",
             data_type=DataFrame,
+            loader=None,
             optional=True,
         ),
     ]

@@ -15,16 +15,17 @@ class DefaultExpressionImplementation(BaseImplementation):
         InputSpec(
             name="cobra_model",
             data_type=DataFrame,
+            loader=None,
         ),
         InputSpec(
             name="transcript_df",
             data_type=DataFrame,
+            loader=None,
         ),
         InputSpec(
             name="expression_df",
             data_type=DataFrame,
-            loader=load_existing_file_based_on_extension,
-            file_key="expression_df",
+            prefix="data__",
             extensions=(
                 ".json",
                 ".csv",

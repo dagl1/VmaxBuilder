@@ -5,17 +5,46 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar, Iterable, Literal, Ty
 from cobra import Model
 from typing_extensions import TypedDict, overload
 
+from VmaxBuilder.utils.file_handling import load_existing_file_based_on_extension
+
 if TYPE_CHECKING:
     from VmaxBuilder.base.config_enum import MODEL_IMPLEMENTATIONS
+from typing import Protocol
+
 from VmaxBuilder.base.enums import PrimaryOutputFormat
 from VmaxBuilder.base.exceptions import ConfigurationError
+
+
+class Validator(Protocol):
+    def __call__(self, value: Any) -> tuple[bool, str]: ...
 
 
 @dataclass(frozen=True)
 class StageLoadingInfo:
     stage_name: str
-    directories: list[Path | str] | None | Path | str = None
-    filepaths: dict[str, Path | str] | None = None
+    directories: list[Path | str] | Path | str = field(default_factory=list)
+    file_paths: dict[str, Path | str] = field(default_factory=dict)
+
+    # def update(
+    #     self,
+    #     previous_object: "StageLoadingInfo",
+    # ):
+    #     if self.stage_name != previous_object.stage_name:
+    #         raise ConfigurationError(
+    #             f"Cannot update StageLoadingInfo for stage '{self.stage_name}' "
+    #             f"with information from stage '{previous_object.stage_name}'."
+    #         )
+    #     ### directories
+    #     if isinstance(previous_object.directories, (Path, str)):
+    #         previous_object.directories = [previous_object.directories]
+    #     if isinstance(self.directories, (Path, str)):
+    #         self.directories = [self.directories]
+    #
+    #     updated_directories = (
+    #         self.directories
+    #         if self.directories is not None
+    #         else previous_object.directories
+    #     )
 
 
 @dataclass(frozen=True)
@@ -82,6 +111,9 @@ class RunConfig:
     run_output_validation: bool
     run_diagnostics: bool
     print_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    lazy_load: bool
+    lazy_validate: bool
+
     _output_dir: Path
     _run_name: str
     _print_level: str
@@ -103,6 +135,8 @@ class RunConfig:
         run_output_validation: bool = True,
         run_diagnostics: bool = True,
         print_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
+        lazy_load: bool = False,
+        lazy_validate: bool = False,
     ):
         self._initialized = False
 
@@ -119,6 +153,8 @@ class RunConfig:
         self.run_input_validation = run_input_validation
         self.run_output_validation = run_output_validation
         self.run_diagnostics = run_diagnostics
+        self.lazy_load = lazy_load
+        self.lazy_validate = lazy_validate
         self._print_level = print_level
 
         results_dir = self._output_dir / self._run_name
@@ -168,28 +204,26 @@ class RunConfig:
 class PathInfo:
     stage_name: str
     directories: list[Path] = field(default_factory=list)
-    filepaths: dict[str, Path] = field(default_factory=dict)
+    file_paths: dict[str, Path] = field(default_factory=dict)
 
     def __repr__(self):
         return (
             f"PathInfo(stage_name={self.stage_name}, "
             f"directories={self.directories},"
-            f"filepaths={self.filepaths})"
+            f"file_paths={self.file_paths})"
         )
 
 
 @dataclass
 class DiscoveredInput:
-    # todo: use this for discovery inputs instead or in conjunction with PathInfou
     input_name: str
-    filepath: Path | None
+    file_path: Path | None
 
     exists: bool
 
     source: Literal[
-        "explicit_filepath",
+        "explicit_file_path",
         "directory_search",
-        "scaffold_only",
     ]
 
     warning: str | None = None
@@ -213,16 +247,22 @@ class InputSpec:
     name: str
     data_type: type | None = None
     optional: bool = False
-    loader: Callable | None = None  # file → object loader
+    loader: Callable | None = load_existing_file_based_on_extension  # file → object loader
     loader_args: dict[str, Any] | None = None  # additional args for loader
-    file_key: str | None = None  # file key for loading from files
+    file_path: str | None = None  # file key for loading from files
+    prefix: str | None = None  # file key for loading from files
     extensions: Iterable[str] | None = None  # allowed file extensions for loading
+    validator: Validator | None = None  # function to validate the input
 
 
 @dataclass(frozen=True)
 class OutputSpec:
     name: str
     data_type: type | None = None
+    scaffold_location: str | list[str] = "outputs"  # if files that are only outputs are
+    # should remain in outputs, if also used as inputs, a copy is
+    # placed in inputs.
+    validator: Validator | None = None  # function to validate the output
 
 
 @dataclass
@@ -239,6 +279,7 @@ class Scaffold:
         metadata (dict[str, Any]): Reproducibility metadata.
         diagnostics (dict[str, Any]): Diagnostics payload.
         extras (dict[str, Any]): Extension bag for custom modules.
+        loading_info (dict[str, StageLoadingInfo]): Per stage loading info
     """
 
     inputs: dict[str, Any]
@@ -247,6 +288,7 @@ class Scaffold:
     metadata: dict[str, Any]
     diagnostics: dict[str, Any]
     extras: dict[str, Any]
+    discovered_inputs: dict[str, dict[str, DiscoveredInput]] = field(default_factory=dict)
 
     def get_scaffold_location(self, key: str) -> str | None:
         """
@@ -257,6 +299,7 @@ class Scaffold:
         4. artifacts
         5. metadata
         6. diagnostics
+        Does NOT search in loading info
         """
         sections = ["inputs", "outputs", "extras", "artifacts", "metadata", "diagnostics"]
         for section in sections:

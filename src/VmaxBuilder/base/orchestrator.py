@@ -7,7 +7,6 @@ from dataclasses import (  # asdict,
     is_dataclass,
     make_dataclass,
 )
-from lib2to3.pytree import Base
 from pathlib import Path
 from pprint import pprint
 from typing import Any, cast, get_type_hints
@@ -20,6 +19,7 @@ from VmaxBuilder.base.config_enum import (
     implementations,
 )
 from VmaxBuilder.base.configs import (
+    DiscoveredInput,
     FullConfig,
     ImplementationConfig,
     InputSpec,
@@ -40,7 +40,7 @@ PrintLevelType = run_config_type_hints.get("print_level", str)
 """
 Users can provide one or more directories for a specific stage, in which all inputspes
 with their denoted extension and file keys will be sought. Alternatively users
-can provide a dictionary with filepaths for each input spec of a specific stage.
+can provide a dictionary with file_paths for each input spec of a specific stage.
 
 add check if at least one dir or path is provided
 then search based on inputs if not found we raise error
@@ -86,8 +86,11 @@ class Orchestrator:
 
     def __init__(self, stage_implementations: Stages, run_config: RunConfig):
         # base initialization
-        self.logger = CustomLogger("Orchestrator")
-        self.discovered_inputs: dict[str, dict[str, Path | None]] = {
+        self.logger = CustomLogger(
+            "Orchestrator",
+        )
+        self.set_print_level(run_config.print_level)
+        self.discovered_inputs: dict[str, dict[str, DiscoveredInput]] = {
             stage: {} for stage in self.stages
         }
         self.config = self._build_default_config(run_config=run_config)
@@ -99,6 +102,21 @@ class Orchestrator:
             for stage in self.stages
         }
         self._resolve_stage_implementations(stage_implementations=stage_implementations)
+        self.scaffold.discovered_inputs = self.discovered_inputs
+
+    def run(self):
+        self._discover_user_submitted_paths()
+        self.logger.info("Starting orchestrator run...")
+        if not self.config.run.lazy_load:
+            self.load_inputs()
+            if not self.config.run.lazy_validate:
+                self.validate_loaded_inputs()
+
+        for stage_name in self.stages:
+            self.logger.info(f"Running stage: {stage_name}")
+            self._run_stage(stage_name)
+
+        self.logger.info("Orchestrator run completed.")
 
     def show_config(self, sections: list[str] | str | None = None):
         if not hasattr(self.config, "run") or self.config.run is None:
@@ -137,12 +155,16 @@ class Orchestrator:
         if stage not in self.stages:
             raise ValueError(f"Stage '{stage}' is not a valid stage.")
         impl_cls = self._resolve_implementation(stage, implementation_name.value)
-        implementation = impl_cls()
-        config_cls = self._get_implementation_config_class(implementation=implementation)
+        implementation = impl_cls(full_config=self.config)
+        flattened_config_cls = self._get_implementation_config_class(
+            implementation=implementation
+        )
+        setattr(self.config, f"{stage}_config", flattened_config_cls())
+
         setattr(
             self,
             f"{stage}_stage",
-            self.stages[stage](implementation=implementation, config=config_cls),
+            self.stages[stage](implementation=implementation, full_config=self.config),
         )
 
         self.logger.info(
@@ -176,7 +198,9 @@ class Orchestrator:
         self.logger.set_print_level(level_int)
 
         self.logger.info(f"Print level set to: {level_literal}")
-        self.config.run._print_level = cast(PrintLevelType, level_literal)
+        if hasattr(self, "config"):
+            # necessary to init using the caster
+            self.config.run._print_level = cast(PrintLevelType, level_literal)
 
     def return_user_submitted_paths(self) -> list[PathInfo]:
         user_submitted_paths = []
@@ -187,13 +211,11 @@ class Orchestrator:
                     PathInfo(
                         stage_name=stage_name,
                         directories=loading_info.directories,
-                        filepaths=loading_info.filepaths,
+                        file_paths=loading_info.file_paths,
                     )
                 )
-        self.logger.info(
-            "User submitted paths:"
-            f"{[custom_asdict(path_info) for path_info in user_submitted_paths]}"
-        )
+        self.logger.info("User submitted paths:")
+        pprint(custom_asdict(user_submitted_paths))
 
         return user_submitted_paths
 
@@ -206,14 +228,23 @@ class Orchestrator:
                     continue
                 implementation.load_inputs(scaffold=self.scaffold)
 
-    def validate_inputs(self, scaffold: Scaffold) -> Scaffold:
+    def validate_loaded_inputs(self):
         """
         Validates inputs after loading using the InputSpecs validation function.
         Note that his does not
-
-
         """
-        return scaffold
+        for stage_name in self.stages:
+            stage = getattr(self, f"{stage_name}_stage")
+            stage_implementation: BaseImplementation = stage.implementation
+            for implementation in self._iter_implementations(stage_implementation):
+                if isinstance(implementation, type):
+                    continue
+                self.scaffold, _ = implementation.validate_inputs(scaffold=self.scaffold)
+
+    def _run_stage(self, stage_name: str):
+        # todo: consider whether should be public or private (orchestration run is sequential)
+        stage = getattr(self, f"{stage_name}_stage")
+        self.scaffold = stage.run(self.scaffold)
 
     def _iter_implementations(
         self,
@@ -238,6 +269,7 @@ class Orchestrator:
                 metadata={},
                 diagnostics={},
                 extras={},
+                discovered_inputs={},
             )
         else:
             raise ValueError("Scaffold must be None or a valid Scaffold instance.")
@@ -282,17 +314,22 @@ class Orchestrator:
         implementation: BaseImplementation | type[BaseImplementation] | None = None,
         stage: str | None = None,
         impl_name: str | None = None,
-    ) -> type | None:
+    ) -> type:
         if implementation is not None:
-            return getattr(implementation, "CONFIG_CLASS", None)
+            if not isinstance(implementation, (BaseImplementation, type)):
+                raise TypeError(
+                    "The 'implementation' argument must be an "
+                    "instance or class of BaseImplementation."
+                )
+            implementation = implementation
 
-        if stage is None or impl_name is None:
+        elif stage is None or impl_name is None:
             raise ValueError(
                 "Either 'implementation' or both 'stage' and 'impl_name' must be provided."
             )
-
-        implementation_cls = self._resolve_implementation(stage, impl_name)
-        stage_configs = self._collect_implementation_configs(implementation_cls)
+        else:
+            implementation = self._resolve_implementation(stage, impl_name)
+        stage_configs = self._collect_implementation_configs(implementation)
         self._validate_config_conflicts(stage_configs)
         flattened_stage_config = self._build_flattened_config(stage_configs)
 
@@ -375,57 +412,80 @@ class Orchestrator:
             bases=(ImplementationConfig,),
         )
 
+    def return_discovered_paths(self) -> dict[str, dict[str, DiscoveredInput]]:
+        self.logger.info("Discovered paths:")
+        pprint(custom_asdict(self.discovered_inputs))
+        return self.discovered_inputs
+
     def _discover_user_submitted_paths(self):
-        self.discovered_inputs = {
-            stage_name: {
-                input_spec.name: self._discover_input(
+        self.discovered_inputs: dict[str, dict[str, DiscoveredInput]] = {
+            stage: {} for stage in self.stages
+        }
+        for stage_name in self.stages:
+            if self.loading_info.get(stage_name) is None:
+                self.logger.warning(
+                    f"No loading info provided for stage '{stage_name}'. "
+                    "Skipping input discovery for this stage."
+                )
+                continue
+            for input_spec in getattr(self, f"{stage_name}_stage").implementation.INPUTS:
+                discovered_input = self._discover_input(
                     input_spec=input_spec,
                     loading_info=self.loading_info[stage_name],
                 )
-                for input_spec in getattr(
-                    self,
-                    f"{stage_name}_stage",
-                ).implementation.INPUTS
-            }
-            for stage_name in self.stages
-            if self.loading_info.get(stage_name)
-        }
+                if discovered_input is not None:
+                    self.discovered_inputs[stage_name][input_spec.name] = discovered_input
+                else:
+                    self.logger.warning(
+                        f"Input '{input_spec.name}' for stage '{stage_name}' "
+                        "could not be discovered."
+                    )
 
-    def _discover_input(self, input_spec, loading_info) -> Path | None:
-        if (
-            input_spec.loader is None
-            or input_spec.file_key is None
-            or input_spec.extensions is None
-        ):
-            return None
-        print(f"[INFO] Discovering input '{input_spec.name}'...")
-        explicit_path = self._resolve_explicit_filepath(
-            input_spec,
-            loading_info,
-        )
+    def _discover_input(self, input_spec, loading_info) -> DiscoveredInput | None:
+        explicit_path = None
+        if input_spec.loader and input_spec.file_path:
+            explicit_path = self._resolve_explicit_file_path(
+                input_spec,
+                loading_info,
+            )
 
         if explicit_path is not None:
-            return explicit_path
+            return DiscoveredInput(
+                input_name=input_spec.name,
+                file_path=explicit_path,
+                exists=True,
+                source="explicit_file_path",
+                warning=None,
+            )
 
-        return self._search_directories(
+        search_result = self._search_directories(
             input_spec,
             loading_info,
         )
+        if search_result is not None:
+            return DiscoveredInput(
+                input_name=input_spec.name,
+                file_path=search_result,
+                exists=True,
+                source="directory_search",
+                warning=None,
+            )
+        return None
 
-    def _resolve_explicit_filepath(
+    def _resolve_explicit_file_path(
         self,
         input_spec: InputSpec,
         loading_info: StageLoadingInfo,
     ) -> Path | None:
-        filepaths = loading_info.filepaths or {}
+        file_paths = loading_info.file_paths or {}
 
-        if input_spec.name not in filepaths:
+        if input_spec.name not in file_paths:
             return None
 
-        path = Path(filepaths[input_spec.name]).expanduser().resolve()
+        path = Path(file_paths[input_spec.name]).expanduser().resolve()
 
         if not path.exists():
-            print(f"[WARNING] File not found for '{input_spec.name}': {path}")
+            self.logger.warning(f"File not found for '{input_spec.name}': {path}")
             return None
 
         return path
@@ -448,6 +508,8 @@ class Orchestrator:
         loading_info: StageLoadingInfo,
     ) -> Path | None:
         matches = []
+        print(f"[INFO] Searching directories for '{input_spec.name}'...")
+        print(f"[INFO] Directories to search: {loading_info.directories}")
 
         for directory in self._normalize_directories(loading_info.directories):
             if not directory.exists():
@@ -463,7 +525,7 @@ class Orchestrator:
 
         return self._select_match(
             matches,
-            input_spec.name,
+            input_spec,
         )
 
     def _find_matching_files(
@@ -472,27 +534,35 @@ class Orchestrator:
         input_spec: InputSpec,
     ) -> list[Path]:
         matches = []
-        if input_spec.file_key is None or input_spec.extensions is None:
+        if input_spec.prefix is None or input_spec.extensions is None:
             return matches
 
         for extension in input_spec.extensions:
-            matches.extend(directory.glob(f"{input_spec.file_key}*{extension}"))
+            matches.extend(directory.glob(f"{input_spec.prefix}*{extension}"))
 
         return matches
 
     def _select_match(
         self,
         matches: list[Path],
-        input_name: str,
+        input_spec: InputSpec,
     ) -> Path | None:
         if len(matches) == 0:
-            print(f"[WARNING] No file found for '{input_name}'.")
+            print(f"[WARNING] No file found for '{input_spec.name}'.")
             return None
 
         if len(matches) > 1:
+            # sort mathces by order of extensions
+            if input_spec.extensions:
+                print(
+                    f"[WARNING] Multiple files found for '{input_spec.name}', "
+                    "but no extensions specified for sorting. Using first match."
+                )
+                extension_order = {ext: i for i, ext in enumerate(input_spec.extensions)}
+                matches.sort(key=lambda x: extension_order.get(x.suffix, float("inf")))
             print(
                 f"[WARNING] Multiple files found "
-                f"for '{input_name}'. "
+                f"for '{input_spec.name}'. "
                 f"Using first match:\n"
                 f"{matches}"
             )
@@ -515,7 +585,7 @@ if __name__ == "__main__":
     model_stage_loading_info = StageLoadingInfo(
         stage_name="model",
         directories=model_dir,
-        filepaths={
+        file_paths={
             "smiles_df": model_dir / "smiles_df.csv",
             "transcript_df": model_dir / "transcript_df.csv",
         },
@@ -531,22 +601,26 @@ if __name__ == "__main__":
         output_dir=output_path,
         run_name="VmaxBuilder_Run",
         create_dynamically_named_results=create_dynamically_named_results,
+        # print_level="DEBUG",
     )
 
     orchestrator = Orchestrator(stage_implementations, run_config)
+    print("showing scaffold user submitted paths: ", orchestrator.scaffold.discovered_inputs)
+    print("showing discovered paths: ", orchestrator.return_discovered_paths())
     print("Initial config:")
     orchestrator.show_config()
     print("setting print level to DEBUG...")
     orchestrator.set_print_level("DEBUG")
     print("showing user submitted  paths:")
     orchestrator.return_user_submitted_paths()
+
     print("setting new  user submitted paths...")
     orchestrator.set_stage_loading_info(
         "model",
         StageLoadingInfo(
             stage_name="model",
             directories=model_dir,
-            filepaths={
+            file_paths={
                 "smiles_df": model_dir / "final_SMILES_metabolite_df.csv",
                 "transcript_df": model_dir / "final_transcript_df.csv",
             },
@@ -559,3 +633,4 @@ if __name__ == "__main__":
 
     print("Loading inputs...")
     orchestrator.load_inputs()
+    print("showing scaffold user submitted paths: ", orchestrator.scaffold.discovered_inputs)

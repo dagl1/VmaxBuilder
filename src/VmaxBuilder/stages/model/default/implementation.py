@@ -1,8 +1,10 @@
+from queue import Full
+
 from cobra.core.model import Model
 from pandas import DataFrame
 
 from VmaxBuilder.base.classes import BaseImplementation
-from VmaxBuilder.base.configs import InputSpec, OutputSpec
+from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec
 from VmaxBuilder.base.registry import register_implementation
 from VmaxBuilder.stages.model.default.config import ModelConfig
 from VmaxBuilder.stages.model.default.diagnostics import ModelDiagnostics
@@ -17,9 +19,11 @@ class DefaultIrreversibleModelImplementation(BaseImplementation):
         InputSpec(
             name="cobra_model",
             data_type=Model,
-            loader=load_existing_file_based_on_extension,
-            loader_args={"is_cobra_model": True},
-            file_key="model_",
+            loader_args={
+                "is_cobra_model": True,
+                # "load_cobra_fast": True,
+            },
+            prefix="model_",
             extensions=(
                 ".json",
                 ".xml",
@@ -32,8 +36,7 @@ class DefaultIrreversibleModelImplementation(BaseImplementation):
             name="transcript_df",
             data_type=DataFrame,
             optional=True,
-            loader=load_existing_file_based_on_extension,
-            file_key="transcript_df",
+            prefix="transcript_df",
             extensions=(
                 ".json",
                 ".csv",
@@ -44,8 +47,7 @@ class DefaultIrreversibleModelImplementation(BaseImplementation):
             name="smiles_df",
             data_type=DataFrame,
             optional=True,
-            loader=load_existing_file_based_on_extension,
-            file_key="smiles_df",
+            prefix="smiles_df",
             extensions=(
                 ".json",
                 ".csv",
@@ -57,10 +59,10 @@ class DefaultIrreversibleModelImplementation(BaseImplementation):
     CONFIG_CLASS = ModelConfig
     DIAGNOSTICS = ModelDiagnostics()
 
-    def run(self, scaffold):
-        # For this default implementation, we simply return the scaffold as is.
-        return scaffold
+    def __init__(self, full_config: FullConfig):
+        super().__init__(full_config)
+        # Additional initialization if needed
 
     def generate_outputs(self, scaffold):
-        # This implementation does not generate new outputs directly, it relies on child implementations
+        # This
         return {}

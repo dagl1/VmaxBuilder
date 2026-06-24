@@ -1,8 +1,12 @@
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from inspect import getmembers, isfunction
 from typing import TYPE_CHECKING, Any
+
+from VmaxBuilder.base.configs import FullConfig
+from VmaxBuilder.utils.custom_logging import CustomLogger
 
 if TYPE_CHECKING:
     from VmaxBuilder.base.configs import (
@@ -10,6 +14,62 @@ if TYPE_CHECKING:
         OutputSpec,
         Scaffold,
     )
+
+
+class BaseStage:
+    DIAGNOSTICS = []
+    NECESSARY_OUTPUTS: list["OutputSpec"] = []
+
+    def __init__(self, implementation: "BaseImplementation", config: FullConfig):
+        self.config = config
+        self.implementation = implementation
+
+    def run(self, scaffold):
+        # Run diagnostics before the stage execution
+        for diagnostic in self.DIAGNOSTICS:
+            diagnostic.before_run(scaffold)
+
+        # Run the implementation
+        scaffold = self.implementation.run(scaffold)
+        scaffold = self.run_additional_processes(scaffold)
+
+        # Run diagnostics after the stage execution
+        for diagnostic in self.DIAGNOSTICS:
+            diagnostic.after_run(scaffold)
+
+        return scaffold
+
+    def run_additional_processes(self, scaffold: "Scaffold") -> "Scaffold":
+        """
+        Run any additional processes after the implementation has run.
+        This is implementation-agnostic, and thus will be handled per stage.
+        """
+        return scaffold
+
+    def ensure_outputs(self, scaffold: "Scaffold") -> None:
+        """
+        Ensure that all necessary outputs are present in the scaffold.
+        If any necessary output is missing, raise a ValueError.
+        """
+
+        for output_spec in self.NECESSARY_OUTPUTS:
+            if (
+                output_spec.name not in scaffold.outputs
+                and output_spec.name not in scaffold.inputs
+            ):
+                raise ValueError(
+                    f"Necessary output '{output_spec.name}' is missing from the scaffold."
+                )
+            if output_spec.validator:
+                output_value = scaffold.outputs.get(output_spec.name) or scaffold.inputs.get(
+                    output_spec.name
+                )
+                (is_valid, return_message) = output_spec.validator(output_value)
+                if not is_valid:
+                    raise ValueError(
+                        f"Validation failed for necessary output '{output_spec.name}'. "
+                        f"Validator returned message: {return_message}"
+                    )
 
 
 class BaseStageDiagnostics:
@@ -46,14 +106,12 @@ class BaseImplementation(ABC):
 
     DIAGNOSTICS: list[ImplementationDiagnostics] = []
 
-    def __init__(self):
-        self.child_implementations = [impl() for impl in self.CHILD_IMPLEMENTATIONS]
-
-    def run(self, scaffold: "Scaffold") -> "Scaffold":
-        new_scaffold_objects = self.generate_outputs(scaffold)
-        scaffold.update_scaffold(new_scaffold_objects)
-
-        return scaffold
+    def __init__(self, full_config: FullConfig):
+        self.child_implementations = [
+            impl(full_config) for impl in self.CHILD_IMPLEMENTATIONS
+        ]
+        self.logger = CustomLogger(f"Fallback logger: {self.IMPL_NAME}")
+        self.full_config = full_config
 
     @abstractmethod
     def generate_outputs(self, scaffold: "Scaffold") -> dict[str, Any]:
@@ -64,7 +122,17 @@ class BaseImplementation(ABC):
         for what they will produce before run-time. Each generate outputs can be checked
         in order, and a DAG can be created to follow the dependencies of each output.
         """
-        pass
+        ...
+
+    def run(self, scaffold: "Scaffold") -> "Scaffold":
+        if not self.child_implementations:
+            new_scaffold_objects = self.generate_outputs(scaffold)
+            scaffold.update_scaffold(new_scaffold_objects)
+        else:
+            for child_impl in self.child_implementations:
+                scaffold = child_impl.run(scaffold)
+
+        return scaffold
 
     def load_inputs(self, scaffold: "Scaffold") -> None:
         """
@@ -75,33 +143,101 @@ class BaseImplementation(ABC):
             if scaffold.get_scaffold_location(input_spec.name):
                 # If the input is already present in the scaffold, skip loading
                 continue
-            elif input_spec.loader and input_spec.file_key:
-                # If a loader and file_key are specified, use the loader to load the input
-                # todo: add file discovery based on extensions and file_key
-
+            elif (
+                input_spec.name
+                and input_spec.loader
+                and input_spec.name in scaffold.discovered_inputs[self.STAGE_NAME]
+            ):
+                file_path = scaffold.discovered_inputs[self.STAGE_NAME][
+                    input_spec.name
+                ].file_path
                 loaded_input = input_spec.loader(
-                    input_spec.file_key,
+                    file_path,
                     **(input_spec.loader_args or {}),
                 )
                 scaffold.inputs[input_spec.name] = loaded_input
             elif not input_spec.optional:
-                raise ValueError(
-                    f"Cannot load input '{input_spec.name}': "
-                    "No loader or file_key specified, and input not found in scaffold."
-                )
+                raise ValueError(f"Cannot load input '{input_spec.name}': ")
             else:
                 continue
 
-    def validate_inputs(self, scaffold: "Scaffold") -> None:
+    def validate_input(
+        self, scaffold: "Scaffold", input_spec: "InputSpec", location="inputs"
+    ) -> tuple["Scaffold", dict[str, bool | str] | None]:
+        FALLBACK_LOCATION = "outputs"
+        if not input_spec.validator:
+            self.logger.warning(
+                f"No validator specified for input '{input_spec.name}'. "
+                "Skipping validation for this input."
+            )
+            return (scaffold, None)
+
+        if (
+            input_spec.name not in getattr(scaffold, location)
+            and location == FALLBACK_LOCATION
+        ):
+            self.logger.warning(
+                f"Input '{input_spec.name}' is not present in the scaffold. "
+                "Skipping validation for this input."
+            )
+            return (scaffold, None)
+
+        elif input_spec.name not in getattr(scaffold, location):
+            return self.validate_input(
+                scaffold=scaffold,
+                input_spec=input_spec,
+                location=FALLBACK_LOCATION,
+            )
+
+        input_value = getattr(scaffold, location)[input_spec.name]
+        (is_valid, return_message) = input_spec.validator(input_value)
+        if not is_valid:
+            self.logger.error(
+                f"Validation failed for input '{input_spec.name}'. "
+                f"Validator returned message: {return_message}"
+                "Please check the input value and ensure it meets the expected criteria."
+                "In case the input is optional, it is removed from scaffold "
+                "and might be provided by a fallback provider."
+            )
+            if input_spec.optional:
+                self.logger.warning(
+                    f"Input '{input_spec.name}' is optional. "
+                    "Removing it from the scaffold to allow for fallback providers."
+                )
+                del scaffold.inputs[input_spec.name]
+        elif is_valid:
+            self.logger.info(
+                f"Validation successful for input '{input_spec.name}'. "
+                f"Validator returned message: {return_message}"
+                "Input meets the expected criteria."
+            )
+        return (scaffold, {"is_valid": is_valid, "return_message": return_message})
+
+    def validate_inputs(
+        self, scaffold: "Scaffold", location="inputs"
+    ) -> tuple["Scaffold", list[dict[str, str | bool]]]:
         """
-        Validate the inputs in the scaffold against the INPUTS specification.
-        This method can be overridden by subclasses to provide custom validation logic.
+        Validate the inputs in the scaffold against the INPUTS specification. This should
+        not be overwritten, validation functions are added to input specs.
         """
+        validation_results: list[dict[str, str | bool]] = []
         for input_spec in self.INPUTS:
-            if scaffold.get_scaffold_location(input_spec.name):
-                raise ValueError(f"Missing required input: {input_spec.name}")
-            # Additional validation logic can be added here based on input_spec properties
-            #
+            (scaffold, validation_result) = self.validate_input(
+                scaffold=scaffold, input_spec=input_spec, location=location
+            )
+            if validation_result is None:
+                continue
+
+            validation_results.append(
+                {
+                    "input_name": input_spec.name,
+                    "is_valid": validation_result["is_valid"],
+                    "return_message": validation_result["return_message"],
+                    "call_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            )
+
+        return (scaffold, validation_results)
 
 
 @dataclass(frozen=True)

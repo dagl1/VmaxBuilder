@@ -1,33 +1,13 @@
-from VmaxBuilder.base.classes import BaseImplementation
+from VmaxBuilder.base.classes import BaseImplementation, BaseStage
+from VmaxBuilder.base.configs import FullConfig
 
 
-class ModelStage:
+class ModelStage(BaseStage):
     DIAGNOSTICS = []
+    NECESSARY_OUTPUTS = []
 
-    def __init__(self, implementation: BaseImplementation, config):
-        self.config = config
-        self.implementation = implementation
+    def __init__(self, implementation: BaseImplementation, full_config: FullConfig):
+        super().__init__(implementation, full_config)
 
-    def run(self, scaffold):
-        # Run diagnostics before the stage execution
-        for diagnostic in self.DIAGNOSTICS:
-            diagnostic.before_run(scaffold)
-
-        # Run the implementation
-        scaffold = self.implementation.run(scaffold)
-
-        # Run diagnostics after the stage execution
-        for diagnostic in self.DIAGNOSTICS:
-            diagnostic.after_run(scaffold)
-
+    def run_additional_processes(self, scaffold):
         return scaffold
-
-    def validate_outputs(self, scaffold):
-        # Validate the outputs of the stage
-        for diagnostic in self.DIAGNOSTICS:
-            diagnostic.validate_outputs(scaffold)
-
-    def run_diagnostics(self, scaffold):
-        # Run diagnostics after the stage execution
-        for diagnostic in self.DIAGNOSTICS:
-            diagnostic.after_run(scaffold)
