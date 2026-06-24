@@ -10,7 +10,8 @@ from VmaxBuilder.core.protocols import Scaffold
 if __name__ == "__main__":
     print("file")
     # quack
-    # Keep existing model filepath scaffold unchanged.
+    # Keep existing model file_path scaffold unchanged.
+
     # base_dir = Path(r"C:\git\SWaPAM\data\for_SWAMP")
     base_dir = Path("~/git/SWAPAM/data/for_SWAMP/")
     models_dir = base_dir / "models"

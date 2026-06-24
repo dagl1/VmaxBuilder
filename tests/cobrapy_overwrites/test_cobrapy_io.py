@@ -190,14 +190,15 @@ class TestSaveJsonModel:
         model.add_reactions([rxn])
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            filepath = Path(tmpdir) / "model.json"
+            file_path = Path(tmpdir) / "model.json"
 
             # Save
-            cobrapy_io.save_json_model(model, filepath)
-            assert filepath.exists()
+            cobrapy_io.save_json_model(model, file_path)
+
+            assert file_path.exists()
 
             # Verify JSON is valid
-            with open(filepath) as f:
+            with open(file_path) as f:
                 data = json.load(f)
             assert data["id"] == "test_model"
 
@@ -211,12 +212,12 @@ class TestSaveJsonModel:
         model.add_reactions([rxn])
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            filepath = Path(tmpdir) / "model_pretty.json"
+            file_path = Path(tmpdir) / "model_pretty.json"
 
-            cobrapy_io.save_json_model(model, filepath, pretty=True)
+            cobrapy_io.save_json_model(model, file_path, pretty=True)
 
             # Pretty format should have indentation (larger file)
-            with open(filepath) as f:
+            with open(file_path) as f:
                 content = f.read()
             assert "\n" in content
             assert "    " in content  # Should have indentation
@@ -239,14 +240,15 @@ class TestSaveJsonModel:
         first_rxn._lower_bound = np.nan
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            filepath = Path(tmpdir) / "model_nan.json"
+            file_path = Path(tmpdir) / "model_nan.json"
 
             # Should handle NaN and fix it
-            cobrapy_io.save_json_model(model, filepath)
-            assert filepath.exists()
+            cobrapy_io.save_json_model(model, file_path)
+
+            assert file_path.exists()
 
             # Verify NaN was replaced with None
-            with open(filepath) as f:
+            with open(file_path) as f:
                 data = json.load(f)
             # NaN values should not appear in JSON
             json_str = json.dumps(data)
@@ -268,14 +270,15 @@ class TestSaveJsonModel:
         model.add_reactions([rxn])
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            filepath = Path(tmpdir) / "model_inf.json"
+            file_path = Path(tmpdir) / "model_inf.json"
 
             # Should handle Inf
-            cobrapy_io.save_json_model(model, filepath)
-            assert filepath.exists()
+            cobrapy_io.save_json_model(model, file_path)
+
+            assert file_path.exists()
 
             # Verify Inf was converted to string or handled properly
-            with open(filepath) as f:
+            with open(file_path) as f:
                 data = json.load(f)
             json_str = json.dumps(data)
             # Inf should be converted to string representation
