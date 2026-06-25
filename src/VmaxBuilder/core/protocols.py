@@ -7,78 +7,22 @@ Description:
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, Literal, Protocol, TypedDict, overload, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Literal,
+    Protocol,
+    TypedDict,
+    overload,
+    runtime_checkable,
+)
+
+from VmaxBuilder.base.enums import DiagnosticSeverity
+
+if TYPE_CHECKING:
+    from VmaxBuilder.base.configs import Scaffold
 
 from cobra import Model
-
-from VmaxBuilder.config.dataclasses import APIConfig
-from VmaxBuilder.config.enums import DiagnosticSeverity, StageName
-from VmaxBuilder.config.validation import ConfigurationError
-
-
-class Scaffold(TypedDict):
-    """Generated: validation needed.
-
-    Description:
-        Shared pipeline scaffold passed between stages.
-
-    Args:
-        inputs (dict[str, Any]): Input artifact bag.
-        artifacts (dict[str, Any]): Intermediate artifacts.
-        outputs (dict[str, Any]): Final stage outputs.
-        metadata (dict[str, Any]): Reproducibility metadata.
-        diagnostics (dict[str, Any]): Diagnostics payload.
-        extras (dict[str, Any]): Extension bag for custom modules.
-    """
-
-    inputs: dict[str, Any]
-    artifacts: dict[str, Any]
-    outputs: dict[str, Any]
-    metadata: dict[str, Any]
-    diagnostics: dict[str, Any]
-    extras: dict[str, Any]
-
-
-@overload
-def get_scaffold_model(scaffold: Scaffold, *, required: Literal[True] = True) -> Model: ...
-
-
-@overload
-def get_scaffold_model(scaffold: Scaffold, *, required: Literal[False]) -> Model | None: ...
-
-
-def get_scaffold_model(scaffold: Scaffold, *, required: bool = True) -> Model | None:
-    """Generated: validation needed.
-
-    Description:
-        Return scaffold model artifact with runtime validation and precise typing.
-
-    Args:
-        scaffold (Scaffold): Shared pipeline scaffold.
-        required (bool): Whether missing model artifact should raise.
-
-    Returns:
-        cobra.Model | None: Scaffold model artifact, or ``None`` when optional.
-
-    Raises:
-        ConfigurationError: When model artifact is missing while required, or when
-            stored artifact is not ``cobra.Model``.
-    """
-
-    model_artifact = scaffold.get("artifacts", {}).get("model")
-    if model_artifact is None:
-        if required:
-            raise ConfigurationError(
-                "Scaffold artifacts['model'] missing. Run model stage before "
-                "requesting model-dependent artifacts."
-            )
-        return None
-    if not isinstance(model_artifact, Model):
-        raise ConfigurationError(
-            "Scaffold artifacts['model'] must be cobra.Model. "
-            f"Received {type(model_artifact).__name__}."
-        )
-    return model_artifact
 
 
 class DiagnosticRecordCore(TypedDict):
@@ -139,155 +83,6 @@ class DiagnosticRecord(DiagnosticRecordCore, total=False):
     config_hash: str
     worker_id: str
     artifact_path: str
-
-
-@runtime_checkable
-class StageProtocol(Protocol):
-    """Generated: validation needed.
-
-    Description:
-        Protocol for a top-level pipeline stage implementation.
-
-    Requires:
-        name (StageName): Stage name.
-    """
-
-    name: StageName
-
-    def run(self, scaffold: Scaffold, config: APIConfig) -> Scaffold:
-        """Generated: validation needed.
-
-        Description:
-            Execute stage against shared scaffold and API config.
-
-        Args:
-            scaffold (Scaffold): Shared pipeline scaffold.
-            config (APIConfig): Root API configuration.
-
-        Returns:
-            Scaffold: Updated scaffold.
-        """
-
-
-@runtime_checkable
-class StrategyProtocol(Protocol):
-    """Generated: validation needed.
-
-    Description:
-        Protocol for interchangeable submodule strategy implementation.
-
-    Requires:
-        method_key (str): Strategy identifier.
-    """
-
-    method_key: str
-
-    def run(self, scaffold: Scaffold, config: APIConfig) -> Scaffold:
-        """Generated: validation needed.
-
-        Description:
-            Execute strategy against shared scaffold and API config.
-
-        Args:
-            scaffold (Scaffold): Shared pipeline scaffold.
-            config (APIConfig): Root API configuration.
-
-        Returns:
-            Scaffold: Updated scaffold.
-        """
-
-
-@runtime_checkable
-class DiagnosticsHookProtocol(Protocol):
-    """Generated: validation needed.
-
-    Description:
-        Protocol for diagnostics hook attached to stage or strategy execution.
-
-    Requires:
-        stage (StageName): Stage this hook targets.
-        name (str): Hook name.
-    """
-
-    stage: StageName
-    name: str
-
-    def before_stage(
-        self,
-        scaffold: Scaffold,
-        *,
-        config: APIConfig,
-        method_key: str | None = None,
-    ) -> Sequence[DiagnosticRecord]:
-        """Generated: validation needed.
-
-        Description:
-            Inspect scaffold before stage execution.
-
-        Args:
-            scaffold (Scaffold): Shared pipeline scaffold.
-            config (APIConfig): Root API configuration.
-            method_key (str | None): Optional strategy key.
-
-        Returns:
-            Sequence[DiagnosticRecord]: Diagnostics emitted before stage execution.
-        """
-
-    def after_stage(
-        self,
-        scaffold: Scaffold,
-        *,
-        config: APIConfig,
-        method_key: str | None = None,
-    ) -> Sequence[DiagnosticRecord]:
-        """Generated: validation needed.
-
-        Description:
-            Inspect scaffold after stage execution.
-
-        Args:
-            scaffold (Scaffold): Shared pipeline scaffold.
-            config (APIConfig): Root API configuration.
-            method_key (str | None): Optional strategy key.
-
-        Returns:
-            Sequence[DiagnosticRecord]: Diagnostics emitted after stage execution.
-        """
-
-
-@runtime_checkable
-class DiagnosticsRunnerProtocol(Protocol):
-    """Generated: validation needed.
-
-    Description:
-        Protocol for diagnostics runner coordinating hooks and halt policy.
-    """
-
-    def run_hooks(
-        self,
-        scaffold: Scaffold,
-        *,
-        config: APIConfig,
-        stage_name: StageName,
-        hooks: Sequence[DiagnosticsHookProtocol],
-        method_key: str | None = None,
-    ) -> Scaffold:
-        """Generated: validation needed.
-
-        Description:
-            Run diagnostics hooks for one stage boundary.
-
-        Args:
-            scaffold (Scaffold): Shared pipeline scaffold.
-            config (APIConfig): Root API configuration.
-            stage_name (StageName): Current stage name.
-            hooks (Sequence[DiagnosticsHookProtocol]): Diagnostics hooks to execute.
-            method_key (str | None): Optional strategy key.
-
-        Returns:
-            Scaffold: Scaffold updated with diagnostics records.
-
-        """
 
 
 @runtime_checkable

@@ -125,6 +125,7 @@ class BaseImplementation(ABC):
     CHILD_IMPLEMENTATIONS: list[type["BaseImplementation"]] = []
 
     DIAGNOSTICS: list[ImplementationDiagnostics] = []
+    _RESOLVED_CONFIG_CLASS: type
 
     def __init__(self, full_config: FullConfig):
         """Generated: validation needed.

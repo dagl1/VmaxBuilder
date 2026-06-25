@@ -30,7 +30,9 @@ from VmaxBuilder.base.configs import (
     Stages,
 )
 from VmaxBuilder.base.exceptions import ImplementationConfigConflictError
-from VmaxBuilder.base.registry import IMPLEMENTATION_REGISTRY
+
+# from VmaxBuilder.base.registry import IMPLEMENTATION_REGISTRY
+from VmaxBuilder.base.new_registry import registered_stages
 from VmaxBuilder.stages.model.model import ModelStage
 from VmaxBuilder.utils.custom_logging import CustomLogger
 
@@ -75,7 +77,7 @@ def custom_asdict(obj):
 
 
 class Orchestrator:
-    registry: dict[str, type[BaseImplementation]] = IMPLEMENTATION_REGISTRY
+    registry: dict[str, dict[str, type[BaseImplementation]]] = registered_stages
     stages = {
         "model": ModelStage,
         # "protein": ProteinStage,
@@ -118,7 +120,10 @@ class Orchestrator:
 
         self.logger.info("Orchestrator run completed.")
 
-    def show_config(self, sections: list[str] | str | None = None):
+    def return_config(
+        self, sections: list[str] | str | None = None
+    ) -> dict[str, dict[str, Any]]:
+        return_dict: dict[str, dict[str, Any]] = {}
         if not hasattr(self.config, "run") or self.config.run is None:
             raise ValueError(
                 "Config must have a 'run' section witha valid RunConfig instance."
@@ -128,8 +133,10 @@ class Orchestrator:
 
         elif sections is None or sections == "all":
             pprint(custom_asdict(self.config))
+            return_dict = custom_asdict(self.config)
         elif isinstance(sections, str):
             pprint(custom_asdict(getattr(self.config, sections)))
+            return_dict[sections] = custom_asdict(getattr(self.config, sections))
         elif isinstance(sections, list):
             for section in sections:
                 if not hasattr(self.config, section):
@@ -138,6 +145,46 @@ class Orchestrator:
                 if not isinstance(getattr(self.config, section), allowed_types):
                     raise ValueError(f"Section '{section}' is not a valid config section.")
                 pprint(custom_asdict(getattr(self.config, section)))
+                return_dict[section] = custom_asdict(getattr(self.config, section))
+        return return_dict
+
+    def return_non_default_configs(self) -> dict[str, dict[str, Any]]:
+        non_default_configs = {}
+
+        for subconfig_name in self.config.__dataclass_fields__:
+            subconfig = getattr(self.config, subconfig_name)
+
+            if not is_dataclass(subconfig):
+                continue
+
+            # Create pristine default instance
+            if subconfig_name == "paths":
+                continue
+
+            default_subconfig = type(subconfig)()
+
+            non_default_fields = {}
+            ignored_fields = getattr(subconfig, "_ignore_fields", set())
+
+            for field_info in fields(subconfig):
+                if field_info.name in ignored_fields:
+                    continue  # Skip ignored fields
+                field_name = field_info.name
+
+                current_value = getattr(subconfig, field_name)
+                default_value = getattr(default_subconfig, field_name)
+
+                if current_value != default_value:
+                    non_default_fields[field_name] = {
+                        "default": default_value,
+                        "current": current_value,
+                    }
+
+            if non_default_fields:
+                non_default_configs[subconfig_name] = non_default_fields
+        pprint({"Non-default_arguments": non_default_configs})
+
+        return non_default_configs
 
     def set_stage_loading_info(self, stage: str, loading_info: StageLoadingInfo):
         if stage not in self.stages:
@@ -156,11 +203,29 @@ class Orchestrator:
             raise ValueError(f"Stage '{stage}' is not a valid stage.")
         impl_cls = self._resolve_implementation(stage, implementation_name.value)
         implementation = impl_cls(full_config=self.config)
-        flattened_config_cls = self._get_implementation_config_class(
-            implementation=implementation
-        )
-        setattr(self.config, f"{stage}_config", flattened_config_cls())
+        if not hasattr(implementation, "_RESOLVED_CONFIG_CLASS"):
+            raise ValueError(
+                f"Implementation '{implementation_name.value}' for stage '{stage}' "
+                "does not have a resolved config class."
+            )
+        # implementation_independent_stage_specific_config = getattr(
+        #     self.stages[stage], "CORE_CONFIG_CLASS", None
+        # )
 
+        # flattened_config_cls = self._get_implementation_config_class(
+        #     implementation=implementation,
+        #     implementation_independent_stage_specific_config=(
+        #     implementation_independent_stage_specific_config,
+        # )
+        # )
+        # flattened_config_instance = flattened_config_cls()
+        flattened_config_class_type = impl_cls._RESOLVED_CONFIG_CLASS
+
+        # flattened_config_class_type = .get(
+        #     f"{stage}:{implementation_name.value}"
+        # )
+        flattened_config_instance = flattened_config_class_type()
+        setattr(self.config, stage, flattened_config_instance)
         setattr(
             self,
             f"{stage}_stage",
@@ -247,6 +312,7 @@ class Orchestrator:
         self.scaffold = stage.run(self.scaffold)
 
     def _iter_implementations(
+        # todo: move to utils and remove from here and registry
         self,
         implementation: type[BaseImplementation] | BaseImplementation,
     ) -> Iterator[BaseImplementation | type[BaseImplementation]]:
@@ -310,6 +376,7 @@ class Orchestrator:
 
     def _get_implementation_config_class(
         self,
+        implementation_independent_stage_specific_config: type | None,
         *,
         implementation: BaseImplementation | type[BaseImplementation] | None = None,
         stage: str | None = None,
@@ -330,6 +397,8 @@ class Orchestrator:
         else:
             implementation = self._resolve_implementation(stage, impl_name)
         stage_configs = self._collect_implementation_configs(implementation)
+        if implementation_independent_stage_specific_config is not None:
+            stage_configs.append(implementation_independent_stage_specific_config)
         self._validate_config_conflicts(stage_configs)
         flattened_stage_config = self._build_flattened_config(stage_configs)
 
@@ -348,10 +417,11 @@ class Orchestrator:
 
         return configs
 
+    @staticmethod
     def _validate_config_conflicts(
-        self,
         config_classes: list[type],
     ):
+        # todo: move to utils and remove from here and registry
         key_owners = {}
         for config_cls in config_classes:
             source_file = inspect.getfile(config_cls)
@@ -393,7 +463,9 @@ class Orchestrator:
             model=ImplementationConfig(), run=run_config, paths=run_config.paths
         )
 
-    def _build_flattened_config(self, config_classes: list[type]) -> type:
+    @staticmethod
+    def _build_flattened_config(config_classes: list[type]) -> type:
+        # todo: move to utils and remove from here and registry
         combined_fields = []
 
         for config_cls in config_classes:
@@ -410,6 +482,7 @@ class Orchestrator:
             cls_name="CombinedConfig",
             fields=combined_fields,
             bases=(ImplementationConfig,),
+            slots=True,
         )
 
     def return_discovered_paths(self) -> dict[str, dict[str, DiscoveredInput]]:
@@ -596,10 +669,11 @@ if __name__ == "__main__":
 
     # Protein inputs (set whichever mode needs).
     stage_implementations = Stages(
-        model_implementation=implementations.model.default,
+        model_implementation=registered_stages["model"]["default"],
         model_loading_info=model_stage_loading_info,
         # protein_stage=implementations.protein.dummy_protein,
     )
+
     run_config = RunConfig(
         output_dir=output_path,
         run_name="VmaxBuilder_Run",
@@ -611,7 +685,8 @@ if __name__ == "__main__":
     print("showing scaffold user submitted paths: ", orchestrator.scaffold.discovered_inputs)
     print("showing discovered paths: ", orchestrator.return_discovered_paths())
     print("Initial config:")
-    orchestrator.show_config()
+
+    orchestrator.return_config()
     print("setting print level to DEBUG...")
     orchestrator.set_print_level("DEBUG")
     print("showing user submitted  paths:")
@@ -635,5 +710,12 @@ if __name__ == "__main__":
     #                                       implementations.protein.proteomic)
 
     print("Loading inputs...")
-    orchestrator.load_inputs()
-    print("showing scaffold user submitted paths: ", orchestrator.scaffold.discovered_inputs)
+    # orchestrator.load_inputs()
+    # print(
+    #     "showing scaffold user submitted paths: ",
+    #     orchestrator.scaffold.discovered_inputs,
+    # )
+    orchestrator.config.run.lazy_validate = True
+    orchestrator.config.model.maximum_transcript_ifp_expansion = 1000
+    print("Validating loaded inputs...")
+    orchestrator.return_non_default_configs()

@@ -1,7 +1,7 @@
 from VmaxBuilder.base.classes import BaseImplementation
 from VmaxBuilder.base.configs import InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.base.registry import register_implementation
-from VmaxBuilder.stages.protein.expression.implemenation import (
+from VmaxBuilder.stages.protein.expression.implementation import (
     DefaultExpressionImplementation,
 )
 from VmaxBuilder.stages.protein.ptr.implementation import SimplePTRImputationImplementation
@@ -28,5 +28,6 @@ class ExpressionPTRImplementation(BaseImplementation):
         return scaffold
 
     def generate_outputs(self, scaffold: Scaffold) -> dict[str, any]:
-        # This implementation does not generate new outputs directly, it relies on child implementations
+        # This implementation does not generate new outputs directly,
+        # it relies on child implementations
         return {}

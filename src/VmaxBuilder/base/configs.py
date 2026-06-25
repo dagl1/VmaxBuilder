@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar, Iterable, Literal, Ty
 from cobra import Model
 from typing_extensions import TypedDict, overload
 
+from VmaxBuilder.base.classes import BaseImplementation
 from VmaxBuilder.utils.file_handling import load_existing_file_based_on_extension
 
 if TYPE_CHECKING:
@@ -49,7 +50,7 @@ class StageLoadingInfo:
 
 @dataclass(frozen=True)
 class Stages:
-    model_implementation: "MODEL_IMPLEMENTATIONS"
+    model_implementation: type[BaseImplementation]
     model_loading_info: StageLoadingInfo
     # allocation_stage: str
     # protein_stage: str
@@ -87,7 +88,7 @@ class Paths:
             directory.mkdir(parents=True, exist_ok=True)
 
 
-@dataclass(init=False)
+@dataclass(init=False, slots=True)
 class RunConfig:
     """
     Todo: make all parameters a specific class that returns its value, but contains
@@ -106,6 +107,7 @@ class RunConfig:
     create_dynamically_named_results: bool
     active_stages: list[str] | str
     primary_output_format: PrimaryOutputFormat
+    run_target_transcript_gene_level: Literal["transcript", "gene"]
     write_additional_csv: bool
     run_input_validation: bool
     run_output_validation: bool
@@ -113,14 +115,17 @@ class RunConfig:
     print_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     lazy_load: bool
     lazy_validate: bool
+    paths: Paths = field(init=False, repr=False)
 
     _output_dir: Path
     _run_name: str
     _print_level: str
+    _initialized: bool
     _ignore_fields: ClassVar[tuple[str, ...]] = (
         "_output_dir",
         "_run_name",
         "_print_level",
+        "_initialized",
     )
 
     def __init__(
@@ -130,6 +135,7 @@ class RunConfig:
         create_dynamically_named_results: bool = False,
         active_stages: list[str] | str = "all",
         primary_output_format: PrimaryOutputFormat = PrimaryOutputFormat.FEATHER,
+        run_target_transcript_gene_level: Literal["transcript", "gene"] = "transcript",
         write_additional_csv: bool = False,
         run_input_validation: bool = True,
         run_output_validation: bool = True,
@@ -145,17 +151,21 @@ class RunConfig:
             output_dir = Path.cwd() / "data/results/"
         self.output_dir = output_dir
         self.run_name = run_name
+        self._output_dir = output_dir
+        self._run_name = run_name
 
         self.create_dynamically_named_results = create_dynamically_named_results
         self.active_stages = active_stages
         self.primary_output_format = primary_output_format
         self.write_additional_csv = write_additional_csv
+        self.run_target_transcript_gene_level = run_target_transcript_gene_level
         self.run_input_validation = run_input_validation
         self.run_output_validation = run_output_validation
         self.run_diagnostics = run_diagnostics
         self.lazy_load = lazy_load
         self.lazy_validate = lazy_validate
         self._print_level = print_level
+        self.print_level = print_level
 
         results_dir = self._output_dir / self._run_name
         self.paths = Paths(results_dir)
@@ -229,7 +239,7 @@ class DiscoveredInput:
     warning: str | None = None
 
 
-@dataclass
+@dataclass(slots=True)
 class FullConfig:
     model: ImplementationConfig
     run: RunConfig
@@ -307,6 +317,23 @@ class Scaffold:
                 return section
 
         return None
+
+    def get_scaffold_value(self, key: str) -> Any | None:
+        """
+        searches the scaffold for the given key in the following order:
+        1. inputs
+        2. outputs
+        3. extras
+        4. artifacts
+        5. metadata
+        6. diagnostics
+        Does NOT search in loading info
+        """
+        location = self.get_scaffold_location(key)
+        if location is not None:
+            return getattr(self, location)[key]
+        else:
+            return None
 
     def update_scaffold(self, new_scaffold_objects) -> None:
         """

@@ -1,4 +1,5 @@
 from queue import Full
+from typing import TYPE_CHECKING
 
 from cobra.core.model import Model
 from pandas import DataFrame
@@ -8,7 +9,11 @@ from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec
 from VmaxBuilder.base.registry import register_implementation
 from VmaxBuilder.stages.model.default.config import ModelConfig
 from VmaxBuilder.stages.model.default.diagnostics import ModelDiagnostics
+from VmaxBuilder.typing_stubs.model.default.implementation import DefaultConfig
 from VmaxBuilder.utils.file_handling import load_existing_file_based_on_extension
+
+if TYPE_CHECKING:
+    pass
 
 
 @register_implementation("model", "default")
@@ -58,6 +63,7 @@ class DefaultIrreversibleModelImplementation(BaseImplementation):
     OUTPUTS: list[OutputSpec] = []
     CONFIG_CLASS = ModelConfig
     DIAGNOSTICS = ModelDiagnostics()
+    _RESOLVED_CONFIG_CLASS = DefaultConfig
 
     def __init__(self, full_config: FullConfig):
         super().__init__(full_config)
