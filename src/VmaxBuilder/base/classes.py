@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, fields, is_dataclass, make_dataclass
 from datetime import datetime
 from inspect import getmembers, isfunction
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any, Generic, Iterator, TypeVar
 
 if TYPE_CHECKING:
     from VmaxBuilder.base.configs import FullConfig
@@ -17,6 +17,8 @@ if TYPE_CHECKING:
         OutputSpec,
         Scaffold,
     )
+
+ConfigType = TypeVar("ConfigType")
 
 
 class BaseStage:
@@ -117,12 +119,13 @@ class ImplementationDiagnostics:
     def on_error(self, error): ...
 
 
-class BaseImplementation(ABC):
+class BaseImplementation(Generic[ConfigType], ABC):
     STAGE_NAME: str
     IMPL_NAME: str
 
     BASE_STAGE_CONFIG: type | None = None
     IMPLEMENTATION_CONFIG_CLASS: type | None = None
+    _RESOLVED_CONFIG_CLASS: type | None = None
 
     INPUTS: list["InputSpec"] = []
     OUTPUTS: list["OutputSpec"] = []
@@ -148,10 +151,9 @@ class BaseImplementation(ABC):
         ]
         self.logger = CustomLogger(f"Fallback logger: {self.IMPL_NAME}")
         self.full_config = full_config
-        flattened_stage_config = resolve_implementation_config_class(
+        self.config: ConfigType = resolve_implementation_config_class(
             self.__class__, self.BASE_STAGE_CONFIG
         )()
-        setattr(self.full_config, self.STAGE_NAME, flattened_stage_config)
 
     @abstractmethod
     def generate_outputs(self, scaffold: "Scaffold") -> dict[str, Any]:

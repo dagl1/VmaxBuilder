@@ -13,9 +13,10 @@ from VmaxBuilder.typing_stubs.model.default.implementation import DefaultConfig
 from VmaxBuilder.utils.file_handling import load_existing_file_based_on_extension
 
 
-class DefaultIrreversibleModelImplementation(BaseImplementation):
+class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultConfig]):
     BASE_STAGE_CONFIG = ModelCoreConfig
     IMPLEMENTATION_CONFIG_CLASS = ModelConfig
+    _RESOLVED_CONFIG_CLASS = DefaultConfig
     STAGE_NAME = "model"
     IMPL_NAME = "dummy_cobra"
     INPUTS: list[InputSpec] = [

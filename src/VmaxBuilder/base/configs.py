@@ -84,8 +84,8 @@ class RunConfig:
 
     # If False, the run_name will be used as is.
     create_dynamically_named_results: bool
-    model_implementation: type["BaseImplementation"]
-    protein_implementation: type["BaseImplementation"]
+    # model_implementation: type["BaseImplementation"]
+    # protein_implementation: type["BaseImplementation"]
     active_stages: list[str] | str
     primary_output_format: PrimaryOutputFormat
     run_target_transcript_gene_level: Literal["transcript", "gene"]
@@ -107,12 +107,13 @@ class RunConfig:
         "_run_name",
         "_print_level",
         "_initialized",
+        "paths",
     )
 
     def __init__(
         self,
-        model_implementation: type["BaseImplementation"],
-        protein_implementation: type["BaseImplementation"],
+        # model_implementation: type["BaseImplementation"],
+        # protein_implementation: type["BaseImplementation"],
         output_dir: Path | None = None,
         run_name: str = "VmaxResults",
         create_dynamically_named_results: bool = False,
@@ -139,8 +140,8 @@ class RunConfig:
 
         self.create_dynamically_named_results = create_dynamically_named_results
 
-        self.model_implementation = model_implementation
-        self.protein_implementation = protein_implementation
+        # self.model_implementation = model_implementation
+        # self.protein_implementation = protein_implementation
 
         self.active_stages = active_stages
         self.primary_output_format = primary_output_format
@@ -228,8 +229,8 @@ class DiscoveredInput:
 
 @dataclass(slots=True)
 class FullConfig:
-    model: ImplementationConfig
-    protein: ImplementationConfig
+    model: Any
+    # protein: Any
     run: RunConfig
     paths: Paths
 

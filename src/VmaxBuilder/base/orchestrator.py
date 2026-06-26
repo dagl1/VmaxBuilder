@@ -7,7 +7,7 @@ from dataclasses import (  # asdict,
 )
 from pathlib import Path
 from pprint import pprint
-from typing import Any, cast, get_type_hints
+from typing import Any, TypeVar, cast, get_type_hints
 
 from VmaxBuilder.base.classes import BaseImplementation
 from VmaxBuilder.base.configs import (
@@ -23,6 +23,9 @@ from VmaxBuilder.base.configs import (
 )
 from VmaxBuilder.base.exceptions import ImplementationConfigConflictError
 from VmaxBuilder.base.new_registry import stage_registry
+from VmaxBuilder.stages.model.default.implementation import (
+    DefaultIrreversibleModelImplementation,
+)
 from VmaxBuilder.stages.model.model import ModelStage
 from VmaxBuilder.stages.protein.protein import ProteinStage
 from VmaxBuilder.utils.custom_logging import CustomLogger
@@ -39,6 +42,7 @@ add check if at least one dir or path is provided
 then search based on inputs if not found we raise error
 
 """
+ImplT = TypeVar("ImplT", bound=BaseImplementation[Any])
 
 
 # todo: move to utils.py
@@ -70,11 +74,13 @@ def custom_asdict(obj):
 class Orchestrator:
     stages = {
         "model": ModelStage,
-        "protein": ProteinStage,
+        # "protein": ProteinStage,
         # "allocation": AllocationStage,
         # add more stages here as needed
         # "stage_name": StageClass,
     }
+
+    ImplT = TypeVar("ImplT", bound=BaseImplementation[Any])
 
     def __init__(self, stage_implementations: StageLoading, run_config: RunConfig):
         # base initialization
@@ -93,8 +99,24 @@ class Orchestrator:
             stage: getattr(stage_implementations, f"{stage}_loading_info")
             for stage in self.stages
         }
-        self._resolve_stage_implementations()
+        # self._resolve_stage_implementations()
+        # self.scaffold.discovered_inputs = self.discovered_inputs
+
+    def set_model_implementation(self, implementation_cls: type[ImplT]) -> ImplT:
+        implementation = implementation_cls(full_config=self.config)
+        self._model = implementation
+        self.config.model = implementation.config
+        self.model_stage = self.stages["model"](
+            implementation=implementation, full_config=self.config
+        )
+        self._discover_user_submitted_paths(stage_name="model")
         self.scaffold.discovered_inputs = self.discovered_inputs
+
+        return implementation
+
+    def get_protein_implementation(self, implementation_cls: type[ImplT]) -> ImplT:
+        implementation = implementation_cls(full_config=self.config)
+        return implementation
 
     def run(self):
         self._discover_user_submitted_paths()
@@ -150,15 +172,6 @@ class Orchestrator:
             # Create pristine default instance
             if subconfig_name == "paths":
                 continue
-            elif subconfig_name == "run":
-                default_subconfig = type(subconfig)(
-                    **{
-                        f"{stage}_implementation": getattr(
-                            self.config.run, f"{stage}_implementation"
-                        )
-                        for stage in self.stages
-                    }
-                )
             else:
                 default_subconfig = type(subconfig)()
 
@@ -197,12 +210,22 @@ class Orchestrator:
         if stage not in self.stages:
             raise ValueError(f"Stage '{stage}' is not a valid stage.")
         implementation = implementation_cls(full_config=self.config)
+        if stage == "model":
+            self.model = implementation
+            self.model_stage = self.stages[stage](
+                implementation=implementation, full_config=self.config
+            )
+        elif stage == "protein":
+            self.protein = implementation
+            self.protein_stage = self.stages[stage](
+                implementation=implementation, full_config=self.config
+            )
 
-        setattr(
-            self,
-            f"{stage}_stage",
-            self.stages[stage](implementation=implementation, full_config=self.config),
-        )
+        # setattr(
+        #     self,
+        #     f"{stage}_stage",
+        #     self.stages[stage](implementation=implementation, full_config=self.config),
+        # )
 
         self.logger.info(
             f"Set implementation for stage '{stage}' to '{implementation_cls.__name__}'"
@@ -232,9 +255,11 @@ class Orchestrator:
         else:
             raise ValueError(f"Print level must be a string or integer, got {type(level)}")
 
+        print(f"Setting print level to: {level_literal} ({level_int})")
         self.logger.set_print_level(level_int)
 
         self.logger.info(f"Print level set to: {level_literal}")
+        self.logger.error(f"Print level set to: {level_literal}")
         if hasattr(self, "config"):
             # necessary to init using the caster
             self.config.run._print_level = cast(PrintLevelType, level_literal)
@@ -284,7 +309,6 @@ class Orchestrator:
         self.scaffold = stage.run(self.scaffold)
 
     def _iter_implementations(
-        # todo: move to utils and remove from here and registry
         self,
         implementation: type[BaseImplementation] | BaseImplementation,
     ) -> Iterator[BaseImplementation | type[BaseImplementation]]:
@@ -312,11 +336,11 @@ class Orchestrator:
         else:
             raise ValueError("Scaffold must be None or a valid Scaffold instance.")
 
-    def _resolve_stage_implementations(self):
-        for stage in self.stages:
-            self.logger.error(f"Resolving implementation for stage: {stage}")
-            implementation_cls = getattr(self.config.run, f"{stage}_implementation")
-            self.set_stage_implementation(stage, implementation_cls)
+    # def _resolve_stage_implementations(self):
+    #     for stage in self.stages:
+    #         self.logger.error(f"Resolving implementation for stage: {stage}")
+    # implementation_cls = getattr(self.config.run, f"{stage}_implementation")
+    # self.set_stage_implementation(stage, implementation_cls)
 
     def walk_implementation_dag(self) -> list[tuple[str, str]]:
         """
@@ -326,8 +350,7 @@ class Orchestrator:
         don't run the extra code, otherwise do run it). It assumes that files are either
         created at some point earlier and thus present, or are denoted loadable and thus
         can be loaded. It does not check whether files are actually present on those locations
-        nor whether they are valid.
-        """
+        nor whether they are valid."""
         pass
         dag: list[tuple[str, str]] = []
         return dag
@@ -418,8 +441,8 @@ class Orchestrator:
 
     def _build_default_config(self, run_config: RunConfig) -> FullConfig:
         return FullConfig(
-            model=ImplementationConfig(),
-            protein=ImplementationConfig(),
+            model=ImplementationConfig,
+            # protein=ImplementationConfig,
             run=run_config,
             paths=run_config.paths,
         )
@@ -649,14 +672,18 @@ if __name__ == "__main__":
     run_config = RunConfig(
         output_dir=output_path,
         run_name="VmaxBuilder_Run",
-        model_implementation=stage_registry.model.default,
-        protein_implementation=stage_registry.protein.expression_ptr,
         create_dynamically_named_results=create_dynamically_named_results,
         # print_level="DEBUG",
     )
 
     orchestrator = Orchestrator(stage_loading_info, run_config)
-    print("showing scaffold user submitted paths: ", orchestrator.scaffold.discovered_inputs)
+    model = orchestrator.set_model_implementation(DefaultIrreversibleModelImplementation)
+    model.config.maximum_transcript_ifp_expansion = 800
+
+    print(
+        "showing scaffold user submitted paths: ",
+        orchestrator.scaffold.discovered_inputs,
+    )
     print("showing discovered paths: ", orchestrator.return_discovered_paths())
     print("Initial config:")
 
@@ -690,6 +717,7 @@ if __name__ == "__main__":
     #     orchestrator.scaffold.discovered_inputs,
     # )
     orchestrator.config.run.lazy_validate = True
-    # orchestrator.config.model.maximum_transcript_ifp_expansion = 1000
+    orchestrator.config.model.make_copy = True
+
     print("Validating loaded inputs...")
     orchestrator.return_non_default_configs()
