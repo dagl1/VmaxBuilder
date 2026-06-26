@@ -1,12 +1,10 @@
 from pandas import DataFrame
 
 from VmaxBuilder.base.classes import BaseImplementation
-from VmaxBuilder.base.configs import InputSpec, OutputSpec
-from VmaxBuilder.base.registry import register_implementation
+from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec
 from VmaxBuilder.utils.file_handling import load_existing_file_based_on_extension
 
 
-@register_implementation("protein", "default_expression_only")
 class DefaultExpressionImplementation(BaseImplementation):
     STAGE_NAME = "protein"
     IMPL_NAME = "expression_only"
@@ -35,3 +33,11 @@ class DefaultExpressionImplementation(BaseImplementation):
     ]
     OUTPUTS: list[OutputSpec] = []
     DIAGNOSTICS = []
+
+    def __init__(self, full_config: FullConfig):
+        super().__init__(full_config)
+        # Additional initialization if needed
+
+    def generate_outputs(self, scaffold):
+        # This
+        return {}

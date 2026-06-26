@@ -1,11 +1,14 @@
+import inspect
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass, make_dataclass
 from datetime import datetime
 from inspect import getmembers, isfunction
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterator
 
-from VmaxBuilder.base.configs import FullConfig
+if TYPE_CHECKING:
+    from VmaxBuilder.base.configs import FullConfig
+from VmaxBuilder.base.exceptions import ImplementationConfigConflictError
 from VmaxBuilder.utils.custom_logging import CustomLogger
 
 if TYPE_CHECKING:
@@ -19,8 +22,9 @@ if TYPE_CHECKING:
 class BaseStage:
     DIAGNOSTICS = []
     NECESSARY_OUTPUTS: list["OutputSpec"] = []
+    CORE_CONFIG_CLASS = None
 
-    def __init__(self, implementation: "BaseImplementation", config: FullConfig):
+    def __init__(self, implementation: "BaseImplementation", config: "FullConfig"):
         """Generated: validation needed.
 
         Description:
@@ -117,7 +121,8 @@ class BaseImplementation(ABC):
     STAGE_NAME: str
     IMPL_NAME: str
 
-    CONFIG_CLASS: type | None = None
+    BASE_STAGE_CONFIG: type | None = None
+    IMPLEMENTATION_CONFIG_CLASS: type | None = None
 
     INPUTS: list["InputSpec"] = []
     OUTPUTS: list["OutputSpec"] = []
@@ -125,9 +130,11 @@ class BaseImplementation(ABC):
     CHILD_IMPLEMENTATIONS: list[type["BaseImplementation"]] = []
 
     DIAGNOSTICS: list[ImplementationDiagnostics] = []
-    _RESOLVED_CONFIG_CLASS: type
 
-    def __init__(self, full_config: FullConfig):
+    def __init__(
+        self,
+        full_config: "FullConfig",
+    ):
         """Generated: validation needed.
 
         Description:
@@ -141,6 +148,10 @@ class BaseImplementation(ABC):
         ]
         self.logger = CustomLogger(f"Fallback logger: {self.IMPL_NAME}")
         self.full_config = full_config
+        flattened_stage_config = resolve_implementation_config_class(
+            self.__class__, self.BASE_STAGE_CONFIG
+        )()
+        setattr(self.full_config, self.STAGE_NAME, flattened_stage_config)
 
     @abstractmethod
     def generate_outputs(self, scaffold: "Scaffold") -> dict[str, Any]:
@@ -300,6 +311,106 @@ class BaseImplementation(ABC):
             )
 
         return (scaffold, validation_results)
+
+
+# todo: move to utils and remove from orchestrator
+def _iter_implementations(
+    implementation: type["BaseImplementation"] | BaseImplementation,
+) -> Iterator[BaseImplementation | type["BaseImplementation"]]:
+    yield implementation
+
+    child_implementations: list[BaseImplementation] = getattr(
+        implementation, "child_implementations", []
+    )
+
+    for child_implementation in child_implementations:
+        yield from _iter_implementations(child_implementation)
+
+
+def validate_config_conflicts(
+    config_classes: list[type],
+):
+    # todo: move to utils and remove from here and orchestrator
+    key_owners = {}
+    for config_cls in config_classes:
+        source_file = inspect.getfile(config_cls)
+        _, line_number = inspect.getsourcelines(config_cls)
+        if not is_dataclass(config_cls):
+            raise TypeError(
+                f"Config class '{config_cls.__name__}' in {source_file} is not a dataclass."
+            )
+
+        for _field in fields(config_cls):
+            if _field.name in key_owners:
+                previous = key_owners[_field.name]
+                if not isinstance(previous["config"], type) or not isinstance(
+                    config_cls, type
+                ):
+                    raise ValueError(
+                        f"Conflict detected for config key '{_field.name}' between "
+                        f"{previous['config']} and {config_cls},"
+                        "but one of them is not a class."
+                    )
+
+                raise ImplementationConfigConflictError(
+                    key=_field.name,
+                    config_a=previous["config"],
+                    config_b=config_cls,
+                    file_a=f"{previous['file']}:{previous['line']}",
+                    file_b=f"{source_file}:{line_number}",
+                )
+
+            key_owners[_field.name] = {
+                "config": config_cls,
+                "file": source_file,
+                "line": line_number,
+            }
+
+
+def resolve_implementation_config_class(
+    impl_cls: type["BaseImplementation"],
+    core_config_cls: type | None = None,
+) -> type:
+    stage_configs = []
+
+    for impl in _iter_implementations(impl_cls):
+        config_cls = getattr(impl, "IMPLEMENTATION_CONFIG_CLASS", None)
+        if config_cls is not None:
+            stage_configs.append(config_cls)
+
+    if core_config_cls is not None:
+        stage_configs.append(core_config_cls)
+
+    validate_config_conflicts(stage_configs)
+
+    return build_flattened_config(stage_configs)
+
+
+@dataclass
+class ImplementationConfig:
+    pass
+
+
+def build_flattened_config(config_classes: list[type]) -> type:
+    # todo: move to utils and remove from here and orchestrator
+    combined_fields = []
+
+    for config_cls in config_classes:
+        for _field in fields(config_cls):
+            combined_fields.append(
+                (
+                    _field.name,
+                    _field.type,
+                    _field,
+                )
+            )
+
+    return make_dataclass(
+        cls_name="CombinedConfig",
+        fields=combined_fields,
+        bases=(ImplementationConfig,),
+        slots=True,
+    )
 
 
 @dataclass(frozen=True)

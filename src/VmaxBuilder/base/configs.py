@@ -1,19 +1,24 @@
 from dataclasses import InitVar, dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Iterable, Literal, TypeAlias, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    ClassVar,
+    Iterable,
+    Literal,
+    Protocol,
+    TypeAlias,
+    cast,
+)
 
 from cobra import Model
 from typing_extensions import TypedDict, overload
 
-from VmaxBuilder.base.classes import BaseImplementation
-from VmaxBuilder.utils.file_handling import load_existing_file_based_on_extension
-
-if TYPE_CHECKING:
-    from VmaxBuilder.base.config_enum import MODEL_IMPLEMENTATIONS
-from typing import Protocol
-
+from VmaxBuilder.base.classes import BaseImplementation, ImplementationConfig
 from VmaxBuilder.base.enums import PrimaryOutputFormat
 from VmaxBuilder.base.exceptions import ConfigurationError
+from VmaxBuilder.utils.file_handling import load_existing_file_based_on_extension
 
 
 class Validator(Protocol):
@@ -26,39 +31,13 @@ class StageLoadingInfo:
     directories: list[Path | str] | Path | str = field(default_factory=list)
     file_paths: dict[str, Path | str] = field(default_factory=dict)
 
-    # def update(
-    #     self,
-    #     previous_object: "StageLoadingInfo",
-    # ):
-    #     if self.stage_name != previous_object.stage_name:
-    #         raise ConfigurationError(
-    #             f"Cannot update StageLoadingInfo for stage '{self.stage_name}' "
-    #             f"with information from stage '{previous_object.stage_name}'."
-    #         )
-    #     ### directories
-    #     if isinstance(previous_object.directories, (Path, str)):
-    #         previous_object.directories = [previous_object.directories]
-    #     if isinstance(self.directories, (Path, str)):
-    #         self.directories = [self.directories]
-    #
-    #     updated_directories = (
-    #         self.directories
-    #         if self.directories is not None
-    #         else previous_object.directories
-    #     )
-
 
 @dataclass(frozen=True)
-class Stages:
-    model_implementation: type[BaseImplementation]
+class StageLoading:
     model_loading_info: StageLoadingInfo
+    protein_loading_info: StageLoadingInfo
     # allocation_stage: str
     # protein_stage: str
-
-
-@dataclass
-class ImplementationConfig:
-    pass
 
 
 @dataclass
@@ -105,6 +84,8 @@ class RunConfig:
 
     # If False, the run_name will be used as is.
     create_dynamically_named_results: bool
+    model_implementation: type["BaseImplementation"]
+    protein_implementation: type["BaseImplementation"]
     active_stages: list[str] | str
     primary_output_format: PrimaryOutputFormat
     run_target_transcript_gene_level: Literal["transcript", "gene"]
@@ -130,6 +111,8 @@ class RunConfig:
 
     def __init__(
         self,
+        model_implementation: type["BaseImplementation"],
+        protein_implementation: type["BaseImplementation"],
         output_dir: Path | None = None,
         run_name: str = "VmaxResults",
         create_dynamically_named_results: bool = False,
@@ -155,6 +138,10 @@ class RunConfig:
         self._run_name = run_name
 
         self.create_dynamically_named_results = create_dynamically_named_results
+
+        self.model_implementation = model_implementation
+        self.protein_implementation = protein_implementation
+
         self.active_stages = active_stages
         self.primary_output_format = primary_output_format
         self.write_additional_csv = write_additional_csv
@@ -242,6 +229,7 @@ class DiscoveredInput:
 @dataclass(slots=True)
 class FullConfig:
     model: ImplementationConfig
+    protein: ImplementationConfig
     run: RunConfig
     paths: Paths
 

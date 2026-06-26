@@ -1,8 +1,7 @@
 from pandas import DataFrame
 
 from VmaxBuilder.base.classes import BaseImplementation
-from VmaxBuilder.base.configs import InputSpec, OutputSpec
-from VmaxBuilder.base.registry import register_implementation
+from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec
 from VmaxBuilder.utils.file_handling import load_existing_file_based_on_extension
 
 
@@ -28,3 +27,11 @@ class SimplePTRImputationImplementation(BaseImplementation):
             optional=True,
         ),
     ]
+
+    def __init__(self, full_config: FullConfig):
+        super().__init__(full_config)
+        # Additional initialization if needed
+
+    def generate_outputs(self, scaffold):
+        # This
+        return {}
