@@ -204,34 +204,6 @@ class Orchestrator:
         self.loading_info[stage] = loading_info
         self._discover_user_submitted_paths(stage_name=stage)
 
-    def set_stage_implementation(
-        self, stage: str, implementation_cls: type[BaseImplementation]
-    ):
-        if stage not in self.stages:
-            raise ValueError(f"Stage '{stage}' is not a valid stage.")
-        implementation = implementation_cls(full_config=self.config)
-        if stage == "model":
-            self.model = implementation
-            self.model_stage = self.stages[stage](
-                implementation=implementation, full_config=self.config
-            )
-        elif stage == "protein":
-            self.protein = implementation
-            self.protein_stage = self.stages[stage](
-                implementation=implementation, full_config=self.config
-            )
-
-        # setattr(
-        #     self,
-        #     f"{stage}_stage",
-        #     self.stages[stage](implementation=implementation, full_config=self.config),
-        # )
-
-        self.logger.info(
-            f"Set implementation for stage '{stage}' to '{implementation_cls.__name__}'"
-        )
-        self._discover_user_submitted_paths(stage_name=stage)
-
     def set_print_level(self, level: str | int):
         mapping = {
             "DEBUG": 4,
@@ -255,11 +227,9 @@ class Orchestrator:
         else:
             raise ValueError(f"Print level must be a string or integer, got {type(level)}")
 
-        print(f"Setting print level to: {level_literal} ({level_int})")
         self.logger.set_print_level(level_int)
 
         self.logger.info(f"Print level set to: {level_literal}")
-        self.logger.error(f"Print level set to: {level_literal}")
         if hasattr(self, "config"):
             # necessary to init using the caster
             self.config.run._print_level = cast(PrintLevelType, level_literal)
@@ -336,12 +306,6 @@ class Orchestrator:
         else:
             raise ValueError("Scaffold must be None or a valid Scaffold instance.")
 
-    # def _resolve_stage_implementations(self):
-    #     for stage in self.stages:
-    #         self.logger.error(f"Resolving implementation for stage: {stage}")
-    # implementation_cls = getattr(self.config.run, f"{stage}_implementation")
-    # self.set_stage_implementation(stage, implementation_cls)
-
     def walk_implementation_dag(self) -> list[tuple[str, str]]:
         """
         This function walks through each implementation and its child implementations,
@@ -364,109 +328,12 @@ class Orchestrator:
         """
         pass
 
-    def _get_implementation_config_class(
-        self,
-        implementation_independent_stage_specific_config: type | None,
-        implementation: BaseImplementation,
-    ) -> type:
-        if implementation is not None:
-            if not isinstance(implementation, (BaseImplementation, type)):
-                raise TypeError(
-                    "The 'implementation' argument must be an "
-                    "instance or class of BaseImplementation."
-                )
-            implementation = implementation
-
-        stage_configs = self._collect_implementation_configs(implementation)
-        if implementation_independent_stage_specific_config is not None:
-            stage_configs.append(implementation_independent_stage_specific_config)
-        self._validate_config_conflicts(stage_configs)
-        flattened_stage_config = self._build_flattened_config(stage_configs)
-
-        return flattened_stage_config
-
-    def _collect_implementation_configs(
-        self,
-        implementation: type[BaseImplementation] | BaseImplementation,
-    ) -> list[type]:
-        configs = []
-
-        for impl in self._iter_implementations(implementation):
-            config_cls = getattr(impl, "CONFIG_CLASS", None)
-            if config_cls is not None:
-                configs.append(config_cls)
-
-        return configs
-
-    @staticmethod
-    def _validate_config_conflicts(
-        config_classes: list[type],
-    ):
-        # todo: move to utils and remove from here and registry
-        key_owners = {}
-        for config_cls in config_classes:
-            source_file = inspect.getfile(config_cls)
-            _, line_number = inspect.getsourcelines(config_cls)
-            if not is_dataclass(config_cls):
-                raise TypeError(
-                    f"Config class '{config_cls.__name__}' "
-                    f"in {source_file} is not a dataclass."
-                )
-
-            for _field in fields(config_cls):
-                if _field.name in key_owners:
-                    previous = key_owners[_field.name]
-                    if not isinstance(previous["config"], type) or not isinstance(
-                        config_cls, type
-                    ):
-                        raise ValueError(
-                            f"Conflict detected for config key '{_field.name}' between "
-                            f"{previous['config']} and {config_cls},"
-                            "but one of them is not a class."
-                        )
-
-                    raise ImplementationConfigConflictError(
-                        key=_field.name,
-                        config_a=previous["config"],
-                        config_b=config_cls,
-                        file_a=f"{previous['file']}:{previous['line']}",
-                        file_b=f"{source_file}:{line_number}",
-                    )
-
-                key_owners[_field.name] = {
-                    "config": config_cls,
-                    "file": source_file,
-                    "line": line_number,
-                }
-
     def _build_default_config(self, run_config: RunConfig) -> FullConfig:
         return FullConfig(
             model=ImplementationConfig,
             # protein=ImplementationConfig,
             run=run_config,
             paths=run_config.paths,
-        )
-
-    @staticmethod
-    def _build_flattened_config(config_classes: list[type]) -> type:
-        # todo: move to utils and remove from here and registry
-        combined_fields = []
-
-        for config_cls in config_classes:
-            for _field in fields(config_cls):
-                combined_fields.append(
-                    (
-                        _field.name,
-                        _field.type,
-                        _field,
-                    )
-                )
-
-        return make_dataclass(
-            cls_name="CombinedConfig",
-            fields=combined_fields,
-            bases=(ImplementationConfig,),
-            slots=True,
         )
 
     def return_discovered_paths(self) -> dict[str, dict[str, DiscoveredInput]]:
@@ -681,7 +548,7 @@ if __name__ == "__main__":
     model.config.maximum_transcript_ifp_expansion = 800
 
     print(
-        "showing scaffold user submitted paths: ",
+        "\nshowing scaffold user submitted paths: ",
         orchestrator.scaffold.discovered_inputs,
     )
     print("showing discovered paths: ", orchestrator.return_discovered_paths())
@@ -707,17 +574,12 @@ if __name__ == "__main__":
     )
     print("showing updated user submitted paths:")
     orchestrator.return_user_submitted_paths()
-    # orchestrator.set_stage_implementation("protein",
-    #                                       implementations.protein.proteomic)
 
     print("Loading inputs...")
-    # orchestrator.load_inputs()
-    # print(
-    #     "showing scaffold user submitted paths: ",
-    #     orchestrator.scaffold.discovered_inputs,
-    # )
-    orchestrator.config.run.lazy_validate = True
-    orchestrator.config.model.make_copy = True
-
-    print("Validating loaded inputs...")
-    orchestrator.return_non_default_configs()
+    orchestrator.load_inputs()
+    print(
+        "showing scaffold user submitted paths: ",
+        orchestrator.scaffold.discovered_inputs,
+    )
+    # orchestrator.config.run.lazy_validate = True
+    # orchestrator.config.model.make_copy = True
