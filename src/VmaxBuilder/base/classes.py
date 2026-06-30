@@ -388,7 +388,7 @@ def resolve_implementation_config_class(
     return build_flattened_config(stage_configs)
 
 
-@dataclass
+@dataclass(slots=True)
 class ImplementationConfig:
     pass
 

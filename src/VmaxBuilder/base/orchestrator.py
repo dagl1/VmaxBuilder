@@ -1,13 +1,9 @@
 import inspect
 from collections.abc import Iterator
-from dataclasses import (  # asdict,
-    fields,
-    is_dataclass,
-    make_dataclass,
-)
+from dataclasses import InitVar, fields, is_dataclass, make_dataclass
 from pathlib import Path
 from pprint import pprint
-from typing import Any, TypeVar, cast, get_type_hints
+from typing import Any, Literal, TypeVar, cast, get_type_hints
 
 from VmaxBuilder.base.classes import BaseImplementation
 from VmaxBuilder.base.configs import (
@@ -545,7 +541,8 @@ if __name__ == "__main__":
 
     orchestrator = Orchestrator(stage_loading_info, run_config)
     model = orchestrator.set_model_implementation(DefaultIrreversibleModelImplementation)
-    model.config.maximum_transcript_ifp_expansion = 800
+    # model.config.maximum_transcript_ifp_expansion_2 = 800
+    orchestrator.config.model.maximum_transcript_ifp_expansion = 800
 
     print(
         "\nshowing scaffold user submitted paths: ",
@@ -555,31 +552,31 @@ if __name__ == "__main__":
     print("Initial config:")
 
     orchestrator.return_config()
-    print("setting print level to DEBUG...")
-    orchestrator.set_print_level("DEBUG")
-    print("showing user submitted  paths:")
-    orchestrator.return_user_submitted_paths()
-
-    print("setting new  user submitted paths...")
-    orchestrator.set_stage_loading_info(
-        "model",
-        StageLoadingInfo(
-            stage_name="model",
-            directories=model_dir,
-            file_paths={
-                "smiles_df": model_dir / "final_SMILES_metabolite_df.csv",
-                "transcript_df": model_dir / "final_transcript_df.csv",
-            },
-        ),
-    )
-    print("showing updated user submitted paths:")
-    orchestrator.return_user_submitted_paths()
-
-    print("Loading inputs...")
-    orchestrator.load_inputs()
-    print(
-        "showing scaffold user submitted paths: ",
-        orchestrator.scaffold.discovered_inputs,
-    )
-    # orchestrator.config.run.lazy_validate = True
-    # orchestrator.config.model.make_copy = True
+    # print("setting print level to DEBUG...")
+    # orchestrator.set_print_level("DEBUG")
+    # print("showing user submitted  paths:")
+    # orchestrator.return_user_submitted_paths()
+    #
+    # print("setting new  user submitted paths...")
+    # orchestrator.set_stage_loading_info(
+    #     "model",
+    #     StageLoadingInfo(
+    #         stage_name="model",
+    #         directories=model_dir,
+    #         file_paths={
+    #             "smiles_df": model_dir / "final_SMILES_metabolite_df.csv",
+    #             "transcript_df": model_dir / "final_transcript_df.csv",
+    #         },
+    #     ),
+    # )
+    # print("showing updated user submitted paths:")
+    # orchestrator.return_user_submitted_paths()
+    #
+    # print("Loading inputs...")
+    # orchestrator.load_inputs()
+    # print(
+    #     "showing scaffold user submitted paths: ",
+    #     orchestrator.scaffold.discovered_inputs,
+    # )
+    # # orchestrator.config.run.lazy_validate = True
+    # # orchestrator.config.model.make_copy = True

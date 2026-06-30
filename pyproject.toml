@@ -370,6 +370,7 @@ update_changelog_on_bump = true
 major_version_zero = true
 [dependency-groups]
 dev = [
+    "debugpy>=1.8.21",
     "pre-commit>=4.3.0",
 ]
 
