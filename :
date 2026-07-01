@@ -1,3 +1,4 @@
+from VmaxBuilder.stages.model.default.preprocessing import create_irreversible_model
 from queue import Full
 from typing import TYPE_CHECKING, cast
 
@@ -8,7 +9,6 @@ from VmaxBuilder.base.classes import BaseImplementation
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.stages.model.default.config import ModelConfig
 from VmaxBuilder.stages.model.default.diagnostics import ModelDiagnostics
-from VmaxBuilder.stages.model.default.preprocessing import create_irreversible_model
 from VmaxBuilder.stages.model.model import ModelCoreConfig
 from VmaxBuilder.typing_stubs.model.default.implementation import DefaultConfig
 from VmaxBuilder.utils.file_handling import load_existing_file_based_on_extension
@@ -61,7 +61,6 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultConfig]):
         # if validation is active, we validate the model and return diagnostics
         cobra_model = cast(Model, scaffold.get_scaffold_value("cobra_model"))
         irreversible_model = create_irreversible_model(cobra_model)
-        return {"irreversible_model": irreversible_model}
 
         # preprocessing_result = preprocess_model(model_object, config.model)
         # artifacts_payload = scaffold.setdefault("artifacts", {})

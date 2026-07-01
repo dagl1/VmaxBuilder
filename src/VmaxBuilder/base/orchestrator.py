@@ -1,9 +1,8 @@
-import inspect
 from collections.abc import Iterator
-from dataclasses import InitVar, fields, is_dataclass, make_dataclass
+from dataclasses import fields, is_dataclass
 from pathlib import Path
 from pprint import pprint
-from typing import Any, Literal, TypeVar, cast, get_type_hints
+from typing import Any, TypeVar, cast, get_type_hints
 
 from VmaxBuilder.base.classes import BaseImplementation
 from VmaxBuilder.base.configs import (
@@ -17,8 +16,6 @@ from VmaxBuilder.base.configs import (
     StageLoading,
     StageLoadingInfo,
 )
-from VmaxBuilder.base.exceptions import ImplementationConfigConflictError
-from VmaxBuilder.base.new_registry import stage_registry
 from VmaxBuilder.stages.model.default.implementation import (
     DefaultIrreversibleModelImplementation,
 )
@@ -46,12 +43,11 @@ def custom_asdict(obj):
     """ """
     if is_dataclass(obj):
         result = {}
-        # Controleer of deze specifieke klasse velden wil negeren
         ignored = getattr(obj, "_ignore_fields", set())
 
         for f in fields(obj):
             if f.name in ignored:
-                continue  # Sla dit veld volledig over
+                continue
 
             value = getattr(obj, f.name)
             result[f.name] = custom_asdict(value)
@@ -134,7 +130,7 @@ class Orchestrator:
         return_dict: dict[str, dict[str, Any]] = {}
         if not hasattr(self.config, "run") or self.config.run is None:
             raise ValueError(
-                "Config must have a 'run' section witha valid RunConfig instance."
+                "Config must have a 'run' section with a valid RunConfig instance."
             )
         if (sections is not None) and not isinstance(sections, (str, list)):
             raise ValueError("Sections must be None, a string, or a list of strings.")
@@ -320,7 +316,7 @@ class Orchestrator:
         Only checks the mermaid plot created to ensure that the full orchestration
         implementation is valid and that no implementation requires any inputs that
         are not provided or loaded by other implementations. Specifically ensures that
-        optional inputs (for isntance ensembl data) are created if they were not present.
+        optional inputs (for instance Ensembl data) are created if they were not present.
         """
         pass
 
