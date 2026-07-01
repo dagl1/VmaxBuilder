@@ -5,6 +5,8 @@
     "Vmax",
     "subconfig",
     "Ensembl",
-    "proteomics"
+    "proteomics",
+    "irrev",
+    "cdna"
   ]
 }

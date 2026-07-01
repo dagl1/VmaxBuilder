@@ -448,6 +448,7 @@ class ExpressionInputConfig:
     transformation_state: str = "log"
     data_type: str = "TPM"
     thresholding: bool | str = False
+    protein_coding_aggregation_policy: str = "sum"
     transcript_aggregation_policy: str = "sum"
     id_translation_provider: str = "auto"
     id_translation_species: str | None = None
@@ -476,7 +477,6 @@ class TranscriptProcessingConfig:
     """
 
     protein_coding_only: bool = False
-    protein_coding_aggregation_policy: str = "sum"
     id_translation_provider: str = "auto"
     id_translation_species: str | None = None
     id_translation_max_workers: int = 8

@@ -228,11 +228,37 @@ class DiscoveredInput:
 
 
 @dataclass(slots=True)
+class TranscriptProcessingConfig:
+    """Generated: validation needed.
+
+    Description:
+        Transcript-level processing options shared across expression preprocessing
+        and model-stage transcript metadata retrieval.
+
+    Args:
+        protein_coding_only (bool): Whether transcript->gene aggregation should keep
+            only transcript rows marked as protein-coding when annotation is available.
+        id_translation_provider (str): Translation provider key used when building
+            model gene->transcript metadata.
+        id_translation_species (str | None): Optional species hint for transcript lookup.
+        id_translation_max_workers (int): Worker thread count for transcript lookup.
+        id_translation_batch_size (int): Query batch size for transcript lookup.
+    """
+
+    protein_coding_only: bool = False
+    id_translation_provider: str = "auto"
+    id_translation_species: str | None = None
+    id_translation_max_workers: int = 8
+    id_translation_batch_size: int = 500
+
+
+@dataclass(slots=True)
 class FullConfig:
     model: Any
     # protein: Any
     run: RunConfig
     paths: Paths
+    transcripts: TranscriptProcessingConfig
 
 
 @dataclass(frozen=True)
