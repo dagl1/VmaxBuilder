@@ -11,6 +11,7 @@ import logging
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from enum import Enum
+from lib2to3.fixes.fix_idioms import TYPE
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
@@ -20,7 +21,11 @@ from pandas import DataFrame
 from typing_extensions import Protocol
 
 from VmaxBuilder.base.configs import FullConfig
-from VmaxBuilder.stages.model.default.implementation import TranscriptMetadataServiceProtocol
+
+if TYPE_CHECKING:
+    from VmaxBuilder.stages.model.default.implementation import (
+        TranscriptMetadataServiceProtocol,
+    )
 
 if TYPE_CHECKING:
     from VmaxBuilder.config.dataclasses import ModelConfig

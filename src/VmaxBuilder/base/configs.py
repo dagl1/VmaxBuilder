@@ -18,7 +18,10 @@ from typing_extensions import TypedDict, overload
 from VmaxBuilder.base.classes import BaseImplementation, ImplementationConfig
 from VmaxBuilder.base.enums import PrimaryOutputFormat
 from VmaxBuilder.base.exceptions import ConfigurationError
-from VmaxBuilder.utils.file_handling import load_existing_file_based_on_extension
+from VmaxBuilder.utils.file_handling import (
+    load_existing_file_based_on_extension,
+    save_with_tries,
+)
 
 
 class Validator(Protocol):
@@ -285,6 +288,10 @@ class OutputSpec:
     name: str
     data_type: type | None = None
     scaffold_location: str | list[str] = "outputs"  # if files that are only outputs are
+    saver: Callable = save_with_tries
+    saver_args: dict[str, Any] | None = None  # additional args for saver
+    save_file_name: str | None = None  # file key for saving to files
+    extension: str | None = None  # file extension for saving to files
     # should remain in outputs, if also used as inputs, a copy is
     # placed in inputs.
     validator: Validator | None = None  # function to validate the output
@@ -307,11 +314,16 @@ class Scaffold:
         loading_info (dict[str, StageLoadingInfo]): Per stage loading info
     """
 
-    inputs: dict[str, Any]
-    artifacts: dict[str, Any]
-    outputs: dict[str, Any]
-    metadata: dict[str, Any]
-    diagnostics: dict[str, Any]
+    inputs: dict[str, Any]  # contains inputs loaded directly from files
+    artifacts: dict[str, Any]  # contains any optional or intermediates that might be saved
+    outputs: dict[str, Any]  # contains final outputs of the pipeline
+    metadata: dict[
+        str, Any
+    ]  # contains reproducibility metadata, such as versions, parameters, date, etc
+    diagnostics: dict[
+        str, Any
+    ]  # contains diagnostics payload, such as logs, warnings, errors, as well as values
+    # not truly part of an artifact, but can be useful (model summary, expression stats)
     extras: dict[str, Any]
     discovered_inputs: dict[str, dict[str, DiscoveredInput]] = field(default_factory=dict)
 

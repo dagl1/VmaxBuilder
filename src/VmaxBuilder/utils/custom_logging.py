@@ -20,6 +20,7 @@ import pstats
 import re
 import tracemalloc
 from collections import defaultdict
+from dataclasses import fields, is_dataclass
 from datetime import datetime
 from functools import partial, wraps
 from inspect import getsourcelines, stack
@@ -777,6 +778,29 @@ def profile_memory_full(func: Callable) -> Callable:
 @profile_memory_full
 def memory_checker(func, *args, **kwargs):
     return func(*args, **kwargs)
+
+
+def custom_asdict(obj):
+    if is_dataclass(obj):
+        result = {}
+        ignored = getattr(obj, "_ignore_fields", set())
+
+        for f in fields(obj):
+            if f.name in ignored:
+                continue
+
+            value = getattr(obj, f.name)
+            result[f.name] = custom_asdict(value)
+        return result
+
+    elif isinstance(obj, list):
+        return [custom_asdict(v) for v in obj]
+    elif isinstance(obj, dict):
+        return {k: custom_asdict(v) for k, v in obj.items()}
+    elif isinstance(obj, tuple):
+        return tuple(custom_asdict(v) for v in obj)
+
+    return obj
 
 
 @profile_time

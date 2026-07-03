@@ -15,13 +15,14 @@ from VmaxBuilder.base.configs import (
     Scaffold,
     StageLoading,
     StageLoadingInfo,
+    TranscriptProcessingConfig,
 )
 from VmaxBuilder.stages.model.default.implementation import (
     DefaultIrreversibleModelImplementation,
 )
 from VmaxBuilder.stages.model.model import ModelStage
 from VmaxBuilder.stages.protein.protein import ProteinStage
-from VmaxBuilder.utils.custom_logging import CustomLogger
+from VmaxBuilder.utils.custom_logging import CustomLogger, custom_asdict
 
 run_config_type_hints = get_type_hints(RunConfig)
 PrintLevelType = run_config_type_hints.get("print_level", str)
@@ -36,31 +37,6 @@ then search based on inputs if not found we raise error
 
 """
 ImplT = TypeVar("ImplT", bound=BaseImplementation[Any])
-
-
-# todo: move to utils.py
-def custom_asdict(obj):
-    """ """
-    if is_dataclass(obj):
-        result = {}
-        ignored = getattr(obj, "_ignore_fields", set())
-
-        for f in fields(obj):
-            if f.name in ignored:
-                continue
-
-            value = getattr(obj, f.name)
-            result[f.name] = custom_asdict(value)
-        return result
-
-    elif isinstance(obj, list):
-        return [custom_asdict(v) for v in obj]
-    elif isinstance(obj, dict):
-        return {k: custom_asdict(v) for k, v in obj.items()}
-    elif isinstance(obj, tuple):
-        return tuple(custom_asdict(v) for v in obj)
-
-    return obj
 
 
 class Orchestrator:
@@ -322,10 +298,11 @@ class Orchestrator:
 
     def _build_default_config(self, run_config: RunConfig) -> FullConfig:
         return FullConfig(
-            model=ImplementationConfig,
+            model=ImplementationConfig(),
             # protein=ImplementationConfig,
             run=run_config,
             paths=run_config.paths,
+            transcripts=TranscriptProcessingConfig(),
         )
 
     def return_discovered_paths(self) -> dict[str, dict[str, DiscoveredInput]]:

@@ -4,12 +4,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, fields, is_dataclass, make_dataclass
 from datetime import datetime
 from inspect import getmembers, isfunction
+from pprint import pprint
 from typing import TYPE_CHECKING, Any, Generic, Iterator, TypeVar
 
 if TYPE_CHECKING:
     from VmaxBuilder.base.configs import FullConfig
 from VmaxBuilder.base.exceptions import ImplementationConfigConflictError
-from VmaxBuilder.utils.custom_logging import CustomLogger
+from VmaxBuilder.utils.custom_logging import CustomLogger, custom_asdict
 
 if TYPE_CHECKING:
     from VmaxBuilder.base.configs import (
@@ -313,6 +314,76 @@ class BaseImplementation(Generic[ConfigType], ABC):
             )
 
         return (scaffold, validation_results)
+
+    def save_artifacts_and_outputs(self, scaffold: "Scaffold") -> None:
+        """
+        Save outputs and artifacts to their respective locations as specified in the scaffold.
+        This method should be called after the stage has run and generated its outputs.
+        """
+        for output_spec in self.OUTPUTS:
+            if output_spec.name in scaffold.outputs:
+                output_value = scaffold.outputs[output_spec.name]
+                if output_spec.saver:
+                    output_spec.saver(
+                        output_value,
+                        **(output_spec.saver_args or {}),
+                    )
+                else:
+                    self.logger.warning(
+                        f"No saver specified for output '{output_spec.name}'. "
+                        "Skipping saving for this output."
+                    )
+            else:
+                self.logger.warning(
+                    f"Output '{output_spec.name}' is not present in the scaffold. "
+                    "Skipping saving for this output."
+                )
+
+    def get_implementation_config_params(self, section: str | None = None) -> dict[str, Any]:
+        if section is not None:
+            current_stage_config = getattr(self.full_config, section)
+        else:
+            current_stage_config = getattr(self.full_config, self.STAGE_NAME)
+        pprint(custom_asdict(current_stage_config))
+        return current_stage_config
+
+    @staticmethod
+    def get_time_decorator(func):
+        # should return the result of the function and the time
+        # and is called by:
+        # time, result = BaseImplementation.get_time_decorator(func)(*args, **kwargs)
+        def wrapper(*args, **kwargs):
+            start_time = datetime.now()
+            result = func(*args, **kwargs)
+            end_time = datetime.now()
+            elapsed_time = (end_time - start_time).total_seconds()
+            return elapsed_time, result
+
+        return wrapper
+
+    def add_stage_to_scaffold(self, new_scaffold_objects) -> dict[str, Any]:
+        # inside stage, all scaffolding should generally include
+        # location[f"{self.STAGE_NAME}_stage"]
+        # this function adds that so that it is more easily created without it
+        # new objects might look like =
+        # return {
+        #     "outputs": outputs,
+        #     "artifacts": artifacts,
+        #     "metadata": metadata,
+        #     "diagnostics": diagnostics,
+        # }
+        # where each is a dict, that should at first level get the stage_name
+        # so that it looks like
+        # "outputs": {
+        #
+        # }
+        stage_name = f"{self.STAGE_NAME}_stage"
+        for key, value in new_scaffold_objects.items():
+            if stage_name not in value:
+                value[stage_name] = {}
+            value[stage_name].update(value.pop(key, {}))
+
+        return new_scaffold_objects
 
 
 # todo: move to utils and remove from orchestrator

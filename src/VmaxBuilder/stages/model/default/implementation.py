@@ -17,6 +17,7 @@ from VmaxBuilder.stages.model.default.preprocessing import (
 )
 from VmaxBuilder.stages.model.model import ModelCoreConfig
 from VmaxBuilder.typing_stubs.model.default.implementation import DefaultConfig
+from VmaxBuilder.utils.iterables import SortedSet
 
 
 class TranscriptMetadataServiceProtocol(Protocol):
@@ -78,10 +79,10 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultConfig]):
             ),
         ),
         InputSpec(
-            name="transcript_df",
+            name="gene_transcript_mapping",
             data_type=DataFrame,
             optional=True,
-            prefix="transcript_df",
+            prefix="gene_transcript_mapping",
             extensions=(
                 ".json",
                 ".csv",
@@ -98,42 +99,137 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultConfig]):
             IdentifierTranslationService()
         )
 
-    def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
+    def create_model_implementation_metadata(
+        self,
+        elapsed_time: float,
+    ) -> dict[str, Any]:
+        metadata = {
+            "model": {
+                "implementation": type(self).__name__,
+                "elapsed_time_seconds": elapsed_time,
+                "status": "irreversible_model_created",
+                "date_created": pd.Timestamp.now().isoformat(),
+                "params": {
+                    self.get_implementation_config_params(),
+                },
+            }
+        }
+        return metadata
+
+    def create_transcript_metadata(
+        self,
+        elapsed_time: float,
+        implementation_name: str,
+    ) -> dict[str, Any]:
+        transcript_metadata = {
+            "transcripts": {
+                "implementation": implementation_name,
+                "status": "transcript_artifacts_built",
+                "elapsed_time_seconds": elapsed_time,
+                "date_created": pd.Timestamp.now().isoformat(),
+                "params": {
+                    self.get_implementation_config_params("transcripts"),
+                },
+            }
+        }
+        return transcript_metadata
+
+    def create_model_base_diagnostics(
+        self, cobra_model: Model
+    ) -> dict[str, dict[str, int | SortedSet[str]]]:
+        model_diagnostics = {
+            "model": {
+                "reaction_count": len(cobra_model.reactions),
+                "irreversible_reaction_count": len(
+                    [rxn for rxn in cobra_model.reactions if not rxn.reversibility]
+                ),
+                "exchange_reaction_count": len(
+                    [rxn for rxn in cobra_model.reactions if rxn.boundary]
+                ),
+                "metabolite_count": len(cobra_model.metabolites),
+                "gene_count": len(cobra_model.genes),
+                "subsystem_count": len(
+                    SortedSet(
+                        [rxn.subsystem for rxn in cobra_model.reactions if rxn.subsystem]
+                    )
+                ),
+                "subsystems": SortedSet(
+                    [rxn.subsystem for rxn in cobra_model.reactions if rxn.subsystem]
+                ),
+            },
+        }
+        return model_diagnostics
+
+    def create_base_transcript_diagnostics(
+        self, transcript_df: DataFrame
+    ) -> dict[str, dict[str, int | float]]:
+        transcript_diagnostics = {
+            "transcripts": {
+                "transcript_count": len(transcript_df),
+                "gene_count": len(transcript_df["gene_id"].unique()),
+                "mean_transcripts_per_gene": (
+                    len(transcript_df) / len(transcript_df["gene_id"].unique())
+                ),
+                "median_transcript_length": transcript_df["transcript_length"].median(),
+                "mean_transcript_length ": transcript_df["transcript_length"].mean(),
+            },
+        }
+        return transcript_diagnostics
+
+    def _build_model(self, scaffold: Scaffold):
         cobra_model = cast(Model, scaffold.get_scaffold_value("cobra_model"))
         irreversible_model, rev2irrev = create_irreversible_model(cobra_model)
+        return irreversible_model, rev2irrev
+
+    def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
+        (model_elapsed_time, (irreversible_model, rev2irrev)) = self.get_time_decorator(
+            self._build_model(scaffold)
+        )
 
         outputs = {
             "irreversible_model": irreversible_model,
         }
-        artifacts_payload = {
+        artifacts = {
             "rev2irrev": rev2irrev,
         }
-        metadata = {
-            "model_stage": {
-                "model": {
-                    "implementation": type(self).__name__,
-                    "status": "irreversible_model_created",
-                    "reaction_count": len(
-                        irreversible_model.reactions
-                    ),  # todo: add to diagnostics
-                    "metabolite_count": len(irreversible_model.metabolites),
-                }
-            }
-        }
+        diagnostics = self.create_model_base_diagnostics(irreversible_model)
+        metadata = self.create_model_implementation_metadata(model_elapsed_time)
 
         if self.full_config.run.run_target_transcript_gene_level.lower() == "transcript":
-            transcript_artifacts = _build_transcript_artifacts_for_model(
-                model=irreversible_model,
-                config=self.full_config,
-                translation_service=self._translation_service,
+            # todo: add ability to use already existing gene_transcript_mapping if
+            # # provided in scaffold
+
+            if scaffold.get_scaffold_value("gene_transcript_mapping"):
+                self.logger.info(
+                    "Using provided gene_transcript_mapping from "
+                    "scaffold for transcript artifacts."
+                )
+                NotImplementedError(
+                    "Using provided gene_transcript_mapping "
+                    "from scaffold is not yet implemented."
+                )
+            transcript_elapsed_time, transcript_artifacts = self.get_time_decorator(
+                _build_transcript_artifacts_for_model(
+                    model=irreversible_model,
+                    config=self.full_config,
+                    translation_service=self._translation_service,
+                )
             )
-            artifacts_payload.update(transcript_artifacts)
-        metadata["model_stage"]["model"] = {
-            "reaction_notation": self.full_config.model.reaction_notation.value,
-            "make_copy": self.full_config.model.make_copy,
-        }
+            transcript_metadata = self.create_transcript_metadata(
+                elapsed_time=transcript_elapsed_time,
+                implementation_name=self._translation_service.__class__.__name__,
+            )
+            transcript_diagnostics = self.create_base_transcript_diagnostics(
+                transcript_artifacts["gene_transcript_mapping"]
+            )
+
+            artifacts.update(transcript_artifacts)
+            metadata.update(transcript_metadata)
+            diagnostics.update(transcript_diagnostics)
+
         return {
             "outputs": outputs,
-            "artifacts": artifacts_payload,
+            "artifacts": artifacts,
             "metadata": metadata,
+            "diagnostics": diagnostics,
         }
