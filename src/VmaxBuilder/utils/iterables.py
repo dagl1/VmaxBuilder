@@ -1,3 +1,6 @@
+from typing import Any
+
+
 class SortedSet:
     def __init__(self, iterable=None):
         self._set = set()
@@ -15,6 +18,9 @@ class SortedSet:
         if item in self._set:
             self._set.remove(item)
             self._sorted_list.remove(item)
+
+    def __class_getitem__(cls, item: Any):
+        return cls
 
     def __contains__(self, item):
         return item in self._set

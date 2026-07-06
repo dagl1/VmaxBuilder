@@ -7,7 +7,6 @@ Description:
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from enum import Enum
@@ -21,6 +20,7 @@ from pandas import DataFrame
 from typing_extensions import Protocol
 
 from VmaxBuilder.base.configs import FullConfig
+from VmaxBuilder.utils.custom_logging import CustomLogger
 
 if TYPE_CHECKING:
     from VmaxBuilder.stages.model.default.implementation import (
@@ -29,7 +29,6 @@ if TYPE_CHECKING:
 
 if TYPE_CHECKING:
     from VmaxBuilder.config.dataclasses import ModelConfig
-logger = logging.getLogger(__name__)
 _FORWARD_SUFFIX = "_f"
 _BACKWARD_SUFFIX = "_r"
 
@@ -127,6 +126,7 @@ def _temporary_fast_reaction_patches() -> Iterator[None]:
 def _split_reversible_reactions_safe(
     irreversible_model: Model,
     additional_reactions: dict[Reaction, Reaction],
+    logger: CustomLogger,
 ) -> tuple[Model, list[list[int]]]:
     """Generated: validation needed.
     Description:
@@ -170,13 +170,14 @@ def _split_reversible_reactions_safe(
             reversibly=False,
         )
         forward_reaction.bounds = (0.0, forward_reaction.upper_bound)
-    logger.debug("Safe split: bound/metabolite update took %.2fs.", perf_counter() - start)
+    logger.debug(f"Safe split: bound/metabolite update took {perf_counter() - start}")
     return irreversible_model, rev2irrev
 
 
 def _split_reversible_reactions_fast(
     irreversible_model: Model,
     additional_reactions: dict[Reaction, Reaction],
+    logger: CustomLogger,
 ) -> tuple[Model, list[list[int]]]:
     """Generated: validation needed.
     Description:
@@ -218,7 +219,7 @@ def _split_reversible_reactions_fast(
 
         add_start = perf_counter()
         irreversible_model.add_reactions(list(additional_reactions.values()))
-        logger.debug("Fast split: add_reactions took %.2fs.", perf_counter() - add_start)
+        logger.debug(f"Fast split: add_reactions took  {perf_counter() - add_start}")
 
         bounds_start = perf_counter()
         for forward_reaction, backward_reaction in additional_reactions.items():
@@ -229,16 +230,16 @@ def _split_reversible_reactions_fast(
                 reversibly=False,
             )
             forward_reaction.bounds = (0.0, forward_reaction.upper_bound, True)  # type: ignore[assignment]
-        logger.debug("Fast split: bound update took %.2fs.", perf_counter() - bounds_start)
-    solver_start = perf_counter()
+        logger.debug(f"Fast split: bound update took {perf_counter() - bounds_start}s.")
     irreversible_model._populate_solver(list(irreversible_model.reactions))  # type: ignore[attr-defined]
-    logger.debug("Fast split: solver rebuild took %.2fs.", perf_counter() - solver_start)
+    logger.debug(f"Fast split: solver rebuild took {perf_counter() - bounds_start}s.")
     return irreversible_model, rev2irrev
 
 
 def create_irreversible_model(
     cobra_model: Model,
     mode: IrreversibleModelMode = IrreversibleModelMode.SAFE,
+    logger: CustomLogger | None = None,
 ) -> tuple[Model, list[list[int]]]:
     """Generated: validation needed.
     Description:
@@ -266,6 +267,8 @@ def create_irreversible_model(
         >>> all(r.lower_bound >= 0 for r in irrev_model.reactions)
         True
     """
+    if logger is None:
+        logger = CustomLogger(__name__)
     reversible_reactions: list[Reaction] = [
         reaction
         for reaction in cobra_model.reactions
@@ -275,62 +278,23 @@ def create_irreversible_model(
     if reversible_count == 0:
         logger.warning("Model already irreversible. Returning unchanged.")
         return cobra_model, []
-    logger.debug("Found %d reversible reactions to split.", reversible_count)
+    logger.debug(
+        f"Found {reversible_count} reversible reactions. Total reactions:"
+        f" {len(cobra_model.reactions)}."
+        " Splitting into forward/backward pairs."
+    )
     additional_reactions: dict[Reaction, Reaction] = {
         reaction: reaction.copy() for reaction in reversible_reactions
     }
     if mode is IrreversibleModelMode.SAFE:
-        return _split_reversible_reactions_safe(cobra_model, additional_reactions)
+        return _split_reversible_reactions_safe(cobra_model, additional_reactions, logger)
     if mode is IrreversibleModelMode.FAST:
-        return _split_reversible_reactions_fast(cobra_model, additional_reactions)
+        return _split_reversible_reactions_fast(cobra_model, additional_reactions, logger)
+
     raise ValueError(
         f"Unknown IrreversibleModelMode: {mode!r}. "
         f"Valid options: {[m.value for m in IrreversibleModelMode]}"
     )
-
-
-def preprocess_model(
-    cobra_model: Model,
-    config: ModelConfig,
-    mode: IrreversibleModelMode = IrreversibleModelMode.FAST,
-) -> ModelPreprocessingResult:
-    """Generated: validation needed.
-    Description:
-        Preprocess a cobra model into closed irreversible form ready for the
-        VmaxBuilder pipeline. Steps in order:
-        1. Make a copy if config.make_copy is True.
-        2. Close all boundary reactions (bounds set to (0.0, 0.0)).
-        3. Split reversible reactions into forward (_f) and backward (_r) pairs.
-    Args:
-        cobra_model (cobra.Model): Source cobra model.
-        config (ModelConfig): Model configuration with make_copy flag.
-        mode (IrreversibleModelMode): Splitting strategy. Default SAFE.
-    Returns:
-        ModelPreprocessingResult: TypedDict with keys:
-            - irreversible_model: Closed irreversible cobra model.
-            - rev2irrev: Mapping from original to irreversible reaction indices.
-    Raises:
-        ValueError: Propagated from create_irreversible_model on invalid mode.
-    Modifies:
-        cobra_model (or its copy): boundary reactions closed, reversible reactions split.
-    Example:
-        >>> from VmaxBuilder.config.dataclasses import ModelConfig
-        >>> config = ModelConfig(make_copy=True)
-        >>> result = preprocess_model(model, config)
-        >>> result["irreversible_model"]
-        <Model ...>
-        >>> result["rev2irrev"]
-        [[1], [2, 5], [3], [4], ...]
-    """
-    working_model: Model = cobra_model.copy() if config.make_copy else cobra_model
-    for reaction in working_model.reactions:
-        if reaction.boundary:
-            reaction.bounds = (0.0, 0.0)
-    irreversible_model, rev2irrev = create_irreversible_model(
-        working_model,
-        mode=mode,
-    )
-    return {"irreversible_model": irreversible_model, "rev2irrev": rev2irrev}
 
 
 def _build_transcript_artifacts_for_model(

@@ -1,11 +1,12 @@
 import inspect
+import json
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, fields, is_dataclass, make_dataclass
 from datetime import datetime
 from inspect import getmembers, isfunction
 from pprint import pprint
-from typing import TYPE_CHECKING, Any, Generic, Iterator, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Iterator, ParamSpec, TypeVar
 
 if TYPE_CHECKING:
     from VmaxBuilder.base.configs import FullConfig
@@ -21,11 +22,16 @@ if TYPE_CHECKING:
 
 ConfigType = TypeVar("ConfigType")
 
+P = ParamSpec("P")
+R = TypeVar("R")
+
 
 class BaseStage:
+    STAGE_NAME: str
     DIAGNOSTICS = []
     NECESSARY_OUTPUTS: list["OutputSpec"] = []
     CORE_CONFIG_CLASS = None
+    ADDITIONAL_IMPLEMENTATIONS: list[type["BaseImplementation"]] = []
 
     def __init__(self, implementation: "BaseImplementation", config: "FullConfig"):
         """Generated: validation needed.
@@ -39,6 +45,12 @@ class BaseStage:
         """
         self.config = config
         self.implementation = implementation
+        self.additional_implementations = {
+            # class name of implementation: instance of implementation
+            impl.__name__: impl(config)
+            for impl in self.ADDITIONAL_IMPLEMENTATIONS
+        }
+        self.logger = CustomLogger(f"Fallback logger: {self.STAGE_NAME}")
 
     def run(self, scaffold):
         """Generated: validation needed.
@@ -153,7 +165,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
         self.logger = CustomLogger(f"Fallback logger: {self.IMPL_NAME}")
         self.full_config = full_config
         self.config: ConfigType = resolve_implementation_config_class(
-            self.__class__, self.BASE_STAGE_CONFIG
+            full_config, self.__class__, self.BASE_STAGE_CONFIG
         )()
 
     @abstractmethod
@@ -181,6 +193,8 @@ class BaseImplementation(Generic[ConfigType], ABC):
         """
         if not self.child_implementations:
             new_scaffold_objects = self.generate_outputs(scaffold)
+            new_scaffold_objects = self.add_stage_to_scaffold(new_scaffold_objects)
+            self.save_artifacts_and_outputs(new_scaffold_objects)
             scaffold.update_scaffold(new_scaffold_objects)
         else:
             for child_impl in self.child_implementations:
@@ -315,44 +329,20 @@ class BaseImplementation(Generic[ConfigType], ABC):
 
         return (scaffold, validation_results)
 
-    def save_artifacts_and_outputs(self, scaffold: "Scaffold") -> None:
-        """
-        Save outputs and artifacts to their respective locations as specified in the scaffold.
-        This method should be called after the stage has run and generated its outputs.
-        """
-        for output_spec in self.OUTPUTS:
-            if output_spec.name in scaffold.outputs:
-                output_value = scaffold.outputs[output_spec.name]
-                if output_spec.saver:
-                    output_spec.saver(
-                        output_value,
-                        **(output_spec.saver_args or {}),
-                    )
-                else:
-                    self.logger.warning(
-                        f"No saver specified for output '{output_spec.name}'. "
-                        "Skipping saving for this output."
-                    )
-            else:
-                self.logger.warning(
-                    f"Output '{output_spec.name}' is not present in the scaffold. "
-                    "Skipping saving for this output."
-                )
-
     def get_implementation_config_params(self, section: str | None = None) -> dict[str, Any]:
         if section is not None:
             current_stage_config = getattr(self.full_config, section)
         else:
             current_stage_config = getattr(self.full_config, self.STAGE_NAME)
-        pprint(custom_asdict(current_stage_config))
-        return current_stage_config
+        self.logger.info(
+            f"Current stage config for '{self.STAGE_NAME}':"
+            f" {custom_asdict(current_stage_config)}"
+        )
+        return custom_asdict(current_stage_config)
 
     @staticmethod
-    def get_time_decorator(func):
-        # should return the result of the function and the time
-        # and is called by:
-        # time, result = BaseImplementation.get_time_decorator(func)(*args, **kwargs)
-        def wrapper(*args, **kwargs):
+    def get_time_decorator(func: Callable[P, R]) -> Callable[P, tuple[float, R]]:
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> tuple[float, R]:
             start_time = datetime.now()
             result = func(*args, **kwargs)
             end_time = datetime.now()
@@ -362,21 +352,6 @@ class BaseImplementation(Generic[ConfigType], ABC):
         return wrapper
 
     def add_stage_to_scaffold(self, new_scaffold_objects) -> dict[str, Any]:
-        # inside stage, all scaffolding should generally include
-        # location[f"{self.STAGE_NAME}_stage"]
-        # this function adds that so that it is more easily created without it
-        # new objects might look like =
-        # return {
-        #     "outputs": outputs,
-        #     "artifacts": artifacts,
-        #     "metadata": metadata,
-        #     "diagnostics": diagnostics,
-        # }
-        # where each is a dict, that should at first level get the stage_name
-        # so that it looks like
-        # "outputs": {
-        #
-        # }
         stage_name = f"{self.STAGE_NAME}_stage"
         for key, value in new_scaffold_objects.items():
             if stage_name not in value:
@@ -385,19 +360,81 @@ class BaseImplementation(Generic[ConfigType], ABC):
 
         return new_scaffold_objects
 
+    def save_artifacts_and_outputs(self, scaffold_objects: dict[str, Any]) -> None:
+        """
+        For each output, use the specified saver to save the output to disk.
+        For each artifact, use the specified saver to save the artifact to disk, if
+        missing a function (not specified,) save it as a json file.
+        This is implementation-agnostic, and thus will be handled per stage.
+        Stages save metadata, and diagnostics, while outputs and artifacts are saved at the
+        end of an implmentation run
+        artifacts go into their own stage  folders:
+            main_folder/artifacts/stage_name/artifact_name
+        while outputs go into their own stage folders:
+            main_folder/outputs/output_name without the stage.
+        the scaffold objects at this point look like:
+            {
+                    "artifacts": {stage_name: {artifact_name: artifact_value}},
+                    "outputs": {stage_name: {output_name: output_value}},
+                    "metadata": {stage_name: {metadata_name: metadata_value}},
+                    "diagnostics": {stage_name: {diagnostic_name: diagnostic_value}},
+            }
+        only save artifacts if artifact saving is enabled (in run_config, although we check
+        if the CombinedConfig of the stage has a save_artifacts attribute, and it is not
+        set to none, we then use that value for that specific stage to override it
+        """
+        for key, value in scaffold_objects.items():
+            if key == "artifacts" and (
+                getattr(self.config, "save_artifacts", None) is True
+                or (
+                    getattr(self.config, "save_artifacts", None) is None
+                    and self.full_config.run.save_artifacts
+                )
+            ):
+                artifact_folder = self.full_config.run.paths.artifacts_dir
+                for stage_name, artifacts in value.items():
+                    artifact_stage_folder = artifact_folder / stage_name
+                    artifact_stage_folder.mkdir(parents=True, exist_ok=True)
+                    for artifact_name, artifact_value in artifacts.items():
+                        save_location = artifact_stage_folder / f"{artifact_name}"
+                        artifact_spec = next(
+                            (spec for spec in self.OUTPUTS if spec.name == artifact_name),
+                            None,
+                        )
+                        if artifact_spec and artifact_spec.saver:
+                            artifact_spec.saver(
+                                save_location / f"{artifact_name}{artifact_spec.extension}",
+                                **(artifact_spec.saver_args or {}),
+                            )
+                        else:
+                            self.logger.warning(
+                                f"No saver specified for artifact '{artifact_name}'. "
+                                "Saving as JSON by default."
+                            )
+                            with open(save_location / f"{artifact_name}.json", "w") as f:
+                                json.dump(artifact_value, f)
 
-# todo: move to utils and remove from orchestrator
-def _iter_implementations(
-    implementation: type["BaseImplementation"] | BaseImplementation,
-) -> Iterator[BaseImplementation | type["BaseImplementation"]]:
-    yield implementation
+            elif key == "outputs":
+                output_folder = self.full_config.run.paths.outputs_dir
+                for _, outputs in value.items():
+                    for output_name, output_value in outputs.items():
+                        output_spec = next(
+                            (spec for spec in self.OUTPUTS if spec.name == output_name),
+                            None,
+                        )
+                        if output_spec and output_spec.saver:
+                            output_spec.saver(
+                                output_folder / f"{output_name}{output_spec.extension}",
+                                **(output_spec.saver_args or {}),
+                            )
+                        else:
+                            self.logger.warning(
+                                f"No saver specified for output '{output_name}'. "
+                                "Saving as JSON by default."
+                            )
 
-    child_implementations: list[BaseImplementation] = getattr(
-        implementation, "child_implementations", []
-    )
-
-    for child_implementation in child_implementations:
-        yield from _iter_implementations(child_implementation)
+                            with open(f"{output_name}.json", "w") as f:
+                                json.dump(output_value, f)
 
 
 def validate_config_conflicts(
@@ -441,6 +478,7 @@ def validate_config_conflicts(
 
 
 def resolve_implementation_config_class(
+    full_config: "FullConfig",
     impl_cls: type["BaseImplementation"],
     core_config_cls: type | None = None,
 ) -> type:
@@ -456,7 +494,7 @@ def resolve_implementation_config_class(
 
     validate_config_conflicts(stage_configs)
 
-    return build_flattened_config(stage_configs)
+    return build_flattened_config(stage_configs, full_config=full_config)
 
 
 @dataclass(slots=True)
@@ -464,8 +502,7 @@ class ImplementationConfig:
     pass
 
 
-def build_flattened_config(config_classes: list[type]) -> type:
-    # todo: move to utils and remove from here and orchestrator
+def build_flattened_config(config_classes: list[type], full_config: "FullConfig") -> type:
     combined_fields = []
 
     for config_cls in config_classes:
@@ -477,7 +514,18 @@ def build_flattened_config(config_classes: list[type]) -> type:
                     _field,
                 )
             )
+    if not combined_fields:
+        raise ValueError("No fields found in the provided config classes.")
 
+    # if combined fields includes save_artifacts, set it to None so that user
+    # must specifically overwrite it in order for it to be set to True or False
+    # This is to avoid accidentally saving artifacts when not intended.
+
+    if any(field[0] == "save_artifacts" for field in combined_fields):
+        combined_fields = [
+            (name, typ, field) if name != "save_artifacts" else (name, typ, None)
+            for name, typ, field in combined_fields
+        ]
     return make_dataclass(
         cls_name="CombinedConfig",
         fields=combined_fields,
@@ -542,3 +590,16 @@ def get_fallback_providers(cls):
             providers[metadata.provides] = metadata
 
     return providers
+
+
+def _iter_implementations(
+    implementation: type["BaseImplementation"] | BaseImplementation,
+) -> Iterator[BaseImplementation | type["BaseImplementation"]]:
+    yield implementation
+
+    child_implementations: list[BaseImplementation] = getattr(
+        implementation, "child_implementations", []
+    )
+
+    for child_implementation in child_implementations:
+        yield from _iter_implementations(child_implementation)

@@ -2,8 +2,7 @@
 
 Use Google-style docstrings with required extensions.
 
-
-## Required sections:
+## Required sections
 
 - Description (always required)
 
@@ -17,8 +16,7 @@ Use Google-style docstrings with required extensions.
 
 - Modifies: (only if there are side effects or state changes)
 
-
-## Omission rule:
+## Omission rule
 
 **Do not include a section if it has no content.**
 
@@ -32,20 +30,17 @@ Only the **Description** is always required. Every other section is conditional 
 
 Applies to both function and class/module-level docstrings.
 
-
-## Rules:
+## Rules
 
 - All parameters must include type hints in docstring
 
 - Must match function signature exactly
 
-### Example:
+### Example
 
 - param_name (dict\[str, pd.DataFrame | int]): description
 
-
-
-## Additional requirements:
+## Additional requirements
 
 - Include usage example when helpful
 
@@ -53,14 +48,11 @@ Applies to both function and class/module-level docstrings.
 
 - Add documentation to functions that lack it, if function is modified
 
-
-
-## Important:
+## Important
 
 All generated or modified docstrings must start with:
 
 "Generated: validation needed"
-
 
 ## Sphinx
 

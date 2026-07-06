@@ -92,6 +92,7 @@ class RunConfig:
     active_stages: list[str] | str
     primary_output_format: PrimaryOutputFormat
     run_target_transcript_gene_level: Literal["transcript", "gene"]
+    save_artifacts: bool
     write_additional_csv: bool
     run_input_validation: bool
     run_output_validation: bool
@@ -122,8 +123,9 @@ class RunConfig:
         create_dynamically_named_results: bool = False,
         active_stages: list[str] | str = "all",
         primary_output_format: PrimaryOutputFormat = PrimaryOutputFormat.FEATHER,
-        run_target_transcript_gene_level: Literal["transcript", "gene"] = "transcript",
+        run_target_transcript_gene_level: Literal["transcript", "gene"] = "gene",
         write_additional_csv: bool = False,
+        save_artifacts: bool = True,
         run_input_validation: bool = True,
         run_output_validation: bool = True,
         run_diagnostics: bool = True,
@@ -133,7 +135,6 @@ class RunConfig:
     ):
         self._initialized = False
 
-        # Dit roept direct je setters aan!
         if output_dir is None:
             output_dir = Path.cwd() / "data/results/"
         self.output_dir = output_dir
@@ -152,6 +153,7 @@ class RunConfig:
         self.run_target_transcript_gene_level = run_target_transcript_gene_level
         self.run_input_validation = run_input_validation
         self.run_output_validation = run_output_validation
+        self.save_artifacts = save_artifacts
         self.run_diagnostics = run_diagnostics
         self.lazy_load = lazy_load
         self.lazy_validate = lazy_validate

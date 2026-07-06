@@ -4,7 +4,7 @@ from pathlib import Path
 from pprint import pprint
 from typing import Any, TypeVar, cast, get_type_hints
 
-from VmaxBuilder.base.classes import BaseImplementation
+from VmaxBuilder.base.classes import BaseImplementation, _iter_implementations
 from VmaxBuilder.base.configs import (
     DiscoveredInput,
     FullConfig,
@@ -172,6 +172,28 @@ class Orchestrator:
         self.loading_info[stage] = loading_info
         self._discover_user_submitted_paths(stage_name=stage)
 
+    def _get_all_loggers(self) -> list[CustomLogger]:
+        all_loggers = [self.logger]
+        for stage_name in self.stages:
+            stage = getattr(self, f"{stage_name}_stage", None)
+            if stage is not None:
+                all_loggers.append(stage.logger)
+                stage_implementation: BaseImplementation = stage.implementation
+                for implementation in _iter_implementations(stage_implementation):
+                    if isinstance(implementation, type):
+                        continue
+                    all_loggers.append(implementation.logger)
+
+                additional_implementations = getattr(stage, "additional_implementations", {})
+                for additional_implementation_cls in additional_implementations.values():
+                    for additional_implementation in _iter_implementations(
+                        additional_implementation_cls
+                    ):
+                        if isinstance(additional_implementation, type):
+                            continue
+                        all_loggers.append(additional_implementation.logger)
+        return all_loggers
+
     def set_print_level(self, level: str | int):
         mapping = {
             "DEBUG": 4,
@@ -195,9 +217,17 @@ class Orchestrator:
         else:
             raise ValueError(f"Print level must be a string or integer, got {type(level)}")
 
-        self.logger.set_print_level(level_int)
+        all_loggers = self._get_all_loggers()
+
+        for logger in all_loggers:
+            logger.set_print_level(level_int)
+        # self.logger.set_print_level(level_int)
 
         self.logger.info(f"Print level set to: {level_literal}")
+        self.logger.debug(
+            f"Print level adjusted in the following loggers:"
+            f"{[logger.name for logger in all_loggers]}"
+        )
         if hasattr(self, "config"):
             # necessary to init using the caster
             self.config.run._print_level = cast(PrintLevelType, level_literal)
@@ -223,7 +253,7 @@ class Orchestrator:
         for stage_name in self.stages:
             stage = getattr(self, f"{stage_name}_stage")
             stage_implementation: BaseImplementation = stage.implementation
-            for implementation in self._iter_implementations(stage_implementation):
+            for implementation in _iter_implementations(stage_implementation):
                 if isinstance(implementation, type):
                     continue
                 implementation.load_inputs(scaffold=self.scaffold)
@@ -236,7 +266,7 @@ class Orchestrator:
         for stage_name in self.stages:
             stage = getattr(self, f"{stage_name}_stage")
             stage_implementation: BaseImplementation = stage.implementation
-            for implementation in self._iter_implementations(stage_implementation):
+            for implementation in _iter_implementations(stage_implementation):
                 if isinstance(implementation, type):
                     continue
                 self.scaffold, _ = implementation.validate_inputs(scaffold=self.scaffold)
@@ -245,19 +275,6 @@ class Orchestrator:
         # todo: consider whether should be public or private (orchestration run is sequential)
         stage = getattr(self, f"{stage_name}_stage")
         self.scaffold = stage.run(self.scaffold)
-
-    def _iter_implementations(
-        self,
-        implementation: type[BaseImplementation] | BaseImplementation,
-    ) -> Iterator[BaseImplementation | type[BaseImplementation]]:
-        yield implementation
-
-        child_implementations: list[BaseImplementation] = getattr(
-            implementation, "child_implementations", []
-        )
-
-        for child_implementation in child_implementations:
-            yield from self._iter_implementations(child_implementation)
 
     @staticmethod
     def _initialise_scaffold(scaffold: Scaffold | None = None) -> Scaffold:
@@ -474,7 +491,7 @@ class Orchestrator:
 if __name__ == "__main__":
     base_dir = Path("~/git/SWAPAM/data/for_SWAMP/")
     models_dir = base_dir / "models"
-    model_name = "model_inhouse_v9_human"
+    model_name = "model_inhouse_v7_human"
     model_dir = models_dir / model_name
     model_path = model_dir
 
@@ -514,19 +531,19 @@ if __name__ == "__main__":
 
     orchestrator = Orchestrator(stage_loading_info, run_config)
     model = orchestrator.set_model_implementation(DefaultIrreversibleModelImplementation)
-    # model.config.maximum_transcript_ifp_expansion_2 = 800
-    orchestrator.config.model.maximum_transcript_ifp_expansion = 800
-
-    print(
-        "\nshowing scaffold user submitted paths: ",
-        orchestrator.scaffold.discovered_inputs,
-    )
-    print("showing discovered paths: ", orchestrator.return_discovered_paths())
-    print("Initial config:")
-
-    orchestrator.return_config()
+    # # model.config.maximum_transcript_ifp_expansion_2 = 800
+    # orchestrator.config.model.maximum_transcript_ifp_expansion = 800
+    #
+    # print(
+    #     "\nshowing scaffold user submitted paths: ",
+    #     orchestrator.scaffold.discovered_inputs,
+    # )
+    # print("showing discovered paths: ", orchestrator.return_discovered_paths())
+    # print("Initial config:")
+    #
+    # orchestrator.return_config()
     # print("setting print level to DEBUG...")
-    # orchestrator.set_print_level("DEBUG")
+    orchestrator.set_print_level("DEBUG")
     # print("showing user submitted  paths:")
     # orchestrator.return_user_submitted_paths()
     #
@@ -553,3 +570,4 @@ if __name__ == "__main__":
     # )
     # # orchestrator.config.run.lazy_validate = True
     # # orchestrator.config.model.make_copy = True
+    orchestrator.run()

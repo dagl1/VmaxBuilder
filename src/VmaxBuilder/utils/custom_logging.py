@@ -181,6 +181,7 @@ class CustomLogger:
             log_files_location_path = Path(log_files_location)
 
         self.logger: Logger = getLogger(name)
+        self.name = name
         self.logger.setLevel(DEBUG)
         self.logger.propagate = False
         self.print_level = print_level
@@ -303,7 +304,8 @@ class CustomLogger:
         caller_frame = None
         for frame in stack_:
             name = __name__.replace(".", "\\")
-            if name not in frame.filename:
+            normalised_filename = frame.filename.replace("/", "\\")
+            if name not in frame.filename and name not in normalised_filename:
                 caller_frame = frame
                 break
 
@@ -316,7 +318,7 @@ class CustomLogger:
         return filename, lineno
 
     @fix_non_ascii_messages_decorator
-    def debug(self, message, print_level=4, *args, **kwargs):
+    def debug(self, message, print_level=0, *args, **kwargs):
         stack_ = stack()
         filename, lineno = self.process_stack(stack_)
         self.logger.debug(
@@ -520,6 +522,7 @@ class CustomFormatter(Formatter):
     cyan = "\x1b[36;20m"
     dark_blue = "\x1b[34;20m"
     white = "\x1b[66;20m"
+    grey_orange = "\x1b[38;5;245m"
     grey = "\x1b[38;20m"
     yellow = "\x1b[33;20m"
     red = "\x1b[31;20m"
@@ -531,7 +534,7 @@ class CustomFormatter(Formatter):
         STARTING_LEVEL: cyan + format + reset,
         FINISHED_LEVEL: dark_blue + format + reset,
         VALID_LEVEL: green + format + reset,
-        DEBUG: grey + format + reset,
+        DEBUG: grey_orange + format + reset,
         INFO: white + format + reset,
         WARNING: yellow + format + reset,
         ERROR: red + format + reset,

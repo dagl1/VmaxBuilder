@@ -209,6 +209,99 @@ def check_for_existing_files(
     return False
 
 
+def _generate_unique_filename(
+    save_dir: Path,
+    filename: str,
+    extension: str,
+    max_tries: int = 10,
+) -> str | None:
+    """Generate a unique filename by appending a counter if the file already exists."""
+    base_filename = Path(filename).stem
+    for attempt_index in range(max_tries):
+        candidate_filename = (
+            f"{base_filename}_{attempt_index}{extension}"
+            if attempt_index > 0
+            else f"{base_filename}{extension}"
+        )
+        candidate_path = save_dir / candidate_filename
+        if not candidate_path.exists():
+            return candidate_filename
+
+
+def save_cobra_model(
+    cobra_model: Any,
+    filename: str,
+    extension: str,
+    save_dir: str | Path,
+    overwrite: bool = False,
+) -> None:
+    """Generated: validation needed.
+
+    Description:
+        Save COBRA model using appropriate writer based on extension.
+
+    Args:
+        cobra_model (Any): COBRA model object.
+        filename (str): Output filename without directory.
+        extension (str): Target extension.
+        save_dir (str | Path): Output directory.
+        overwrite (bool): Overwrite existing file when True.
+
+    Returns:
+        None: Function writes file to disk.
+
+    Raises:
+        ValueError: If extension is invalid for COBRA model.
+    """
+    valid_extensions = [".json", ".xml", ".yml", ".yaml", ".mat"]
+    if extension not in valid_extensions and not extension.startswith(
+        tuple(valid_extensions)
+    ):
+        raise ValueError(
+            f"Extension '{extension}' is not valid for COBRA model. "
+            f"Valid extensions are: {valid_extensions}."
+        )
+    filepath = Path(save_dir) / f"{filename}.{extension.lstrip('.')}"
+    filepath_as_str = str(filepath)
+    if not overwrite and filepath.exists():
+        unique_filename = _generate_unique_filename(
+            save_dir=Path(save_dir),
+            filename=filename,
+            extension=f".{extension.lstrip('.')}",
+            max_tries=10,
+        )
+        if unique_filename is not None:
+            filepath_as_str = str(Path(save_dir) / unique_filename)
+        else:
+            raise FileExistsError(
+                f"Could not find a unique filename for "
+                f"'{filename}' with extension '{extension}' "
+                f"in directory '{save_dir}' after 10 attempts."
+            )
+    match extension:
+        case ".json":
+            from cobra.io import save_json_model
+
+            save_json_model(cobra_model, filepath_as_str)
+        case ".xml":
+            from cobra.io import write_sbml_model
+
+            write_sbml_model(cobra_model, filepath_as_str)
+        case ".yml" | ".yaml":
+            from cobra.io import save_yaml_model
+
+            save_yaml_model(cobra_model, filepath_as_str)
+        case ".mat":
+            from cobra.io import save_matlab_model
+
+            save_matlab_model(cobra_model, filepath_as_str)
+        case _:
+            raise ValueError(
+                f"Extension '{extension}' is not valid for COBRA model. "
+                f"Valid extensions are: {valid_extensions}."
+            )
+
+
 @decorator_provide_time_information_2
 def save_with_tries(  # noqa: C901
     data: Any,
@@ -221,6 +314,7 @@ def save_with_tries(  # noqa: C901
     header: bool | list[str] = True,
     logger: Any | None = None,
     print_level: int | None = None,
+    is_cobra_model: bool = False,
 ) -> None:
     """Generated: validation needed.
 
@@ -297,6 +391,16 @@ def save_with_tries(  # noqa: C901
 
     extensions = [extension] if isinstance(extension, str) else list(extension)
     original_filename = filename
+
+    if is_cobra_model:
+        save_cobra_model(
+            cobra_model=data,
+            filename=filename,
+            extension=extensions[0],
+            save_dir=save_path,
+            overwrite=overwrite,
+        )
+        return
 
     def _write_to_path(file_path: Path, current_extension: str) -> None:  # noqa: C901
         normalized_extension = (

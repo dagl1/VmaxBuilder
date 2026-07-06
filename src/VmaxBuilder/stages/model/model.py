@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from VmaxBuilder.base.classes import BaseImplementation, BaseStage
-from VmaxBuilder.base.configs import FullConfig, OutputSpec
+from VmaxBuilder.base.configs import FullConfig, OutputSpec, Scaffold
 from VmaxBuilder.GPR.gpr_implementation import DefaultGPRImplementation
 
 
@@ -25,12 +25,14 @@ class ModelStage(BaseStage):
     DIAGNOSTICS = []
     NECESSARY_OUTPUTS = []
     CORE_CONFIG_CLASS = ModelCoreConfig
+    ADDITIONAL_IMPLEMENTATIONS = [DefaultGPRImplementation]
+    STAGE_NAME = "model"
 
     def __init__(self, implementation: BaseImplementation, full_config: FullConfig):
         super().__init__(implementation, full_config)
 
-    def run_additional_processes(self, scaffold):
-        gpr_implementation = DefaultGPRImplementation()
-        scaffold = gpr_implementation.run(scaffold, self.config)
+    def run_additional_processes(self, scaffold: Scaffold):
+        gpr_implementation = self.additional_implementations["DefaultGPRImplementation"]
+        scaffold = gpr_implementation.run(scaffold)
 
         return scaffold

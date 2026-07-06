@@ -17,6 +17,7 @@ from VmaxBuilder.stages.model.default.preprocessing import (
 )
 from VmaxBuilder.stages.model.model import ModelCoreConfig
 from VmaxBuilder.typing_stubs.model.default.implementation import DefaultConfig
+from VmaxBuilder.utils.custom_logging import custom_asdict
 from VmaxBuilder.utils.iterables import SortedSet
 
 
@@ -90,7 +91,27 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultConfig]):
             ),
         ),
     ]
-    OUTPUTS: list[OutputSpec] = []
+    OUTPUTS: list[OutputSpec] = [
+        OutputSpec(
+            "irreversible_model",
+            data_type=Model,
+            scaffold_location="outputs",
+            saver_args={
+                "is_cobra_model": True,
+            },
+            save_file_name="irreversible_model",
+            extension=".json",
+            validator=None,
+        ),
+        OutputSpec(
+            "rev2irrev",
+            data_type=dict,
+            scaffold_location="artifacts",
+            save_file_name="rev2irrev",
+            extension=".json",
+            validator=None,
+        ),
+    ]
     DIAGNOSTICS = ModelDiagnostics()
 
     def __init__(self, full_config: FullConfig):
@@ -109,9 +130,7 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultConfig]):
                 "elapsed_time_seconds": elapsed_time,
                 "status": "irreversible_model_created",
                 "date_created": pd.Timestamp.now().isoformat(),
-                "params": {
-                    self.get_implementation_config_params(),
-                },
+                "params": self.get_implementation_config_params(),
             }
         }
         return metadata
@@ -127,9 +146,7 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultConfig]):
                 "status": "transcript_artifacts_built",
                 "elapsed_time_seconds": elapsed_time,
                 "date_created": pd.Timestamp.now().isoformat(),
-                "params": {
-                    self.get_implementation_config_params("transcripts"),
-                },
+                "params": self.get_implementation_config_params("transcripts"),
             }
         }
         return transcript_metadata
@@ -170,21 +187,23 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultConfig]):
                 "mean_transcripts_per_gene": (
                     len(transcript_df) / len(transcript_df["gene_id"].unique())
                 ),
-                "median_transcript_length": transcript_df["transcript_length"].median(),
-                "mean_transcript_length ": transcript_df["transcript_length"].mean(),
+                "median_transcript_length": transcript_df["cdna_len"].median(),
+                "mean_transcript_length ": transcript_df["cdna_len"].mean(),
             },
         }
         return transcript_diagnostics
 
     def _build_model(self, scaffold: Scaffold):
         cobra_model = cast(Model, scaffold.get_scaffold_value("cobra_model"))
-        irreversible_model, rev2irrev = create_irreversible_model(cobra_model)
+        irreversible_model, rev2irrev = create_irreversible_model(
+            cobra_model, logger=self.logger
+        )
         return irreversible_model, rev2irrev
 
     def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
-        (model_elapsed_time, (irreversible_model, rev2irrev)) = self.get_time_decorator(
-            self._build_model(scaffold)
-        )
+        model_elapsed_time, (irreversible_model, rev2irrev) = self.get_time_decorator(
+            self._build_model
+        )(scaffold)
 
         outputs = {
             "irreversible_model": irreversible_model,
@@ -209,11 +228,11 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultConfig]):
                     "from scaffold is not yet implemented."
                 )
             transcript_elapsed_time, transcript_artifacts = self.get_time_decorator(
-                _build_transcript_artifacts_for_model(
-                    model=irreversible_model,
-                    config=self.full_config,
-                    translation_service=self._translation_service,
-                )
+                _build_transcript_artifacts_for_model
+            )(
+                model=irreversible_model,
+                config=self.full_config,
+                translation_service=self._translation_service,
             )
             transcript_metadata = self.create_transcript_metadata(
                 elapsed_time=transcript_elapsed_time,

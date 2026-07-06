@@ -11,6 +11,7 @@ from typing import Any
 
 from cobra.core.model import Model
 
+from VmaxBuilder.base.classes import BaseImplementation
 from VmaxBuilder.base.configs import FullConfig, Scaffold
 from VmaxBuilder.GPR.gpr_preprocessing import (
     build_gene_to_transcripts_mapping,
@@ -24,14 +25,25 @@ from VmaxBuilder.GPR.gpr_preprocessing import (
 )
 
 
-class DefaultGPRImplementation:
+class DefaultGPRImplementation(BaseImplementation[FullConfig]):
+    STAGE_NAME: str = "model"
+    IMPL_NAME: str = "default_gpr"
+
+    # BASE_STAGE_CONFIG: type | None = None
+    # IMPLEMENTATION_CONFIG_CLASS: type | None = None
+    # _RESOLVED_CONFIG_CLASS: type | None = None
+    # INPUTS: list["InputSpec"] = []
+    # OUTPUTS: list["OutputSpec"] = []
+    # CHILD_IMPLEMENTATIONS: list[type["BaseImplementation"]] = []
+    # DIAGNOSTICS: list[ImplementationDiagnostics] = []
+
     """Generated: validation needed.
 
     Description:
         GPR simplification scaffold for deriving gene-level IFP mappings.
     """
 
-    def run(self, scaffold: Scaffold, config: FullConfig) -> Scaffold:
+    def generate_outputs(self, scaffold: Scaffold) -> dict[str, Any]:
         """Generated: validation needed.
 
         Description:
@@ -54,7 +66,10 @@ class DefaultGPRImplementation:
             raise ValueError("No COBRA model found in scaffold for GPR processing.")
         gpr_rules = get_unique_gpr_rules(cobra_model)
         ifp_mapping = self._convert_gene_gpr_rules_to_ifp(gpr_rules)
-        if config.run.run_target_transcript_gene_level.lower() == "transcript":
+        artifacts_payload = {}
+        metadata_payload = {}
+        diagnostics_payload = {}
+        if self.full_config.run.run_target_transcript_gene_level.lower() == "transcript":
             (
                 ifp_mapping,
                 artifacts_payload,
@@ -63,33 +78,31 @@ class DefaultGPRImplementation:
             ) = self._convert_gene_ifp_to_transcript_ifp(
                 cobra_model,
                 ifp_mapping=ifp_mapping,
-                config=config,
+                config=self.full_config,
             )
-            scaffold.update_scaffold(
-                {
-                    "artifacts": artifacts_payload,
-                    "metadata": metadata_payload,
-                    "diagnostics": diagnostics_payload,
-                }
-            )
-        artifacts_payload = self._assign_ifps_to_reactions(cobra_model, ifp_mapping)
-        scaffold.update_scaffold(
-            {
-                "artifacts": artifacts_payload,
-                "metadata": {
-                    "model_stage": {
-                        "gpr": {
-                            "implementation": type(self).__name__,
-                            "status": "implemented_gene_rule_simplifier",
-                            "rule_count": len(gpr_rules),
-                            "cache_info": self.get_simplification_cache_info(),
-                        }
-                    }
-                },
-            }
+        artifacts_IFP_payload = self._assign_ifps_to_reactions(cobra_model, ifp_mapping)
+        artifact_payload = {**artifacts_payload, **artifacts_IFP_payload}
+        metadata_payload = {
+            **metadata_payload,
+            "gpr": {
+                "implementation": type(self).__name__,
+                "status": "implemented_gene_rule_simplifier",
+                "cache_info": self.get_simplification_cache_info(),
+                "params": self.get_implementation_config_params(),
+            },
+        }
+        self.logger.debug(f"Generated IFP mapping for {len(ifp_mapping)} GPR rules.")
+        self.logger.debug(
+            f"showing: first 6 {list(ifp_mapping.items())[:5]} and last 5:"
+            f" {list(ifp_mapping.items())[-5:]}"
         )
 
-        return scaffold
+        return {
+            "outputs": {"ifp_mapping": ifp_mapping},
+            "artifacts": artifact_payload,
+            "metadata": metadata_payload,
+            "diagnostics": diagnostics_payload,
+        }
 
     def _assign_ifps_to_reactions(
         self,
@@ -189,9 +202,7 @@ class DefaultGPRImplementation:
                 expansion_outcome = expand_gene_ifp_to_transcript_ifps(
                     gene_ifp,
                     gene_to_transcripts,
-                    maximum_expansion=(
-                        config.model.maximum_transcript_ifp_expansion
-                    ),  # ty: ignore[unresolved-attribute] # noqa
+                    maximum_expansion=(config.model.maximum_transcript_ifp_expansion),
                 )
 
                 if bool(expansion_outcome["exceeded_threshold"]):
@@ -230,7 +241,7 @@ class DefaultGPRImplementation:
             "rules_converted": len(transcript_level_mapping),
             "gene_transcript_mapping_genes": len(gene_to_transcripts),
             "maximum_transcript_ifp_expansion": (
-                config.model.maximum_transcript_ifp_expansion  # ty: ignore[unresolved-attribute] # noqa
+                config.model.maximum_transcript_ifp_expansion
             ),
             "complexity_skips": len(complexity_skips),
         }
