@@ -88,6 +88,7 @@ class Orchestrator:
 
     def run(self):
         self._discover_user_submitted_paths()
+        self.config.run.paths._create_dirs()
         self.logger.info("Starting orchestrator run...")
         if not self.config.run.lazy_load:
             self.load_inputs()
@@ -499,7 +500,7 @@ if __name__ == "__main__":
     ptr_path = base_dir / "PTR_datasets" / "Eraslan2019_human"
     # proteomics_path = base_dir / "proteomics" / "NCI60"
     output_path = Path("~/git/VmaxBuilder/data/run_example_output")
-    create_dynamically_named_results = True
+    create_dynamically_named_results = False
     model_stage_loading_info = StageLoadingInfo(
         stage_name="model",
         directories=model_dir,
@@ -544,6 +545,7 @@ if __name__ == "__main__":
     # orchestrator.return_config()
     # print("setting print level to DEBUG...")
     orchestrator.set_print_level("DEBUG")
+    orchestrator.config.run.overwrite_existing_results = True
     # print("showing user submitted  paths:")
     # orchestrator.return_user_submitted_paths()
     #

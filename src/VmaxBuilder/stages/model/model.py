@@ -23,7 +23,7 @@ class ModelCoreConfig:
 
 class ModelStage(BaseStage):
     DIAGNOSTICS = []
-    NECESSARY_OUTPUTS = []
+    OUTPUTS = []
     CORE_CONFIG_CLASS = ModelCoreConfig
     ADDITIONAL_IMPLEMENTATIONS = [DefaultGPRImplementation]
     STAGE_NAME = "model"

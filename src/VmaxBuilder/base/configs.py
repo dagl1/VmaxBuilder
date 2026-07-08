@@ -94,6 +94,7 @@ class RunConfig:
     run_target_transcript_gene_level: Literal["transcript", "gene"]
     save_artifacts: bool
     write_additional_csv: bool
+    overwrite_existing_results: bool
     run_input_validation: bool
     run_output_validation: bool
     run_diagnostics: bool
@@ -125,6 +126,7 @@ class RunConfig:
         primary_output_format: PrimaryOutputFormat = PrimaryOutputFormat.FEATHER,
         run_target_transcript_gene_level: Literal["transcript", "gene"] = "gene",
         write_additional_csv: bool = False,
+        overwrite_existing_results: bool = False,
         save_artifacts: bool = True,
         run_input_validation: bool = True,
         run_output_validation: bool = True,
@@ -154,6 +156,7 @@ class RunConfig:
         self.run_input_validation = run_input_validation
         self.run_output_validation = run_output_validation
         self.save_artifacts = save_artifacts
+        self.overwrite_existing_results = overwrite_existing_results
         self.run_diagnostics = run_diagnostics
         self.lazy_load = lazy_load
         self.lazy_validate = lazy_validate
@@ -166,6 +169,7 @@ class RunConfig:
 
     def _sync_paths(self):
         results_dir = self._output_dir / self._run_name
+        print(f"Output directory set to: {results_dir}")
         self.paths._rebuild(results_dir)
 
     @property
@@ -283,6 +287,9 @@ class InputSpec:
     prefix: str | None = None  # file key for loading from files
     extensions: Iterable[str] | None = None  # allowed file extensions for loading
     validator: Validator | None = None  # function to validate the input
+    validator_args: dict[str, Any] = field(
+        default_factory=dict
+    )  # additional args for validator
 
 
 @dataclass(frozen=True)
@@ -291,12 +298,15 @@ class OutputSpec:
     data_type: type | None = None
     scaffold_location: str | list[str] = "outputs"  # if files that are only outputs are
     saver: Callable = save_with_tries
-    saver_args: dict[str, Any] | None = None  # additional args for saver
+    saver_args: dict[str, Any] = field(default_factory=dict)  # additional args for saver
     save_file_name: str | None = None  # file key for saving to files
     extension: str | None = None  # file extension for saving to files
     # should remain in outputs, if also used as inputs, a copy is
     # placed in inputs.
     validator: Validator | None = None  # function to validate the output
+    validator_args: dict[str, Any] = field(
+        default_factory=dict
+    )  # additional args for validator
 
 
 @dataclass

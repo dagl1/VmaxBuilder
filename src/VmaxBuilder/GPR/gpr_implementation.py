@@ -92,10 +92,10 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
             },
         }
         self.logger.debug(f"Generated IFP mapping for {len(ifp_mapping)} GPR rules.")
-        self.logger.debug(
-            f"showing: first 6 {list(ifp_mapping.items())[:5]} and last 5:"
-            f" {list(ifp_mapping.items())[-5:]}"
-        )
+        # self.logger.debug(
+        #     f"showing: first 6 {list(ifp_mapping.items())[:5]} and last 5:"
+        #     f" {list(ifp_mapping.items())[-5:]}"
+        # )
 
         return {
             "outputs": {"ifp_mapping": ifp_mapping},

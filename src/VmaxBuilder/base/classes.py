@@ -8,6 +8,8 @@ from inspect import getmembers, isfunction
 from pprint import pprint
 from typing import TYPE_CHECKING, Any, Generic, Iterator, ParamSpec, TypeVar
 
+from VmaxBuilder.utils.iterables import make_json_serializable
+
 if TYPE_CHECKING:
     from VmaxBuilder.base.configs import FullConfig
 from VmaxBuilder.base.exceptions import ImplementationConfigConflictError
@@ -29,7 +31,7 @@ R = TypeVar("R")
 class BaseStage:
     STAGE_NAME: str
     DIAGNOSTICS = []
-    NECESSARY_OUTPUTS: list["OutputSpec"] = []
+    OUTPUTS: list["OutputSpec"] = []
     CORE_CONFIG_CLASS = None
     ADDITIONAL_IMPLEMENTATIONS: list[type["BaseImplementation"]] = []
 
@@ -76,6 +78,8 @@ class BaseStage:
         for diagnostic in self.DIAGNOSTICS:
             diagnostic.after_run(scaffold)
 
+        self.ensure_outputs(scaffold)
+
         return scaffold
 
     def run_additional_processes(self, scaffold: "Scaffold") -> "Scaffold":
@@ -91,7 +95,7 @@ class BaseStage:
         If any necessary output is missing, raise a ValueError.
         """
 
-        for output_spec in self.NECESSARY_OUTPUTS:
+        for output_spec in self.OUTPUTS:
             if (
                 output_spec.name not in scaffold.outputs
                 and output_spec.name not in scaffold.inputs
@@ -103,7 +107,15 @@ class BaseStage:
                 output_value = scaffold.outputs.get(output_spec.name) or scaffold.inputs.get(
                     output_spec.name
                 )
-                (is_valid, return_message) = output_spec.validator(output_value)
+                validator_args = output_spec.validator_args or {}
+                accepted_args = inspect.signature(output_spec.validator).parameters
+                filtered_validator_args = {
+                    k: v for k, v in validator_args.items() if k in accepted_args
+                }
+
+                (is_valid, return_message) = output_spec.validator(
+                    output_value, **filtered_validator_args
+                )
                 if not is_valid:
                     raise ValueError(
                         f"Validation failed for necessary output '{output_spec.name}'. "
@@ -165,7 +177,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
         self.logger = CustomLogger(f"Fallback logger: {self.IMPL_NAME}")
         self.full_config = full_config
         self.config: ConfigType = resolve_implementation_config_class(
-            full_config, self.__class__, self.BASE_STAGE_CONFIG
+            self.__class__, self.BASE_STAGE_CONFIG
         )()
 
     @abstractmethod
@@ -195,6 +207,8 @@ class BaseImplementation(Generic[ConfigType], ABC):
             new_scaffold_objects = self.generate_outputs(scaffold)
             new_scaffold_objects = self.add_stage_to_scaffold(new_scaffold_objects)
             self.save_artifacts_and_outputs(new_scaffold_objects)
+            self.save_diagnostics(new_scaffold_objects)
+            self.save_metadata(new_scaffold_objects)
             scaffold.update_scaffold(new_scaffold_objects)
         else:
             for child_impl in self.child_implementations:
@@ -225,13 +239,16 @@ class BaseImplementation(Generic[ConfigType], ABC):
                 and input_spec.loader
                 and input_spec.name in scaffold.discovered_inputs[self.STAGE_NAME]
             ):
+                accepted_args = inspect.signature(input_spec.loader).parameters
+                filtered_loader_args = {
+                    k: v
+                    for k, v in (input_spec.loader_args or {}).items()
+                    if k in accepted_args
+                }
                 file_path = scaffold.discovered_inputs[self.STAGE_NAME][
                     input_spec.name
                 ].file_path
-                loaded_input = input_spec.loader(
-                    file_path,
-                    **(input_spec.loader_args or {}),
-                )
+                loaded_input = input_spec.loader(file_path, **filtered_loader_args)
                 scaffold.inputs[input_spec.name] = loaded_input
             elif not input_spec.optional:
                 raise ValueError(f"Cannot load input '{input_spec.name}': ")
@@ -280,7 +297,15 @@ class BaseImplementation(Generic[ConfigType], ABC):
             )
 
         input_value = getattr(scaffold, location)[input_spec.name]
-        (is_valid, return_message) = input_spec.validator(input_value)
+        validator_args = input_spec.validator_args or {}
+        accepted_args = inspect.signature(input_spec.validator).parameters
+        filtered_validator_args = {
+            k: v for k, v in validator_args.items() if k in accepted_args
+        }
+
+        (is_valid, return_message) = input_spec.validator(
+            input_value, **filtered_validator_args
+        )
         if not is_valid:
             self.logger.error(
                 f"Validation failed for input '{input_spec.name}'. "
@@ -351,12 +376,17 @@ class BaseImplementation(Generic[ConfigType], ABC):
 
         return wrapper
 
-    def add_stage_to_scaffold(self, new_scaffold_objects) -> dict[str, Any]:
+    def add_stage_to_scaffold(
+        self, new_scaffold_objects: dict[str, dict[str, Any]]
+    ) -> dict[str, Any]:
         stage_name = f"{self.STAGE_NAME}_stage"
-        for key, value in new_scaffold_objects.items():
-            if stage_name not in value:
-                value[stage_name] = {}
-            value[stage_name].update(value.pop(key, {}))
+
+        for key, value in list(new_scaffold_objects.items()):
+            if isinstance(value, dict) and stage_name in value:
+                continue
+            elif key == "outputs":
+                continue
+            new_scaffold_objects[key] = {stage_name: value}
 
         return new_scaffold_objects
 
@@ -367,7 +397,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
         missing a function (not specified,) save it as a json file.
         This is implementation-agnostic, and thus will be handled per stage.
         Stages save metadata, and diagnostics, while outputs and artifacts are saved at the
-        end of an implmentation run
+        end of an implementation run
         artifacts go into their own stage  folders:
             main_folder/artifacts/stage_name/artifact_name
         while outputs go into their own stage folders:
@@ -391,6 +421,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
                     and self.full_config.run.save_artifacts
                 )
             ):
+                pass
                 artifact_folder = self.full_config.run.paths.artifacts_dir
                 for stage_name, artifacts in value.items():
                     artifact_stage_folder = artifact_folder / stage_name
@@ -402,39 +433,110 @@ class BaseImplementation(Generic[ConfigType], ABC):
                             None,
                         )
                         if artifact_spec and artifact_spec.saver:
+                            saver_args = artifact_spec.saver_args or {}
+                            saver_args["overwrite"] = (
+                                self.full_config.run.overwrite_existing_results
+                            )
+                            accepted_args = inspect.signature(artifact_spec.saver).parameters
+                            filtered_saver_args = {
+                                k: v for k, v in saver_args.items() if k in accepted_args
+                            }
                             artifact_spec.saver(
-                                save_location / f"{artifact_name}{artifact_spec.extension}",
-                                **(artifact_spec.saver_args or {}),
+                                artifact_value,
+                                save_location.with_suffix(artifact_spec.extension),
+                                **filtered_saver_args,
                             )
                         else:
                             self.logger.warning(
                                 f"No saver specified for artifact '{artifact_name}'. "
                                 "Saving as JSON by default."
                             )
-                            with open(save_location / f"{artifact_name}.json", "w") as f:
+                            save_location.with_suffix(".json")
+                            with open(save_location, "w") as f:
                                 json.dump(artifact_value, f)
 
             elif key == "outputs":
                 output_folder = self.full_config.run.paths.outputs_dir
-                for _, outputs in value.items():
-                    for output_name, output_value in outputs.items():
-                        output_spec = next(
-                            (spec for spec in self.OUTPUTS if spec.name == output_name),
-                            None,
-                        )
-                        if output_spec and output_spec.saver:
-                            output_spec.saver(
-                                output_folder / f"{output_name}{output_spec.extension}",
-                                **(output_spec.saver_args or {}),
-                            )
-                        else:
-                            self.logger.warning(
-                                f"No saver specified for output '{output_name}'. "
-                                "Saving as JSON by default."
-                            )
+                for output_name, output_value in value.items():
+                    output_spec = next(
+                        (spec for spec in self.OUTPUTS if spec.name == output_name),
+                        None,
+                    )
+                    if output_spec and output_spec.saver:
+                        if output_spec.save_file_name:
+                            output_name = output_spec.save_file_name
 
-                            with open(f"{output_name}.json", "w") as f:
-                                json.dump(output_value, f)
+                        saver_args = output_spec.saver_args or {}
+                        saver_args["overwrite"] = (
+                            self.full_config.run.overwrite_existing_results
+                        )
+                        accepted_args = inspect.signature(output_spec.saver).parameters
+                        filtered_saver_args = {
+                            k: v for k, v in saver_args.items() if k in accepted_args
+                        }
+                        output_spec.saver(
+                            output_value,
+                            output_folder / f"{str(output_name)}{output_spec.extension}",
+                            **filtered_saver_args,
+                        )
+                    else:
+                        self.logger.warning(
+                            f"No saver specified for output '{output_name}'. "
+                            "Saving as JSON by default."
+                        )
+                        output_name = (
+                            output_spec.save_file_name
+                            if output_spec and output_spec.save_file_name
+                            else output_name
+                        )
+                        save_location = output_folder / f"{str(output_name)}.json"
+
+                        with open(save_location, "w") as f:
+                            json.dump(make_json_serializable(output_value), f)
+
+    def save_diagnostics(
+        self,
+        scaffold_objects: dict[str, Any],
+    ) -> None:
+        """
+        Save diagnostics to disk. This is implementation-agnostic,
+        and thus will be handled per stage.
+        Diagnostics go into their own stage folders:
+            main_folder/diagnostics/stage_name/diagnostic_name
+        """
+        diagnostics_folder = self.full_config.run.paths.diagnostics_dir
+        diagnostics = scaffold_objects.get("diagnostics", None)
+        if diagnostics:
+            diagnostic_stage_folder = diagnostics_folder / f"{self.STAGE_NAME}_stage"
+            diagnostic_stage_folder.mkdir(parents=True, exist_ok=True)
+            stage_diagnostics = diagnostics.get(f"{self.STAGE_NAME}_stage", {})
+            for diagnostic_name, diagnostic_value in stage_diagnostics.items():
+                save_location = diagnostic_stage_folder / f"{diagnostic_name}.json"
+                # todo: add way to indicate save_with_tries and extension
+                with open(save_location, "w") as f:
+                    json.dump(make_json_serializable(diagnostic_value), f)
+
+    def save_metadata(
+        self,
+        scaffold_objects: dict[str, Any],
+    ) -> None:
+        """
+        Save metadata to disk. This is implementation-agnostic,
+        and thus will be handled per stage.
+        Metadata go into their own stage folders:
+            main_folder/metadata/stage_name/metadata_name
+        """
+        metadata_folder = self.full_config.run.paths.metadata_dir
+        metadata = scaffold_objects.get("metadata", None)
+        if metadata:
+            metadata_stage_folder = metadata_folder / f"{self.STAGE_NAME}_stage"
+            metadata_stage_folder.mkdir(parents=True, exist_ok=True)
+            stage_metadata = metadata.get(f"{self.STAGE_NAME}_stage", {})
+            for metadata_name, metadata_value in stage_metadata.items():
+                save_location = metadata_stage_folder / f"{metadata_name}.json"
+                # todo: add way to indicate save_with_tries and extension
+                with open(save_location, "w") as f:
+                    json.dump(make_json_serializable(metadata_value), f)
 
 
 def validate_config_conflicts(
@@ -478,7 +580,6 @@ def validate_config_conflicts(
 
 
 def resolve_implementation_config_class(
-    full_config: "FullConfig",
     impl_cls: type["BaseImplementation"],
     core_config_cls: type | None = None,
 ) -> type:
@@ -494,7 +595,7 @@ def resolve_implementation_config_class(
 
     validate_config_conflicts(stage_configs)
 
-    return build_flattened_config(stage_configs, full_config=full_config)
+    return build_flattened_config(stage_configs)
 
 
 @dataclass(slots=True)
@@ -502,7 +603,7 @@ class ImplementationConfig:
     pass
 
 
-def build_flattened_config(config_classes: list[type], full_config: "FullConfig") -> type:
+def build_flattened_config(config_classes: list[type]) -> type:
     combined_fields = []
 
     for config_cls in config_classes:
@@ -515,7 +616,7 @@ def build_flattened_config(config_classes: list[type], full_config: "FullConfig"
                 )
             )
     if not combined_fields:
-        raise ValueError("No fields found in the provided config classes.")
+        return ImplementationConfig
 
     # if combined fields includes save_artifacts, set it to None so that user
     # must specifically overwrite it in order for it to be set to True or False

@@ -5,7 +5,7 @@ from VmaxBuilder.stages.protein.diagnostics import ProteinStageDiagnostics
 
 class ProteinStage(BaseStage):
     DIAGNOSTICS = []
-    NECESSARY_OUTPUTS = []
+    OUTPUTS = []
     CORE_CONFIG_CLASS = None
 
     def __init__(self, implementation: BaseImplementation, full_config: FullConfig):

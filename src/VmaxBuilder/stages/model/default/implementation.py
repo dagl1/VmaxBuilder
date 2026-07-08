@@ -93,13 +93,13 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultConfig]):
     ]
     OUTPUTS: list[OutputSpec] = [
         OutputSpec(
-            "irreversible_model",
+            "irreversible_cobra_model",
             data_type=Model,
             scaffold_location="outputs",
             saver_args={
                 "is_cobra_model": True,
             },
-            save_file_name="irreversible_model",
+            save_file_name="irreversible_cobra_model",
             extension=".json",
             validator=None,
         ),
@@ -206,7 +206,7 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultConfig]):
         )(scaffold)
 
         outputs = {
-            "irreversible_model": irreversible_model,
+            "irreversible_cobra_model": irreversible_model,
         }
         artifacts = {
             "rev2irrev": rev2irrev,
