@@ -44,3 +44,14 @@ class SortedSet:
 
     def sort(self, key=None, reverse=False):
         self._sorted_list.sort(key=key, reverse=reverse)
+
+
+def make_json_serializable(obj):
+    if isinstance(obj, SortedSet):
+        return list(obj)
+    elif isinstance(obj, dict):
+        return {key: make_json_serializable(value) for key, value in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [make_json_serializable(value) for value in obj]
+    else:
+        return obj

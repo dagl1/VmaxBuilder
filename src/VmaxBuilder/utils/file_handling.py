@@ -10,7 +10,7 @@ from enum import Enum
 from pathlib import Path
 from pickle import dump as pickle_dump
 from pickle import load as pickle_load
-from typing import Any
+from typing import Any, Iterable
 
 try:
     import tomllib
@@ -254,6 +254,8 @@ def save_cobra_model(
         ValueError: If extension is invalid for COBRA model.
     """
     valid_extensions = [".json", ".xml", ".yml", ".yaml", ".mat"]
+    if not extension.startswith("."):
+        extension = f".{extension}"
     if extension not in valid_extensions and not extension.startswith(
         tuple(valid_extensions)
     ):
@@ -261,6 +263,8 @@ def save_cobra_model(
             f"Extension '{extension}' is not valid for COBRA model. "
             f"Valid extensions are: {valid_extensions}."
         )
+    if extension in filename:
+        filename = Path(filename).stem  # Remove existing extension from filename
     filepath = Path(save_dir) / f"{filename}.{extension.lstrip('.')}"
     filepath_as_str = str(filepath)
     if not overwrite and filepath.exists():
@@ -305,9 +309,9 @@ def save_cobra_model(
 @decorator_provide_time_information_2
 def save_with_tries(  # noqa: C901
     data: Any,
-    filename: str,
-    extension: str | Sequence[str],
-    save_dir: str | Path,
+    filename: str | Path,
+    extension: str | Iterable[str] | None = None,
+    save_dir: str | Path | None = None,
     max_tries: int = 10,
     overwrite: bool = False,
     with_index: bool = False,
@@ -340,6 +344,26 @@ def save_with_tries(  # noqa: C901
         TypeError: If data type is unsupported.
         ValueError: If extension is invalid for data type.
     """
+    if save_dir is None and not isinstance(filename, Path):
+        raise ValueError(
+            "save_dir must be provided when filename is a string. "
+            "If filename is a Path, save_dir can be None."
+        )
+    elif save_dir is None and isinstance(filename, Path) and not extension:
+        save_dir = str(filename.parent)
+        filename = filename.name
+        extension = filename.split(".")[-1]
+    elif save_dir is None and isinstance(filename, Path):
+        save_dir = str(filename.parent)
+        filename = filename.name
+    elif isinstance(filename, Path):
+        raise ValueError("When save_dir is provided, filename must be a string, not a Path.")
+    else:
+        raise ValueError("save_dir must be provided when filename is a string.")
+
+    if isinstance(save_dir, Path):
+        save_dir = str(save_dir)
+
     save_path = Path(save_dir)
     datatype: str | None = None
     filename = filename.replace("/", "_").replace(
@@ -357,6 +381,23 @@ def save_with_tries(  # noqa: C901
     possible_extensions = {
         ext for ext_list in datatype_extension_pairing.values() for ext in ext_list
     }
+    if extension is None:
+        raise ValueError("Extension must be provided when saving data.")
+    elif isinstance(extension, str):
+        extensions = [extension]
+    else:
+        extensions = list(extension)
+
+    original_filename = filename
+    if is_cobra_model:
+        save_cobra_model(
+            cobra_model=data,
+            filename=filename,
+            extension=extensions[0],
+            save_dir=save_path,
+            overwrite=overwrite,
+        )
+        return
     if logger is not None:
         logger.info(
             f"Saving {type(data)} to {filename} in {save_dir} with extension {extension}.",
@@ -388,19 +429,6 @@ def save_with_tries(  # noqa: C901
         datatype = "go_figure"
     if datatype is None:
         raise TypeError(f"Unsupported data type: {type(data)}")
-
-    extensions = [extension] if isinstance(extension, str) else list(extension)
-    original_filename = filename
-
-    if is_cobra_model:
-        save_cobra_model(
-            cobra_model=data,
-            filename=filename,
-            extension=extensions[0],
-            save_dir=save_path,
-            overwrite=overwrite,
-        )
-        return
 
     def _write_to_path(file_path: Path, current_extension: str) -> None:  # noqa: C901
         normalized_extension = (
