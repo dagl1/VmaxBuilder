@@ -69,7 +69,7 @@ class _ParentImplementation(BaseImplementation):
 
 
 class _DummyStage(BaseStage):
-    NECESSARY_OUTPUTS = [OutputSpec(name="required")]
+    OUTPUTS = [OutputSpec(name="required")]
 
 
 @pytest.mark.unit
@@ -124,7 +124,7 @@ def test_base_stage_ensure_outputs_raises_for_missing_output(
 @pytest.mark.unit
 def test_base_stage_ensure_outputs_runs_validator(full_config: FullConfig) -> None:
     class _ValidatedStage(BaseStage):
-        NECESSARY_OUTPUTS = [
+        OUTPUTS = [
             OutputSpec(
                 name="required",
                 validator=lambda value: (value == 10, "must equal 10"),
