@@ -42,7 +42,7 @@ ImplT = TypeVar("ImplT", bound=BaseImplementation[Any])
 class Orchestrator:
     stages = {
         "model": ModelStage,
-        # "protein": ProteinStage,
+        "protein": ProteinStage,
         # "allocation": AllocationStage,
         # add more stages here as needed
         # "stage_name": StageClass,

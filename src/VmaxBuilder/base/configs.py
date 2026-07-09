@@ -264,7 +264,7 @@ class TranscriptProcessingConfig:
 @dataclass(slots=True)
 class FullConfig:
     model: Any
-    # protein: Any
+    protein: Any
     run: RunConfig
     paths: Paths
     transcripts: TranscriptProcessingConfig
