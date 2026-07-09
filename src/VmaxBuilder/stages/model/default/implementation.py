@@ -16,7 +16,7 @@ from VmaxBuilder.stages.model.default.preprocessing import (
     create_irreversible_model,
 )
 from VmaxBuilder.stages.model.model import ModelCoreConfig
-from VmaxBuilder.typing_stubs.model.default.implementation import DefaultConfig
+from VmaxBuilder.typing_stubs.model.default.implementation import DefaultModelConfigProtocol
 from VmaxBuilder.utils.custom_logging import custom_asdict
 from VmaxBuilder.utils.iterables import SortedSet
 
@@ -56,10 +56,10 @@ class TranscriptMetadataServiceProtocol(Protocol):
         """
 
 
-class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultConfig]):
+class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultModelConfigProtocol]):
     BASE_STAGE_CONFIG = ModelCoreConfig
     IMPLEMENTATION_CONFIG_CLASS = ModelConfig
-    _RESOLVED_CONFIG_CLASS = DefaultConfig
+    _RESOLVED_CONFIG_CLASS = DefaultModelConfigProtocol
     STAGE_NAME = "model"
     IMPL_NAME = "dummy_cobra"
     INPUTS: list[InputSpec] = [
@@ -106,7 +106,7 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultConfig]):
         OutputSpec(
             "rev2irrev",
             data_type=dict,
-            scaffold_location="artifacts",
+            scaffold_location="outputs",
             save_file_name="rev2irrev",
             extension=".json",
             validator=None,
