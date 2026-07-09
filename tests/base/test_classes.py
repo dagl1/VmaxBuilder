@@ -18,6 +18,7 @@ from VmaxBuilder.base.configs import (
     OutputSpec,
     RunConfig,
     Scaffold,
+    TranscriptProcessingConfig,
 )
 
 
@@ -28,6 +29,7 @@ def full_config(tmp_path: Path) -> FullConfig:
         model=ImplementationConfig(),
         run=run_config,
         paths=run_config.paths,
+        transcripts=TranscriptProcessingConfig(),
     )
 
 

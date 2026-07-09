@@ -206,9 +206,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
         if not self.child_implementations:
             new_scaffold_objects = self.generate_outputs(scaffold)
             new_scaffold_objects = self.add_stage_to_scaffold(new_scaffold_objects)
-            self.save_artifacts_and_outputs(new_scaffold_objects)
-            self.save_diagnostics(new_scaffold_objects)
-            self.save_metadata(new_scaffold_objects)
+            self.save_all_scaffold_objects(new_scaffold_objects)
             scaffold.update_scaffold(new_scaffold_objects)
         else:
             for child_impl in self.child_implementations:
@@ -390,29 +388,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
 
         return new_scaffold_objects
 
-    def save_artifacts_and_outputs(self, scaffold_objects: dict[str, Any]) -> None:
-        """
-        For each output, use the specified saver to save the output to disk.
-        For each artifact, use the specified saver to save the artifact to disk, if
-        missing a function (not specified,) save it as a json file.
-        This is implementation-agnostic, and thus will be handled per stage.
-        Stages save metadata, and diagnostics, while outputs and artifacts are saved at the
-        end of an implementation run
-        artifacts go into their own stage  folders:
-            main_folder/artifacts/stage_name/artifact_name
-        while outputs go into their own stage folders:
-            main_folder/outputs/output_name without the stage.
-        the scaffold objects at this point look like:
-            {
-                    "artifacts": {stage_name: {artifact_name: artifact_value}},
-                    "outputs": {stage_name: {output_name: output_value}},
-                    "metadata": {stage_name: {metadata_name: metadata_value}},
-                    "diagnostics": {stage_name: {diagnostic_name: diagnostic_value}},
-            }
-        only save artifacts if artifact saving is enabled (in run_config, although we check
-        if the CombinedConfig of the stage has a save_artifacts attribute, and it is not
-        set to none, we then use that value for that specific stage to override it
-        """
+    def save_artifacts(self, scaffold_objects: dict[str, Any]) -> None:
         for key, value in scaffold_objects.items():
             if key == "artifacts" and (
                 getattr(self.config, "save_artifacts", None) is True
@@ -455,7 +431,31 @@ class BaseImplementation(Generic[ConfigType], ABC):
                             with open(save_location, "w") as f:
                                 json.dump(artifact_value, f)
 
-            elif key == "outputs":
+    def save_outputs(self, scaffold_objects: dict[str, Any]) -> None:
+        """
+        For each output, use the specified saver to save the output to disk.
+        For each artifact, use the specified saver to save the artifact to disk, if
+        missing a function (not specified,) save it as a json file.
+        This is implementation-agnostic, and thus will be handled per stage.
+        Stages save metadata, and diagnostics, while outputs and artifacts are saved at the
+        end of an implementation run
+        artifacts go into their own stage  folders:
+            main_folder/artifacts/stage_name/artifact_name
+        while outputs go into their own stage folders:
+            main_folder/outputs/output_name without the stage.
+        the scaffold objects at this point look like:
+            {
+                    "artifacts": {stage_name: {artifact_name: artifact_value}},
+                    "outputs": {stage_name: {output_name: output_value}},
+                    "metadata": {stage_name: {metadata_name: metadata_value}},
+                    "diagnostics": {stage_name: {diagnostic_name: diagnostic_value}},
+            }
+        only save artifacts if artifact saving is enabled (in run_config, although we check
+        if the CombinedConfig of the stage has a save_artifacts attribute, and it is not
+        set to none, we then use that value for that specific stage to override it
+        """
+        for key, value in scaffold_objects.items():
+            if key == "outputs":
                 output_folder = self.full_config.run.paths.outputs_dir
                 for output_name, output_value in value.items():
                     output_spec = next(
@@ -537,6 +537,16 @@ class BaseImplementation(Generic[ConfigType], ABC):
                 # todo: add way to indicate save_with_tries and extension
                 with open(save_location, "w") as f:
                     json.dump(make_json_serializable(metadata_value), f)
+
+    def save_all_scaffold_objects(self, scaffold_objects: dict[str, Any]) -> None:
+        """
+        Save all scaffold objects (artifacts, outputs, diagnostics, metadata) to disk.
+        This is implementation-agnostic, and thus will be handled per stage.
+        """
+        self.save_artifacts(scaffold_objects)
+        self.save_outputs(scaffold_objects)
+        self.save_diagnostics(scaffold_objects)
+        self.save_metadata(scaffold_objects)
 
 
 def validate_config_conflicts(
