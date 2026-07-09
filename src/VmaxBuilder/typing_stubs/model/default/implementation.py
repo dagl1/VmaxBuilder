@@ -3,7 +3,7 @@ from typing import Protocol
 from VmaxBuilder.base.enums import ReactionNotation
 
 
-class DefaultConfig(Protocol):
+class DefaultModelConfigProtocol(Protocol):
     reaction_notation: ReactionNotation
     make_copy: bool
     id_type: str
