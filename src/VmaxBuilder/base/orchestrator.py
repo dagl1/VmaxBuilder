@@ -17,10 +17,14 @@ from VmaxBuilder.base.configs import (
     StageLoadingInfo,
     TranscriptProcessingConfig,
 )
+from VmaxBuilder.expression.trimming_implementations import MValueTrimmingImplementation
 from VmaxBuilder.stages.model.default.implementation import (
     DefaultIrreversibleModelImplementation,
 )
 from VmaxBuilder.stages.model.model import ModelStage
+from VmaxBuilder.stages.protein.MvalueTrimmingExpressionPTR.implementation import (
+    MvalueTrimmingExpressionPTRImplementation,
+)
 from VmaxBuilder.stages.protein.protein import ProteinStage
 from VmaxBuilder.utils.custom_logging import CustomLogger, custom_asdict
 
@@ -82,8 +86,18 @@ class Orchestrator:
 
         return implementation
 
-    def get_protein_implementation(self, implementation_cls: type[ImplT]) -> ImplT:
+    def set_protein_implementation(self, implementation_cls: type[ImplT]) -> ImplT:
         implementation = implementation_cls(full_config=self.config)
+        # todo: make sure that stage is correct and we cant use
+        # incorrect stage implementation for protein stage
+        self._protein = implementation
+        self.config.protein = implementation.config
+        self.protein_stage = self.stages["protein"](
+            implementation=implementation, full_config=self.config
+        )
+        self._discover_user_submitted_paths(stage_name="protein")
+        self.scaffold.discovered_inputs = self.discovered_inputs
+
         return implementation
 
     def run(self):
@@ -317,7 +331,7 @@ class Orchestrator:
     def _build_default_config(self, run_config: RunConfig) -> FullConfig:
         return FullConfig(
             model=ImplementationConfig(),
-            # protein=ImplementationConfig,
+            protein=ImplementationConfig,
             run=run_config,
             paths=run_config.paths,
             transcripts=TranscriptProcessingConfig(),
@@ -532,6 +546,9 @@ if __name__ == "__main__":
 
     orchestrator = Orchestrator(stage_loading_info, run_config)
     model = orchestrator.set_model_implementation(DefaultIrreversibleModelImplementation)
+    protein = orchestrator.set_protein_implementation(
+        MvalueTrimmingExpressionPTRImplementation
+    )
     # # model.config.maximum_transcript_ifp_expansion_2 = 800
     # orchestrator.config.model.maximum_transcript_ifp_expansion = 800
     #

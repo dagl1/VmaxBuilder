@@ -259,6 +259,7 @@ class TranscriptProcessingConfig:
     id_translation_species: str | None = None
     id_translation_max_workers: int = 8
     id_translation_batch_size: int = 500
+    aggregation_strategy: Literal["sum", "mean", "median"] = "sum"
 
 
 @dataclass(slots=True)
