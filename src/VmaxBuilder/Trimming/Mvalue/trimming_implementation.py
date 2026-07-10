@@ -1,17 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Any, Protocol, cast
+from typing import Any, cast
 
 import pandas as pd
+from cobra import Model
 
 from VmaxBuilder.base.classes import BaseImplementation
-from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec
-from VmaxBuilder.core.protocols import Scaffold
-from VmaxBuilder.database_retrieval.identifier_translation import (
-    IdentifierTranslationResult,
-    IdentifierTranslationService,
-)
+from VmaxBuilder.base.configs import InputSpec, OutputSpec, Scaffold
+from VmaxBuilder.stages.protein.protein import ProteinStageConfig
 from VmaxBuilder.Trimming.Mvalue.trimming_config import MValueTrimmingConfig
 from VmaxBuilder.utils.iterables import SortedSet
 
@@ -27,6 +23,10 @@ class MValueTrimmingImplementation(BaseImplementation[MValueTrimmingConfig]):
             Optional identifier translation service override.
     """
 
+    BASE_STAGE_CONFIG = ProteinStageConfig
+    STAGE_NAME = "protein"
+    IMPL_NAME = "expression_ptr"
+
     INPUTS: list[InputSpec] = [
         InputSpec(
             name="processed_expression_df",
@@ -41,6 +41,20 @@ class MValueTrimmingImplementation(BaseImplementation[MValueTrimmingConfig]):
             save_file_name="trimmable_genes",
             extension=".json",
         ),
+        OutputSpec(
+            name="non_trimmable_genes",
+            data_type=set,
+            scaffold_location="artifacts",
+            save_file_name="non_trimmable_genes",
+            extension=".json",
+        ),
+        OutputSpec(
+            name="gene_stats",
+            data_type=dict,
+            scaffold_location="artifacts",
+            save_file_name="gene_stats",
+            extension=".json",
+        ),
     ]
 
     def generate_outputs(
@@ -50,28 +64,38 @@ class MValueTrimmingImplementation(BaseImplementation[MValueTrimmingConfig]):
         processed_expression_df: pd.DataFrame = cast(
             pd.DataFrame, scaffold.get_scaffold_value("processed_expression_df")
         )
+
         sample_groups = cast(
             dict[str, list[str]] | None, scaffold.get_scaffold_value("sample_groups")
         )
 
-        trimmable_genes, diagnostics = self._get_trimmable_genes(
-            processed_expression_df,
-            sample_groups=sample_groups,
+        elapsed_time, (trimmable_genes, non_trimmable_genes, gene_stats) = (
+            self.get_time_decorator(self._get_trimmable_genes)(
+                processed_expression_df,
+                sample_groups=sample_groups,
+            )
         )
+
+        diagnostics = self.create_diagnostics(trimmable_genes, non_trimmable_genes)
+        metadata = self.create_metadata(elapsed_time)
+
         return {
             "outputs": {
                 "trimmable_genes": trimmable_genes,
             },
-            "artifacts": {},
+            "artifacts": {
+                "non_trimmable_genes": non_trimmable_genes,
+                "gene_stats": gene_stats,
+            },
             "diagnostics": diagnostics,
-            "metadata": {},
+            "metadata": metadata,
         }
 
     def _get_trimmable_genes(
         self,
         expression_df: pd.DataFrame,
         sample_groups: dict[str, list[str]] | None = None,
-    ) -> tuple[set[str], dict[str, Any]]:
+    ) -> tuple[SortedSet[str], SortedSet[str], dict[str, dict[str, float]]]:
         """
 
         Description:
@@ -80,7 +104,6 @@ class MValueTrimmingImplementation(BaseImplementation[MValueTrimmingConfig]):
         Args:
             scaffold (Scaffold): Shared pipeline scaffold.
             expression_df (pd.DataFrame): Gene-level expression table.
-            config (FullConfig): Root API configuration.
 
         Requires:
             config.trimming.trim_correction_addition: float = 2
@@ -97,51 +120,90 @@ class MValueTrimmingImplementation(BaseImplementation[MValueTrimmingConfig]):
         # add trim_correction_addition to all values
         # if sample_groups is provided, separate expression_df into groups and assess
         # trimmability per group else, assess trimmability per gene
+        trimmable_genes = SortedSet()
+        gene_stats = {}
         if sample_groups:
-            trimmable_genes = set()
             for _group_name, samples in sample_groups.items():
                 group_df = expression_df[samples]
-                group_trimmable_genes = self._assess_trimmability(group_df)
+                group_trimmable_genes, _, _gene_stats = self._assess_trimmability(group_df)
+                gene_stats.update(_gene_stats)
                 trimmable_genes.update(group_trimmable_genes)
+            non_trimmable_genes = SortedSet(expression_df.index) - trimmable_genes
         else:
-            trimmable_genes = self._assess_trimmability(expression_df)
+            trimmable_genes, non_trimmable_genes, _gene_stats = self._assess_trimmability(
+                expression_df
+            )
+            gene_stats.update(_gene_stats)
 
-        diagnostics_payload = {
-            "gene_trimming": {
-                "trimming_enabled": True,
-                "initial_trimmable_gene_count": len(trimmable_genes),
-            }
-        }
-        return trimmable_genes, diagnostics_payload
+        return trimmable_genes, non_trimmable_genes, gene_stats
 
-    def _assess_trimmability(self, expression_df: pd.DataFrame) -> SortedSet[str]:
+    def _assess_trimmability(
+        self,
+        expression_df: pd.DataFrame,
+    ) -> tuple[SortedSet[str], SortedSet[str], dict[str, dict[str, float]]]:
         """Assess trimmability of genes based on expression data and config.
 
         Args:
             expression_df (pd.DataFrame): Gene-level expression table.
-            config (FullConfig): Root API configuration.
         """
-        # add trim_correction_addition to all values
+
+        # for typing to work, we explicitly define the types of the config values
+        trim_addition_value: float = (
+            self.full_config.protein.trimming.trim_correction_addition
+        )
+        trim_percentiles: tuple[float, float] = self.full_config.protein.trim_percentiles
+        trim_threshold: float = self.full_config.protein.trimming.trim_threshold
 
         expression_df = expression_df.copy()
-        expression_df = expression_df + self.full_config.protein.trim_correction_addition
+        expression_df = expression_df + trim_addition_value
 
         # calculate percentiles for each gene
-        lower_percentile = expression_df.quantile(
-            self.full_config.protein.Mvalue.trim_percentiles[0] / 100, axis=1
-        )
-        upper_percentile = expression_df.quantile(
-            self.full_config.protein.trimming.trim_percentiles[1] / 100, axis=1
-        )
+        lower_percentile = expression_df.quantile(trim_percentiles[0] / 100, axis=1)
+        upper_percentile = expression_df.quantile(trim_percentiles[1] / 100, axis=1)
 
         # calculate the difference between upper and lower percentiles
         percentile_diff = upper_percentile - lower_percentile
 
         # identify genes where the difference is below the threshold
-        trimmable_genes = set(
-            percentile_diff[
-                percentile_diff < self.full_config.protein.trimming.trim_threshold
-            ].index
-        )
+        trimmable_genes = set(percentile_diff[percentile_diff < trim_threshold].index)
+        non_trimmable_genes = set(percentile_diff[percentile_diff >= trim_threshold].index)
 
-        return trimmable_genes
+        gene_stats = {}
+        for gene in trimmable_genes.union(non_trimmable_genes):
+            gene_stats[gene] = {
+                "M_value": expression_df.loc[gene].mean(),
+                "percentile_diff": percentile_diff.loc[gene],
+                "mean_expression": expression_df.loc[gene].mean(),
+                "median_expression": expression_df.loc[gene].median(),
+                "std_expression": expression_df.loc[gene].std(),
+                "sem_expression": expression_df.loc[gene].sem(),
+                "25q_expression": expression_df.loc[gene].quantile(0.25),
+                "75q_expression": expression_df.loc[gene].quantile(0.75),
+            }
+
+        return trimmable_genes, non_trimmable_genes, gene_stats
+
+    def create_metadata(self, elapsed_time: float) -> dict[str, Any]:
+        metadata = {
+            "gene_trimming": {
+                "implementation": type(self).__name__,
+                "elapsed_time_seconds": elapsed_time,
+                "status": "Trimmable genes assessed",
+                "date_created": pd.Timestamp.now().isoformat(),
+                "params": self.get_implementation_config_params(),
+            }
+        }
+        return metadata
+
+    def create_diagnostics(
+        self,
+        trimmable_genes: SortedSet[str],
+        non_trimmable_genes: SortedSet[str],
+    ) -> dict[str, Any]:
+        diagnostics = {
+            "gene_trimming": {
+                "trimmable_gene_count": len(trimmable_genes),
+                "total_gene_count": len(trimmable_genes) + len(non_trimmable_genes),
+            }
+        }
+        return diagnostics
