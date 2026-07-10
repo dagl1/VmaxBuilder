@@ -1,7 +1,7 @@
 from typing import Any
 
 
-class SortedSet:
+class SortedSet(set):
     def __init__(self, iterable=None):
         self._set = set()
         if iterable is not None:

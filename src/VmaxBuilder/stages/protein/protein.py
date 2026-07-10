@@ -11,10 +11,11 @@ class ProteinStageConfig:
 
 
 class ProteinStage(BaseStage):
+    STAGE_NAME = "protein"
     DIAGNOSTICS = []
     OUTPUTS = []
     CORE_CONFIG_CLASS = ProteinStageConfig
-    ADDITIONAL_IMPLEMENTATIONS = ["TRIMMING"]
+    ADDITIONAL_IMPLEMENTATIONS = []
 
     def __init__(self, implementation: BaseImplementation, full_config: FullConfig):
         super().__init__(implementation, full_config)
