@@ -4,7 +4,12 @@ from VmaxBuilder.stages.protein.expression.implementation import (
     DefaultExpressionImplementation,
 )
 from VmaxBuilder.stages.protein.protein import ProteinStageConfig
-from VmaxBuilder.stages.protein.ptr.implementation import SimplePTRImputationImplementation
+from VmaxBuilder.stages.protein.ptr.imputation_implementation import (
+    SimplePTRImputationImplementation,
+)
+from VmaxBuilder.stages.protein.ptr.multiplication_implementation import (
+    SimplePTRMultiplicationImplementation,
+)
 from VmaxBuilder.typing_stubs.protein.expressionPTR.implementation import (
     ExpressionPTRConfigProtocol,
 )
@@ -17,6 +22,7 @@ class ExpressionPTRImplementation(BaseImplementation[ExpressionPTRConfigProtocol
     CHILD_IMPLEMENTATIONS: list[type[BaseImplementation]] = [
         DefaultExpressionImplementation,
         SimplePTRImputationImplementation,
+        SimplePTRMultiplicationImplementation,
     ]
 
     OUTPUTS: list[OutputSpec] = []

@@ -181,7 +181,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
         )()
 
     @abstractmethod
-    def generate_outputs(self, scaffold: "Scaffold") -> dict[str, Any]:
+    def generate_outputs(self, scaffold: "Scaffold") -> dict[str, dict[str, Any]]:
         """
         Generate outputs based on the scaffold and return them as a dictionary.
         The keys of the dictionary should match the names of the outputs defined in OUTPUTS.

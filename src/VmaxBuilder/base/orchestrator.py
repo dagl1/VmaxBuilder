@@ -17,7 +17,6 @@ from VmaxBuilder.base.configs import (
     StageLoadingInfo,
     TranscriptProcessingConfig,
 )
-from VmaxBuilder.expression.trimming_implementations import MValueTrimmingImplementation
 from VmaxBuilder.stages.model.default.implementation import (
     DefaultIrreversibleModelImplementation,
 )
