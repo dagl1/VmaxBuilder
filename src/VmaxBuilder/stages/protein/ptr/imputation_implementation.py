@@ -8,11 +8,13 @@ from pandas import DataFrame
 
 from VmaxBuilder.base.classes import BaseImplementation
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
+from VmaxBuilder.typing_stubs.protein.expressionPTR.implementation import (
+    ExpressionPTRConfigProtocol,
+)
 from VmaxBuilder.utils.extra_utils import (
     get_transport_reaction_gene_ids,
     resolve_gene_or_reaction_group_members,
 )
-from VmaxBuilder.utils.file_handling import load_existing_file_based_on_extension
 from VmaxBuilder.utils.transformations import transform_dataframe
 
 _NA_TOKENS: frozenset[str] = frozenset(
@@ -81,7 +83,7 @@ _PRETRANSFORM_ALIASES: dict[str, str] = {
 }
 
 
-class SimplePTRImputationImplementation(BaseImplementation):
+class SimplePTRImputationImplementation(BaseImplementation[ExpressionPTRConfigProtocol]):
     STAGE_NAME = "protein"
     IMPL_NAME = "simple_ptr_imputation"
     CHILD_IMPLEMENTATIONS = []
@@ -1077,18 +1079,22 @@ class SimplePTRImputationImplementation(BaseImplementation):
 
         return protein_df
 
-    def create_metadata(self, elapsed_time: float) -> dict[str, Any]:
+    def create_metadata(
+        self,
+        elapsed_time: float,
+    ) -> dict[str, Any]:
         """Generated: validation needed.
 
         Description:
-            Create PTR metadata dictionary for inter-stage artifact persistence.
+            Create metadata dictionary for the expression stage.
 
         Args:
-            elapsed_time (float): Time taken to prepare PTR frame.
+            elapsed_time (float): Time taken for processing.
 
         Returns:
-            dict[str, Any]: Metadata dictionary.
+            dict[str, object]: Metadata dictionary.
         """
+
         metadata = {
             "PTR_imputation": {
                 "implementation": self.__class__.__name__,

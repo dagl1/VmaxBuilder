@@ -65,7 +65,9 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
         if cobra_model is None:
             raise ValueError("No COBRA model found in scaffold for GPR processing.")
         gpr_rules = get_unique_gpr_rules(cobra_model)
-        ifp_mapping = self._convert_gene_gpr_rules_to_ifp(gpr_rules)
+        (elapsed_time, ifp_mapping) = self.get_time_decorator(
+            self._convert_gene_gpr_rules_to_ifp
+        )(gpr_rules)
         artifacts_payload = {}
         metadata_payload = {}
         diagnostics_payload = {}
@@ -82,20 +84,10 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
             )
         artifacts_IFP_payload = self._assign_ifps_to_reactions(cobra_model, ifp_mapping)
         artifact_payload = {**artifacts_payload, **artifacts_IFP_payload}
-        metadata_payload = {
-            **metadata_payload,
-            "gpr": {
-                "implementation": type(self).__name__,
-                "status": "implemented_gene_rule_simplifier",
-                "cache_info": self.get_simplification_cache_info(),
-                "params": self.get_implementation_config_params(),
-            },
-        }
+        metadata_payload = self.create_metadata(
+            elapsed_time=elapsed_time, additional_metadata=metadata_payload
+        )
         self.logger.debug(f"Generated IFP mapping for {len(ifp_mapping)} GPR rules.")
-        # self.logger.debug(
-        #     f"showing: first 6 {list(ifp_mapping.items())[:5]} and last 5:"
-        #     f" {list(ifp_mapping.items())[-5:]}"
-        # )
 
         return {
             "outputs": {"ifp_mapping": ifp_mapping},
@@ -103,6 +95,25 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
             "metadata": metadata_payload,
             "diagnostics": diagnostics_payload,
         }
+
+    def create_metadata(
+        self,
+        elapsed_time: float | None = None,
+        **kwargs,
+    ) -> dict[str, Any]:
+        metadata_payload = kwargs.get("additional_metadata", {})
+
+        metadata_payload = {
+            **metadata_payload,
+            "gpr": {
+                "implementation": type(self).__name__,
+                "elapsed_time_seconds": elapsed_time,
+                "status": "implemented_gene_rule_simplifier",
+                "cache_info": self.get_simplification_cache_info(),
+                "params": self.get_implementation_config_params(),
+            },
+        }
+        return metadata_payload
 
     def _assign_ifps_to_reactions(
         self,

@@ -1,3 +1,9 @@
+from __future__ import annotations
+
+from typing import Any
+
+import pandas as pd
+
 from VmaxBuilder.base.classes import BaseImplementation
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.stages.protein.expression.implementation import (
@@ -33,3 +39,15 @@ class ExpressionPTRImplementation(BaseImplementation[ExpressionPTRConfigProtocol
 
     def generate_outputs(self, scaffold):
         return {}
+
+    def create_metadata(self, elapsed_time: float) -> dict[str, Any]:
+        metadata = {
+            "Expression_PTR": {
+                "implementation": type(self).__name__,
+                "elapsed_time_seconds": elapsed_time,
+                "status": "Expression and PTR processed",
+                "date_created": pd.Timestamp.now().isoformat(),
+                "params": self.get_implementation_config_params(),
+            }
+        }
+        return metadata

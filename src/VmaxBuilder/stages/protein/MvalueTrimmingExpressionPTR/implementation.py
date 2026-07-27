@@ -1,10 +1,16 @@
+from typing import Any
+
+import pandas as pd
+
 from VmaxBuilder.base.classes import BaseImplementation
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.stages.protein.expressionPTR.implementation import (
     ExpressionPTRImplementation,
 )
 from VmaxBuilder.stages.protein.protein import ProteinStageConfig
-from VmaxBuilder.stages.protein.ptr.implementation import SimplePTRImputationImplementation
+from VmaxBuilder.Trimming.Mvalue.trimming_implementation import (
+    MValueTrimmingImplementation,
+)
 from VmaxBuilder.typing_stubs.protein.MvalueTrimmingExpressionPTR.implementation import (
     MvalueTrimmingExpressionPTRConfigProtocol,
 )
@@ -16,7 +22,10 @@ class MvalueTrimmingExpressionPTRImplementation(
     BASE_STAGE_CONFIG = ProteinStageConfig
     STAGE_NAME = "protein"
     IMPL_NAME = "expression_ptr"
-    CHILD_IMPLEMENTATIONS: list[type[BaseImplementation]] = [ExpressionPTRImplementation]
+    CHILD_IMPLEMENTATIONS: list[type[BaseImplementation]] = [
+        ExpressionPTRImplementation,
+        MValueTrimmingImplementation,
+    ]
 
     OUTPUTS: list[OutputSpec] = []
     DIAGNOSTICS = []
@@ -26,3 +35,15 @@ class MvalueTrimmingExpressionPTRImplementation(
 
     def generate_outputs(self, scaffold):
         return {}
+
+    def create_metadata(self, elapsed_time: float) -> dict[str, Any]:
+        metadata = {
+            "Trimming_assessment": {
+                "implementation": type(self).__name__,
+                "elapsed_time_seconds": elapsed_time,
+                "status": "Trimmable genes assessed",
+                "date_created": pd.Timestamp.now().isoformat(),
+                "params": self.get_implementation_config_params(),
+            }
+        }
+        return metadata

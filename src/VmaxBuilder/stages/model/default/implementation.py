@@ -120,7 +120,7 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultModelConf
             IdentifierTranslationService()
         )
 
-    def create_model_implementation_metadata(
+    def create_metadata(
         self,
         elapsed_time: float,
     ) -> dict[str, Any]:
@@ -212,7 +212,7 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultModelConf
             "rev2irrev": rev2irrev,
         }
         diagnostics = self.create_model_base_diagnostics(irreversible_model)
-        metadata = self.create_model_implementation_metadata(model_elapsed_time)
+        metadata = self.create_metadata(model_elapsed_time)
 
         if self.full_config.run.run_target_transcript_gene_level.lower() == "transcript":
             # todo: add ability to use already existing gene_transcript_mapping if

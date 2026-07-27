@@ -192,10 +192,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
         ...
 
     @abstractmethod
-    def create_metadata(
-        self,
-        elapsed_time: float,
-    ) -> dict[str, Any]: ...
+    def create_metadata(self, elapsed_time: float, **kwargs) -> dict[str, Any]: ...
 
     def run(self, scaffold: "Scaffold") -> "Scaffold":
         """Generated: validation needed.
