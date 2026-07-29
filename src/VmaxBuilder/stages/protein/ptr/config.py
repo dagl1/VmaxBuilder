@@ -38,7 +38,7 @@ class PTRInputConfig:
             imputation to genes found in the metabolic model.
     """
 
-    id_type: str = "ensembl"
+    PTR_protein_id_type: str = "ensembl"
     level: str = "gene"
     pretransformed_type: str = "linear"
     partial_missing_use_weighted: bool = True

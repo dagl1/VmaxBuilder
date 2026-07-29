@@ -26,11 +26,13 @@ class MValueTrimmingImplementation(BaseImplementation[MValueTrimmingConfig]):
     BASE_STAGE_CONFIG = ProteinStageConfig
     STAGE_NAME = "protein"
     IMPL_NAME = "expression_ptr"
+    IMPLEMENTATION_CONFIG_CLASS = MValueTrimmingConfig
 
     INPUTS: list[InputSpec] = [
         InputSpec(
             name="processed_expression_df",
             data_type=pd.DataFrame,
+            in_scaffold=True,
         ),
     ]
     OUTPUTS: list[OutputSpec] = [

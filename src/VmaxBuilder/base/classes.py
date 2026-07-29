@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, fields, is_dataclass, make_dataclass
 from datetime import datetime
 from inspect import getmembers, isfunction
-from pprint import pprint
+from pprint import pformat, pprint
 from typing import TYPE_CHECKING, Any, Generic, Iterator, ParamSpec, TypeVar
 
 from VmaxBuilder.utils.iterables import make_json_serializable
@@ -26,6 +26,8 @@ ConfigType = TypeVar("ConfigType")
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+fallback_logger = CustomLogger("Fallback logger: BaseStage & BaseImplementation")
 
 
 class BaseStage:
@@ -75,6 +77,8 @@ class BaseStage:
         scaffold = self.run_additional_processes(scaffold)
 
         # Run diagnostics after the stage execution
+        # todo: debug here or somewhat earlier, appears that scaffold is modified
+        # by run additional processes, irreversible_cobra_model disappears
         for diagnostic in self.DIAGNOSTICS:
             diagnostic.after_run(scaffold)
 
@@ -177,7 +181,9 @@ class BaseImplementation(Generic[ConfigType], ABC):
         self.logger = CustomLogger(f"Fallback logger: {self.IMPL_NAME}")
         self.full_config = full_config
         self.config: ConfigType = resolve_implementation_config_class(
-            self.__class__, self.BASE_STAGE_CONFIG
+            self,
+            self.BASE_STAGE_CONFIG,
+            # child_implementations=self.child_implementations,
         )()
 
     @abstractmethod
@@ -232,7 +238,10 @@ class BaseImplementation(Generic[ConfigType], ABC):
             ValueError: Raised when required input cannot be loaded.
         """
         for input_spec in self.INPUTS:
-            if scaffold.get_scaffold_location(input_spec.name):
+            if input_spec.in_scaffold:
+                # If the input is already present in the scaffold, skip loading
+                continue
+            elif scaffold.get_scaffold_location(input_spec.name):
                 # If the input is already present in the scaffold, skip loading
                 continue
             elif (
@@ -252,7 +261,28 @@ class BaseImplementation(Generic[ConfigType], ABC):
                 loaded_input = input_spec.loader(file_path, **filtered_loader_args)
                 scaffold.inputs[input_spec.name] = loaded_input
             elif not input_spec.optional:
-                raise ValueError(f"Cannot load input '{input_spec.name}': ")
+                class_name = self.__class__.__name__
+                stage_name = self.STAGE_NAME
+
+                logger_message = (
+                    f"Full input specification: \n{pformat(input_spec)}.\n\n"
+                    f"Full discovered inputs: \n{pformat(scaffold.discovered_inputs)}.\n"
+                )
+                self.logger.error(logger_message)
+                implementation_file = inspect.getfile(self.__class__)
+                implemenation_class_line_number = inspect.getsourcelines(self.__class__)[1]
+
+                file_location = (
+                    f'File "{implementation_file}:{implemenation_class_line_number}"'
+                )
+
+                error_message = (
+                    f"Required input '{input_spec.name}' is missing for stage '{stage_name}' "
+                    f"implemented by '{class_name}'\n {file_location} . \n"
+                    "Please ensure that the input is provided in the scaffold or "
+                    "that a fallback provider is available to supply the input.\n"
+                )
+                raise ValueError(error_message)
             else:
                 continue
 
@@ -330,7 +360,10 @@ class BaseImplementation(Generic[ConfigType], ABC):
         return (scaffold, {"is_valid": is_valid, "return_message": return_message})
 
     def validate_inputs(
-        self, scaffold: "Scaffold", location="inputs"
+        self,
+        already_validated_inputs: dict[str, "InputSpec"],
+        scaffold: "Scaffold",
+        location="inputs",
     ) -> tuple["Scaffold", list[dict[str, str | bool]]]:
         """
         Validate the inputs in the scaffold against the INPUTS specification. This should
@@ -338,6 +371,9 @@ class BaseImplementation(Generic[ConfigType], ABC):
         """
         validation_results: list[dict[str, str | bool]] = []
         for input_spec in self.INPUTS:
+            if input_spec.name in already_validated_inputs:
+                continue
+
             (scaffold, validation_result) = self.validate_input(
                 scaffold=scaffold, input_spec=input_spec, location=location
             )
@@ -346,12 +382,15 @@ class BaseImplementation(Generic[ConfigType], ABC):
 
             validation_results.append(
                 {
+                    "stage_name": self.STAGE_NAME,
+                    "implementation_name": self.IMPL_NAME,
                     "input_name": input_spec.name,
                     "is_valid": validation_result["is_valid"],
                     "return_message": validation_result["return_message"],
                     "call_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 }
             )
+            already_validated_inputs[input_spec.name] = input_spec
 
         return (scaffold, validation_results)
 
@@ -576,6 +615,14 @@ def validate_config_conflicts(
                         f"{previous['config']} and {config_cls},"
                         "but one of them is not a class."
                     )
+                if previous["config"] == config_cls:
+                    fallback_logger.debug(
+                        f"Duplicate config key '{_field.name}'"
+                        "found in the same config class "
+                        f"{config_cls.__name__} in {source_file}:{line_number}. "
+                        "This is allowed as they are identical."
+                    )
+                    continue
 
                 raise ImplementationConfigConflictError(
                     key=_field.name,
@@ -593,14 +640,22 @@ def validate_config_conflicts(
 
 
 def resolve_implementation_config_class(
-    impl_cls: type["BaseImplementation"],
+    implementation: "BaseImplementation",
     core_config_cls: type | None = None,
+    # child_implementations: list["BaseImplementation"],
 ) -> type:
     stage_configs = []
 
-    for impl in _iter_implementations(impl_cls):
+    fallback_logger.debug(
+        f"Resolving config for implementation: {implementation.__class__.__name__}"
+    )
+    for impl in _iter_implementations(implementation):
         config_cls = getattr(impl, "IMPLEMENTATION_CONFIG_CLASS", None)
         if config_cls is not None:
+            fallback_logger.debug(
+                f"Found config class: {config_cls.__name__}"
+                f"for implementation: {impl.__class__.__name__}"
+            )
             stage_configs.append(config_cls)
 
     if core_config_cls is not None:
@@ -619,7 +674,15 @@ class ImplementationConfig:
 def build_flattened_config(config_classes: list[type]) -> type:
     combined_fields = []
 
+    already_seen_configs = set()
+
     for config_cls in config_classes:
+        # We have already validated that there are no conflicts with duplicate
+        # fields, with the exception of identical config classes.
+        if config_cls in already_seen_configs:
+            continue
+        already_seen_configs.add(config_cls)
+
         for _field in fields(config_cls):
             combined_fields.append(
                 (
@@ -628,6 +691,7 @@ def build_flattened_config(config_classes: list[type]) -> type:
                     _field,
                 )
             )
+
     if not combined_fields:
         return ImplementationConfig
 

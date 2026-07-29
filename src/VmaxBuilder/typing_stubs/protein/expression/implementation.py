@@ -2,8 +2,8 @@ from typing import Protocol
 
 
 class ExpressionConfigProtocol(Protocol):
-    id_type: str | None = "ensembl"
-    level: str = "gene"
+    expression_gene_id_type: str | None = "ensembl"
+    expression_level: str = "gene"
     sample_type_map: dict[str, str] | str | None = None
     transformation_state: str = "log"
     data_type: str = "TPM"

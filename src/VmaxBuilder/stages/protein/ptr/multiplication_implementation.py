@@ -7,21 +7,19 @@ import pandas as pd
 from VmaxBuilder.base.classes import BaseImplementation
 from VmaxBuilder.base.configs import InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.stages.protein.protein import ProteinStageConfig
-from VmaxBuilder.stages.protein.ptr.imputation_implementation import (
-    SimplePTRImputationImplementation,
-)
+from VmaxBuilder.stages.protein.ptr.config import PTRInputConfig
 from VmaxBuilder.typing_stubs.protein.expressionPTR.implementation import (
     ExpressionPTRConfigProtocol,
 )
 
 
-class SimplePTRMultiplicationImplementation(BaseImplementation[ExpressionPTRConfigProtocol]):
+class SimplePTRMultiplicationImplementation(BaseImplementation[PTRInputConfig]):
     BASE_STAGE_CONFIG = ProteinStageConfig
     STAGE_NAME = "protein"
     IMPL_NAME = "simple_ptr_imputation"
-    CHILD_IMPLEMENTATIONS: list[type[BaseImplementation]] = [
-        SimplePTRImputationImplementation,
-    ]
+
+    IMPLEMENTATION_CONFIG_CLASS = PTRInputConfig
+    CHILD_IMPLEMENTATIONS: list[type[BaseImplementation]] = []
 
     OUTPUTS: list[OutputSpec] = []
     DIAGNOSTICS = []

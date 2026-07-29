@@ -271,7 +271,7 @@ class FullConfig:
     transcripts: TranscriptProcessingConfig
 
 
-@dataclass(frozen=True)
+@dataclass
 class InputSpec:
     """
     Scaffold is checked first, then files are checked if not found in scaffold.
@@ -282,6 +282,7 @@ class InputSpec:
     name: str
     data_type: type | None = None
     optional: bool = False
+    in_scaffold: bool = False  # if True, input is expected to be in scaffold
     loader: Callable | None = load_existing_file_based_on_extension  # file → object loader
     loader_args: dict[str, Any] | None = None  # additional args for loader
     file_path: str | None = None  # file key for loading from files
@@ -380,11 +381,23 @@ class Scaffold:
         Updates the scaffold with the given key-value pair in the specified section.
         If the section does not exist, it will be created.
         """
-        for key, value in new_scaffold_objects.items():
-            location = self.get_scaffold_location(key)  # Ensure the scaffold location exists
-            if location is None:
-                self.outputs[key] = value  # Add new output if location doesn't exist
-            else:
-                getattr(self, location)[key] = (
-                    value  # Update existing output if location exists
-                )
+        for location, subvalues in new_scaffold_objects.items():
+            for key, value in subvalues.items():
+                _scaffold_location = self.get_scaffold_location(
+                    key
+                )  # Ensure the scaffold location exists
+
+                # todo: debug
+                # recursively update such that we don't overwrite the existing values
+                # and can add to any thing that already exists, such as
+                # modelstage : {model: {model_summary: values}}
+                # and we don't accidentally overwrite some weird thigns with how we treat
+                # outputs now. Issue is related to irrev model disappearing (and likely other
+                # outputs too)
+
+                if location is None:
+                    self.outputs[key] = value  # Add new output if location doesn't exist
+                else:
+                    getattr(self, location)[key] = (
+                        value  # Update existing output if location exists
+                    )

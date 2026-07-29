@@ -154,6 +154,13 @@ class CustomLogger:
     LOW_DETAIL_LEVEL = 23
     FINISHED_LEVEL = 22
     STARTING_LEVEL = 21
+    CRITICAL = 50
+    ERROR = 40
+    WARNING = 30
+    WARN = WARNING
+    INFO = 20
+    DEBUG = 10
+    NOTSET = 0
 
     def __init__(
         self,
@@ -318,7 +325,7 @@ class CustomLogger:
         return filename, lineno
 
     @fix_non_ascii_messages_decorator
-    def debug(self, message, print_level=0, *args, **kwargs):
+    def debug(self, message, print_level=4, *args, **kwargs):
         stack_ = stack()
         filename, lineno = self.process_stack(stack_)
         self.logger.debug(

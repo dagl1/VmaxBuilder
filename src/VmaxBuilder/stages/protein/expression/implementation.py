@@ -85,7 +85,7 @@ class TranscriptMetadataServiceProtocol(Protocol):
         """
 
 
-class DefaultExpressionImplementation(BaseImplementation[ExpressionConfigProtocol]):
+class DefaultExpressionImplementation(BaseImplementation[ExpressionConfig]):
     BASE_STAGE_CONFIG = ProteinStageConfig
     IMPLEMENTATION_CONFIG_CLASS = ExpressionConfig
     _RESOLVED_CONFIG_CLASS = ExpressionConfigProtocol
@@ -95,6 +95,7 @@ class DefaultExpressionImplementation(BaseImplementation[ExpressionConfigProtoco
         InputSpec(
             name="irreversible_cobra_model",
             data_type=Model,
+            in_scaffold=True,
         ),
         InputSpec(
             name="transcript_df",
@@ -190,7 +191,6 @@ class DefaultExpressionImplementation(BaseImplementation[ExpressionConfigProtoco
         Args:
             scaffold (Scaffold): Shared pipeline scaffold.
             expression_df (pd.DataFrame): Expression input table.
-            config (APIConfig): Root API configuration.
 
         Returns:
             dict[str, dict[str, object]]: Scaffold updates with processed expression table.
@@ -210,10 +210,10 @@ class DefaultExpressionImplementation(BaseImplementation[ExpressionConfigProtoco
                 "Transcript-level expression conversion is not yet implemented."
             )
         source_id_type = self._build_id_type_name(
-            self.full_config.protein.id_type, source_level
+            self.full_config.protein.expression_gene_id_type, source_level
         )
         target_id_type = self._build_id_type_name(
-            self.full_config.model.id_type, self.full_config.model.level
+            self.full_config.model.gene_id_type, self.full_config.model.level
         )
         expression_index = [str(index_value) for index_value in expression_df.index]
         diagnostics = {}

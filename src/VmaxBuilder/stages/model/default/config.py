@@ -19,5 +19,5 @@ class ModelConfig:
 
     reaction_notation: ReactionNotation = ReactionNotation.STANDARD
     make_copy: bool = True
-    id_type: str = "ensembl"
+    gene_id_type: str = "ensembl"
     level: str = "gene"

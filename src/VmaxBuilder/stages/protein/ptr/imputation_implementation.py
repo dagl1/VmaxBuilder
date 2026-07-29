@@ -8,6 +8,7 @@ from pandas import DataFrame
 
 from VmaxBuilder.base.classes import BaseImplementation
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
+from VmaxBuilder.stages.protein.ptr.config import PTRInputConfig
 from VmaxBuilder.typing_stubs.protein.expressionPTR.implementation import (
     ExpressionPTRConfigProtocol,
 )
@@ -83,9 +84,10 @@ _PRETRANSFORM_ALIASES: dict[str, str] = {
 }
 
 
-class SimplePTRImputationImplementation(BaseImplementation[ExpressionPTRConfigProtocol]):
+class SimplePTRImputationImplementation(BaseImplementation[PTRInputConfig]):
     STAGE_NAME = "protein"
     IMPL_NAME = "simple_ptr_imputation"
+    IMPLEMENTATION_CONFIG_CLASS = PTRInputConfig
     CHILD_IMPLEMENTATIONS = []
     INPUTS: list[InputSpec] = [
         InputSpec(
@@ -101,10 +103,12 @@ class SimplePTRImputationImplementation(BaseImplementation[ExpressionPTRConfigPr
         InputSpec(
             name="irreversible_cobra_model",
             data_type=Model,
+            in_scaffold=True,
         ),
         InputSpec(
-            name="preprocessed_expression_df",
+            name="processed_expression_df",
             data_type=DataFrame,
+            in_scaffold=True,
         ),
     ]
     OUTPUTS: list[OutputSpec] = [

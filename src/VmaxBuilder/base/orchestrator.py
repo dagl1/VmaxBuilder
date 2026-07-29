@@ -10,6 +10,7 @@ from VmaxBuilder.base.configs import (
     FullConfig,
     ImplementationConfig,
     InputSpec,
+    OutputSpec,
     PathInfo,
     RunConfig,
     Scaffold,
@@ -40,6 +41,9 @@ then search based on inputs if not found we raise error
 
 """
 ImplT = TypeVar("ImplT", bound=BaseImplementation[Any])
+
+# todo: add validator at end of implemtnation to see if all things in outputs
+# are now present in scaffold outputs
 
 
 class Orchestrator:
@@ -72,6 +76,11 @@ class Orchestrator:
         }
         # self._resolve_stage_implementations()
         # self.scaffold.discovered_inputs = self.discovered_inputs
+        self._attempted_discovered_inputs: dict[str, InputSpec] = {}
+        self._validated_inputs: dict[str, InputSpec] = {}
+        self._validated_outputs: dict[str, OutputSpec] = {}
+        self.validation_results: dict[str, Any] = {}
+        self.diagnostics: dict[str, Any] = {}
 
     def set_model_implementation(self, implementation_cls: type[ImplT]) -> ImplT:
         implementation = implementation_cls(full_config=self.config)
@@ -80,6 +89,7 @@ class Orchestrator:
         self.model_stage = self.stages["model"](
             implementation=implementation, full_config=self.config
         )
+        self.set_print_level(self.config.run.print_level)
         self._discover_user_submitted_paths(stage_name="model")
         self.scaffold.discovered_inputs = self.discovered_inputs
 
@@ -91,9 +101,11 @@ class Orchestrator:
         # incorrect stage implementation for protein stage
         self._protein = implementation
         self.config.protein = implementation.config
+        print("protein config: ", self.config.protein)
         self.protein_stage = self.stages["protein"](
             implementation=implementation, full_config=self.config
         )
+        self.set_print_level(self.config.run.print_level)
         self._discover_user_submitted_paths(stage_name="protein")
         self.scaffold.discovered_inputs = self.discovered_inputs
 
@@ -208,7 +220,7 @@ class Orchestrator:
                         all_loggers.append(additional_implementation.logger)
         return all_loggers
 
-    def set_print_level(self, level: str | int):
+    def set_print_level(self, level: str | int, log_modification: bool = True):
         mapping = {
             "DEBUG": 4,
             "INFO": 3,
@@ -237,14 +249,17 @@ class Orchestrator:
             logger.set_print_level(level_int)
         # self.logger.set_print_level(level_int)
 
-        self.logger.info(f"Print level set to: {level_literal}")
-        self.logger.debug(
-            f"Print level adjusted in the following loggers:"
-            f"{[logger.name for logger in all_loggers]}"
-        )
+        if log_modification:
+            self.logger.info(
+                f"Print level adjusted to {level_literal} "
+                "in the following loggers:"
+                f"{[logger.name for logger in all_loggers]}",
+                print_level=1,
+            )
         if hasattr(self, "config"):
             # necessary to init using the caster
-            self.config.run._print_level = cast(PrintLevelType, level_literal)
+            # self.config.run._print_level = cast(PrintLevelType, level_literal)
+            self.config.run.print_level = cast(PrintLevelType, level_literal)
 
     def return_user_submitted_paths(self) -> list[PathInfo]:
         user_submitted_paths = []
@@ -280,10 +295,16 @@ class Orchestrator:
         for stage_name in self.stages:
             stage = getattr(self, f"{stage_name}_stage")
             stage_implementation: BaseImplementation = stage.implementation
+            if not self.validation_results.get(stage_name, False):
+                self.validation_results[stage_name] = {}
             for implementation in _iter_implementations(stage_implementation):
                 if isinstance(implementation, type):
                     continue
-                self.scaffold, _ = implementation.validate_inputs(scaffold=self.scaffold)
+                self.scaffold, validation_results = implementation.validate_inputs(
+                    already_validated_inputs=self._validated_inputs,
+                    scaffold=self.scaffold,
+                )
+                self.validation_results[stage_name].update(validation_results)
 
     def _run_stage(self, stage_name: str):
         # todo: consider whether should be public or private (orchestration run is sequential)
@@ -330,7 +351,7 @@ class Orchestrator:
     def _build_default_config(self, run_config: RunConfig) -> FullConfig:
         return FullConfig(
             model=ImplementationConfig(),
-            protein=ImplementationConfig,
+            protein=ImplementationConfig(),
             run=run_config,
             paths=run_config.paths,
             transcripts=TranscriptProcessingConfig(),
@@ -357,18 +378,28 @@ class Orchestrator:
                     "Skipping input discovery for this stage."
                 )
                 continue
-            for input_spec in getattr(self, f"{stage_name}_stage").implementation.INPUTS:
-                discovered_input = self._discover_input(
-                    input_spec=input_spec,
-                    loading_info=self.loading_info[stage_name],
-                )
-                if discovered_input is not None:
-                    self.discovered_inputs[stage_name][input_spec.name] = discovered_input
-                else:
-                    self.logger.warning(
-                        f"Input '{input_spec.name}' for stage '{stage_name}' "
-                        "could not be discovered."
+            main_implementation = getattr(self, f"{stage_name}_stage").implementation
+            for implementation in _iter_implementations(main_implementation):
+                for input_spec in implementation.INPUTS:
+                    discovered_input = self._discover_input(
+                        input_spec=input_spec,
+                        loading_info=self.loading_info[stage_name],
                     )
+                    if discovered_input is not None:
+                        self.discovered_inputs[stage_name][input_spec.name] = discovered_input
+                        self.logger.valid(
+                            f"Discovered input '{input_spec.name}' for stage '{stage_name}': "
+                            f"{discovered_input.file_path}"
+                            f"(source: {discovered_input.source})"
+                        )
+                    else:
+                        if input_spec.name in self._attempted_discovered_inputs:
+                            continue
+                        self._attempted_discovered_inputs[input_spec.name] = input_spec
+                        self.logger.warning(
+                            f"Input '{input_spec.name}' for stage '{stage_name}' "
+                            "could not be discovered."
+                        )
 
     def _discover_input(self, input_spec, loading_info) -> DiscoveredInput | None:
         explicit_path = None
@@ -438,7 +469,7 @@ class Orchestrator:
     ) -> Path | None:
         matches = []
         self.logger.info(f"Searching directories for '{input_spec.name}'.")
-        self.logger.info(f"Directories to search: {loading_info.directories}")
+        self.logger.debug(f"Directories to search: {loading_info.directories}")
 
         for directory in self._normalize_directories(loading_info.directories):
             if not directory.exists():
@@ -477,7 +508,7 @@ class Orchestrator:
         input_spec: InputSpec,
     ) -> Path | None:
         if len(matches) == 0:
-            self.logger.warning(f"No file found for '{input_spec.name}'.")
+            self.logger.debug(f"No file found for '{input_spec.name}'.")
             return None
 
         if len(matches) > 1:
@@ -544,6 +575,7 @@ if __name__ == "__main__":
     )
 
     orchestrator = Orchestrator(stage_loading_info, run_config)
+    orchestrator.set_print_level("WARNING")
     model = orchestrator.set_model_implementation(DefaultIrreversibleModelImplementation)
     protein = orchestrator.set_protein_implementation(
         MvalueTrimmingExpressionPTRImplementation
@@ -560,7 +592,6 @@ if __name__ == "__main__":
     #
     # orchestrator.return_config()
     # print("setting print level to DEBUG...")
-    orchestrator.set_print_level("DEBUG")
     orchestrator.config.run.overwrite_existing_results = True
     # print("showing user submitted  paths:")
     # orchestrator.return_user_submitted_paths()
