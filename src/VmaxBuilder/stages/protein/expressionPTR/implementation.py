@@ -4,7 +4,7 @@ from typing import Any
 
 import pandas as pd
 
-from VmaxBuilder.base.classes import BaseImplementation
+from VmaxBuilder.base.classes import BaseImplementation, RealImplementation
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.stages.protein.expression.implementation import (
     DefaultExpressionImplementation,
@@ -37,10 +37,7 @@ class ExpressionPTRImplementation(BaseImplementation[ExpressionPTRConfigProtocol
     def __init__(self, full_config: FullConfig):
         super().__init__(full_config)
 
-    def generate_outputs(self, scaffold):
-        return {}
-
-    def create_metadata(self, elapsed_time: float) -> dict[str, Any]:
+    def create_metadata(self, elapsed_time: float, **kwargs) -> dict[str, Any]:
         metadata = {
             "Expression_PTR": {
                 "implementation": type(self).__name__,

@@ -185,7 +185,7 @@ class MValueTrimmingImplementation(BaseImplementation[MValueTrimmingConfig]):
 
         return trimmable_genes, non_trimmable_genes, gene_stats
 
-    def create_metadata(self, elapsed_time: float) -> dict[str, Any]:
+    def create_metadata(self, elapsed_time: float, **kwargs) -> dict[str, Any]:
         metadata = {
             "gene_trimming": {
                 "implementation": type(self).__name__,

@@ -5,8 +5,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, fields, is_dataclass, make_dataclass
 from datetime import datetime
 from inspect import getmembers, isfunction
+from lib2to3.pytree import Base
 from pprint import pformat, pprint
 from typing import TYPE_CHECKING, Any, Generic, Iterator, ParamSpec, TypeVar
+
+import pandas as pd
 
 from VmaxBuilder.utils.iterables import make_json_serializable
 
@@ -186,19 +189,8 @@ class BaseImplementation(Generic[ConfigType], ABC):
             # child_implementations=self.child_implementations,
         )()
 
-    @abstractmethod
     def generate_outputs(self, scaffold: "Scaffold") -> dict[str, dict[str, Any]]:
-        """
-        Generate outputs based on the scaffold and return them as a dictionary.
-        The keys of the dictionary should match the names of the outputs defined in OUTPUTS.
-        This allows for all implementations and child implementations to a checkable contract
-        for what they will produce before run-time. Each generate outputs can be checked
-        in order, and a DAG can be created to follow the dependencies of each output.
-        """
-        ...
-
-    @abstractmethod
-    def create_metadata(self, elapsed_time: float, **kwargs) -> dict[str, Any]: ...
+        return {}
 
     def run(self, scaffold: "Scaffold") -> "Scaffold":
         """Generated: validation needed.
@@ -482,20 +474,21 @@ class BaseImplementation(Generic[ConfigType], ABC):
         Stages save metadata, and diagnostics, while outputs and artifacts are saved at the
         end of an implementation run
         artifacts go into their own stage  folders:
-            main_folder/artifacts/stage_name/artifact_name
+        main_folder/artifacts/stage_name/artifact_name
         while outputs go into their own stage folders:
-            main_folder/outputs/output_name without the stage.
+        main_folder/outputs/output_name without the stage.
         the scaffold objects at this point look like:
-            {
-                    "artifacts": {stage_name: {artifact_name: artifact_value}},
-                    "outputs": {stage_name: {output_name: output_value}},
-                    "metadata": {stage_name: {metadata_name: metadata_value}},
-                    "diagnostics": {stage_name: {diagnostic_name: diagnostic_value}},
-            }
-        only save artifacts if artifact saving is enabled (in run_config, although we check
+        {
+                "artifacts": {stage_name: {artifact_name: artifact_value}},
+                "outputs": {stage_name: {output_name: output_value}},
+                "metadata": {stage_name: {metadata_name: metadata_value}},
+                "diagnostics": {stage_name: {diagnostic_name: diagnostic_value}},
+        }
+        only save artifacts if artifact saving is enabled; in run_config, although we check
         if the CombinedConfig of the stage has a save_artifacts attribute, and it is not
         set to none, we then use that value for that specific stage to override it
         """
+        exempted_data_types = {pd.DataFrame, pd.Series}
         for key, value in scaffold_objects.items():
             if key == "outputs":
                 output_folder = self.full_config.run.paths.outputs_dir
@@ -532,9 +525,12 @@ class BaseImplementation(Generic[ConfigType], ABC):
                             else output_name
                         )
                         save_location = output_folder / f"{str(output_name)}.json"
-
-                        with open(save_location, "w") as f:
-                            json.dump(make_json_serializable(output_value), f)
+                        if type(output_value) in exempted_data_types:
+                            if isinstance(output_value, pd.DataFrame):
+                                output_value.to_csv(save_location.with_suffix(".csv"))
+                        else:
+                            with open(save_location, "w") as f:
+                                json.dump(make_json_serializable(output_value), f)
 
     def save_diagnostics(
         self,
@@ -637,6 +633,28 @@ def validate_config_conflicts(
                 "file": source_file,
                 "line": line_number,
             }
+
+
+class RealImplementation(BaseImplementation[ConfigType], Generic[ConfigType]):
+    def __init__(
+        self,
+        full_config: "FullConfig",
+    ):
+        super().__init__(full_config)
+
+    @abstractmethod
+    def generate_outputs(self, scaffold: "Scaffold") -> dict[str, dict[str, Any]]:
+        """
+        Generate outputs based on the scaffold and return them as a dictionary.
+        The keys of the dictionary should match the names of the outputs defined in OUTPUTS.
+        This allows for all implementations and child implementations to a checkable contract
+        for what they will produce before run-time. Each generate outputs can be checked
+        in order, and a DAG can be created to follow the dependencies of each output.
+        """
+        ...
+
+    @abstractmethod
+    def create_metadata(self, elapsed_time: float, **kwargs) -> dict[str, Any]: ...
 
 
 def resolve_implementation_config_class(

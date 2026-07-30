@@ -6,7 +6,7 @@ import pandas as pd
 from cobra.core.model import Model
 from pandas import DataFrame
 
-from VmaxBuilder.base.classes import BaseImplementation
+from VmaxBuilder.base.classes import BaseImplementation, RealImplementation
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.stages.protein.ptr.config import PTRInputConfig
 from VmaxBuilder.typing_stubs.protein.expressionPTR.implementation import (
@@ -84,7 +84,7 @@ _PRETRANSFORM_ALIASES: dict[str, str] = {
 }
 
 
-class SimplePTRImputationImplementation(BaseImplementation[PTRInputConfig]):
+class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
     STAGE_NAME = "protein"
     IMPL_NAME = "simple_ptr_imputation"
     IMPLEMENTATION_CONFIG_CLASS = PTRInputConfig
@@ -271,8 +271,8 @@ class SimplePTRImputationImplementation(BaseImplementation[PTRInputConfig]):
             n_before = len(df)
             df = df[~df.index.duplicated(keep="first")]
             self.logger.warning(
-                "PTR: removed %d residual duplicate rows after targeted deduplication.",
-                n_before - len(df),
+                f"PTR: removed {n_before - len(df)} residual "
+                "duplicate rows after targeted deduplication."
             )
         return pd.DataFrame(df)
 
@@ -301,7 +301,7 @@ class SimplePTRImputationImplementation(BaseImplementation[PTRInputConfig]):
         Raises:
             ValueError: When ``pretransformed_type`` is unsupported.
         """
-        original_transformation = self.full_config.protein.ptr_pretransformed_type
+        original_transformation = self.full_config.protein.PTR_pretransformed_type
         return transform_dataframe(
             ptr_df,
             pretransformed_type=original_transformation,
@@ -802,18 +802,15 @@ class SimplePTRImputationImplementation(BaseImplementation[PTRInputConfig]):
         ptr_imputation_trace: dict[str, Any] = {}
 
         df = self.standardize_ptr_frame(ptr_df)
-        self.logger.debug("PTR: standardized frame shape %s.", df.shape)
+        self.logger.debug(f"PTR: standardized frame shape{df.shape}")
 
         df = self.remove_ptr_duplicates(df)
-        self.logger.debug("PTR: deduplicated frame shape %s.", df.shape)
-
+        self.logger.debug(f"PTR: deduplicated frame shape{df.shape}")
         if ptr_cfg.impute_from_metabolic_genes_only and metabolic_genes is not None:
             before = len(df)
             df = df.loc[df.index.isin(metabolic_genes)]
             self.logger.debug(
-                "PTR: filtered to %d metabolic genes (dropped %d).",
-                len(df),
-                before - len(df),
+                f"PTR: filtered to {len(df)} metabolic genes (dropped {before - len(df)})."
             )
 
         df = self.transform_ptr_to_linear(
@@ -849,8 +846,8 @@ class SimplePTRImputationImplementation(BaseImplementation[PTRInputConfig]):
                 )
             }
             self.logger.debug(
-                "PTR: auto-populated transport_reactions group (%d genes).",
-                len(special_gene_groups.get("transport_reactions", [])),
+                f"PTR: auto-populated transport_reactions group "
+                f"({len(special_gene_groups.get('transport_reactions', []))} genes)."
             )
 
         unobserved_genes: set[str] = set(map(str, expression_df.index)) - set(
@@ -874,7 +871,7 @@ class SimplePTRImputationImplementation(BaseImplementation[PTRInputConfig]):
             use_special_groups=ptr_cfg.use_special_groups_for_unobserved_imputation,
             trace=ptr_imputation_trace,
         )
-        self.logger.debug("PTR: unobserved-gene imputation done, final shape %s.", df.shape)
+        self.logger.debug(f"PTR: unobserved-gene imputation done, final shape {df.shape}.")
 
         self._latest_ptr_preparation_diagnostics = {
             "special_gene_groups": special_gene_groups,
@@ -935,7 +932,7 @@ class SimplePTRImputationImplementation(BaseImplementation[PTRInputConfig]):
             ValueError: When ``transport_reactions`` shorthand is requested
                 without a model artifact.
         """
-        raw_groups = config.protein.ptr_special_gene_groups
+        raw_groups = config.protein.PTR_special_gene_groups
         if raw_groups is None:
             return {}
         normalized_groups: dict[str, list[str]] = {}
@@ -1070,10 +1067,8 @@ class SimplePTRImputationImplementation(BaseImplementation[PTRInputConfig]):
             ptr_col_actual = ptr_col_lookup.get(ptr_col)
             if ptr_col_actual is None:
                 self.logger.warning(
-                    "PTR: column '%s' not found in PTR frame; "
-                    "skipping multiplication for expression column '%s'.",
-                    ptr_col,
-                    expr_col,
+                    f"PTR: column '{ptr_col}' not found in PTR frame; "
+                    f"skipping multiplication for expression column '{expr_col}'."
                 )
                 continue
             protein_df.loc[common_genes, expr_col] = (
@@ -1086,6 +1081,7 @@ class SimplePTRImputationImplementation(BaseImplementation[PTRInputConfig]):
     def create_metadata(
         self,
         elapsed_time: float,
+        **kwargs,
     ) -> dict[str, Any]:
         """Generated: validation needed.
 

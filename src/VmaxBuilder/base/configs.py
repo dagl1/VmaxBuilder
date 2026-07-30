@@ -381,23 +381,15 @@ class Scaffold:
         Updates the scaffold with the given key-value pair in the specified section.
         If the section does not exist, it will be created.
         """
-        for location, subvalues in new_scaffold_objects.items():
-            for key, value in subvalues.items():
-                _scaffold_location = self.get_scaffold_location(
-                    key
-                )  # Ensure the scaffold location exists
-
-                # todo: debug
-                # recursively update such that we don't overwrite the existing values
-                # and can add to any thing that already exists, such as
-                # modelstage : {model: {model_summary: values}}
-                # and we don't accidentally overwrite some weird thigns with how we treat
-                # outputs now. Issue is related to irrev model disappearing (and likely other
-                # outputs too)
-
-                if location is None:
-                    self.outputs[key] = value  # Add new output if location doesn't exist
-                else:
-                    getattr(self, location)[key] = (
-                        value  # Update existing output if location exists
-                    )
+        for clsattribute, value_dict in new_scaffold_objects.items():
+            if not hasattr(self, clsattribute):
+                raise ConfigurationError(
+                    f"Scaffold has no attribute '{clsattribute}'. "
+                    f"Valid attributes are: {', '.join(self.__dataclass_fields__.keys())}"
+                )
+            if not isinstance(value_dict, dict):
+                raise ConfigurationError(
+                    f"Value for '{clsattribute}' must be a dictionary. "
+                    f"Got {type(value_dict).__name__} instead."
+                )
+            getattr(self, clsattribute).update(value_dict)

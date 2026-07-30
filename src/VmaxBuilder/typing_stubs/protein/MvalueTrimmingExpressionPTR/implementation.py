@@ -1,7 +1,7 @@
 from typing import Protocol
 
 
-class MvalueTrimmingExpressionPTRConfigProtocol:
+class MvalueTrimmingExpressionPTRConfigProtocol(Protocol):
     expression_gene_id_type: str | None = "ensembl"
     expression_level: str = "gene"
     sample_type_map: dict[str, str] | str | None = None
@@ -12,8 +12,8 @@ class MvalueTrimmingExpressionPTRConfigProtocol:
     transcript_aggregation_policy: str = "sum"
 
     PTR_protein_id_type: str = "ensembl"
-    level: str = "gene"
-    pretransformed_type: str = "linear"
+    PTR_level: str = "gene"
+    PTR_pretransformed_type: str = "linear"
     partial_missing_use_weighted: bool = True
     partial_missing_weighted_statistic: str = "median"
     partial_missing_imputation_statistic: str = "median"

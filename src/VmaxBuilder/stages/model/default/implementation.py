@@ -123,6 +123,7 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultModelConf
     def create_metadata(
         self,
         elapsed_time: float,
+        **kwargs,
     ) -> dict[str, Any]:
         metadata = {
             "model": {

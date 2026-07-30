@@ -4,7 +4,7 @@ import pandas as pd
 from cobra.core.model import Model
 from pandas import DataFrame
 
-from VmaxBuilder.base.classes import BaseImplementation
+from VmaxBuilder.base.classes import BaseImplementation, RealImplementation
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.base.exceptions import ConfigurationError
 from VmaxBuilder.database_retrieval.identifier_translation import (
@@ -85,7 +85,7 @@ class TranscriptMetadataServiceProtocol(Protocol):
         """
 
 
-class DefaultExpressionImplementation(BaseImplementation[ExpressionConfig]):
+class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
     BASE_STAGE_CONFIG = ProteinStageConfig
     IMPLEMENTATION_CONFIG_CLASS = ExpressionConfig
     _RESOLVED_CONFIG_CLASS = ExpressionConfigProtocol
@@ -203,7 +203,7 @@ class DefaultExpressionImplementation(BaseImplementation[ExpressionConfig]):
             scaffold["artifacts"] and scaffold["diagnostics"] with translation metadata.
         """
 
-        source_level = self.full_config.protein.level.lower()
+        source_level = self.full_config.protein.expression_level.lower()
         target_level = self.full_config.run.run_target_transcript_gene_level.lower()
         if source_level == "transcript" or target_level == "transcript":
             raise NotImplementedError(
@@ -257,9 +257,11 @@ class DefaultExpressionImplementation(BaseImplementation[ExpressionConfig]):
         if not source_id_type or not target_id_type:
             diagnostics["id_translation"] = "skipped_missing_id_type"
             mapped_df = expression_df.copy()
+            translation_result = None
         elif source_id_type == target_id_type:
             diagnostics["id_translation"] = "skipped_matching_id_type"
             mapped_df = expression_df.copy()
+            translation_result = None
         else:
             translation_result = self._translation_service.translate_identifiers(
                 expression_index,
@@ -282,15 +284,17 @@ class DefaultExpressionImplementation(BaseImplementation[ExpressionConfig]):
                 identifier_mapping=translation_result.mapped_identifiers,
             )
 
+        artifacts = {}
+        if translation_result is not None:
+            artifacts["identifier_translation_result"] = translation_result
+
         filtered_df = self.filter_expression_frame(mapped_df, cobra_model)
         new_scaffold_objects = {
             "outputs": {
                 "processed_expression_df": filtered_df,
             },
             "diagnostics": diagnostics,
-            "artifacts": {
-                "identifier_translation_result": translation_result,
-            },
+            "artifacts": artifacts,
         }
 
         return new_scaffold_objects
@@ -439,10 +443,7 @@ class DefaultExpressionImplementation(BaseImplementation[ExpressionConfig]):
         ]
         return mapped_df.groupby(level=0).sum()
 
-    def create_metadata(
-        self,
-        elapsed_time: float,
-    ) -> dict[str, Any]:
+    def create_metadata(self, elapsed_time: float, **kwargs) -> dict[str, Any]:
         """Generated: validation needed.
 
         Description:

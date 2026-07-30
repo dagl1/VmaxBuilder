@@ -4,16 +4,16 @@ from typing import Any
 
 import pandas as pd
 
-from VmaxBuilder.base.classes import BaseImplementation
+from VmaxBuilder.base.classes import BaseImplementation, RealImplementation
 from VmaxBuilder.base.configs import InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.stages.protein.protein import ProteinStageConfig
 from VmaxBuilder.stages.protein.ptr.config import PTRInputConfig
-from VmaxBuilder.typing_stubs.protein.expressionPTR.implementation import (
-    ExpressionPTRConfigProtocol,
+from VmaxBuilder.typing_stubs.protein.ptr.implementation import (
+    PTRInputConfigProtocol,
 )
 
 
-class SimplePTRMultiplicationImplementation(BaseImplementation[PTRInputConfig]):
+class SimplePTRMultiplicationImplementation(RealImplementation[PTRInputConfigProtocol]):
     BASE_STAGE_CONFIG = ProteinStageConfig
     STAGE_NAME = "protein"
     IMPL_NAME = "simple_ptr_imputation"
@@ -27,11 +27,12 @@ class SimplePTRMultiplicationImplementation(BaseImplementation[PTRInputConfig]):
     def __init__(self, full_config: Any):
         super().__init__(full_config)
 
-    def generate_outputs(self, scaffold):
+    def generate_outputs(self, scaffold: Scaffold) -> dict[str, Any]:
         # Multiply expression values by PTR values
-        _expression_df = scaffold.get("processed_expression_df")
+        # _expression_df = scaffold.get("processed_expression_df")
+        return {}
 
-    def create_metadata(self, elapsed_time: float) -> dict[str, Any]:
+    def create_metadata(self, elapsed_time: float, **kwargs) -> dict[str, Any]:
         metadata = {
             "PTR_Multiplication": {
                 "implementation": type(self).__name__,

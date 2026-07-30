@@ -2,7 +2,7 @@ from typing import Any
 
 import pandas as pd
 
-from VmaxBuilder.base.classes import BaseImplementation
+from VmaxBuilder.base.classes import BaseImplementation, RealImplementation
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.stages.protein.expressionPTR.implementation import (
     ExpressionPTRImplementation,
@@ -17,7 +17,7 @@ from VmaxBuilder.typing_stubs.protein.MvalueTrimmingExpressionPTR.implementation
 
 
 class MvalueTrimmingExpressionPTRImplementation(
-    BaseImplementation[MvalueTrimmingExpressionPTRConfigProtocol]
+    RealImplementation[MvalueTrimmingExpressionPTRConfigProtocol]
 ):
     BASE_STAGE_CONFIG = ProteinStageConfig
     STAGE_NAME = "protein"
@@ -38,7 +38,7 @@ class MvalueTrimmingExpressionPTRImplementation(
     def generate_outputs(self, scaffold):
         return {}
 
-    def create_metadata(self, elapsed_time: float) -> dict[str, Any]:
+    def create_metadata(self, elapsed_time: float, **kwargs) -> dict[str, Any]:
         metadata = {
             "Trimming_assessment": {
                 "implementation": type(self).__name__,
