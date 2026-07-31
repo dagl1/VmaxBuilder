@@ -121,8 +121,8 @@ def candidate_paths(
     stem = file_path.stem
     suffix = file_path.suffix
 
-    for i in range(max_tries):
-        if i == 0:
+    for i in range(1, max_tries + 1):
+        if i == 1:
             yield file_path
         else:
             yield file_path.with_name(f"{stem}_{i}{suffix}")
@@ -308,7 +308,7 @@ def save_with_tries(  # noqa: C901
 
         file_path = save_path / Path(resolved_filename).with_suffix(f".{extension}")
         for candidate in candidate_paths(file_path, overwrite, max_tries):
-            if candidate.exists():
+            if candidate.exists() and not overwrite:
                 continue
 
             writer = WRITERS[datatype]
@@ -323,7 +323,8 @@ def save_with_tries(  # noqa: C901
         else:
             raise FileExistsError(
                 f"Could not find a unique filename for '{filename}' with extension "
-                f"'{extension}' in directory '{save_dir}' after {max_tries} attempts."
+                f"'{extension}' in directory '{str(save_path)}' "
+                f"after {max_tries} attempts."
             )
 
 

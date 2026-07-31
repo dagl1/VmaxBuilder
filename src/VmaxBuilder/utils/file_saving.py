@@ -115,6 +115,9 @@ def save_list(
     extension: str,
     context: SaveContext,
 ) -> None:
+    if isinstance(data, set):
+        data = list(data)
+
     if extension == "json":
         with path.open("w", encoding="utf-8") as file_handle:
             json.dump(data, file_handle)
@@ -170,11 +173,6 @@ def save_cobra_model(
     path: Path,
     extension: str,
     context: SaveContext,
-    # cobra_model: Any,
-    # filename: str,
-    # extension: str,
-    # save_dir: str | Path,
-    # overwrite: bool = False,
 ) -> None:
     """Generated: validation needed.
 
@@ -194,18 +192,18 @@ def save_cobra_model(
     Raises:
         ValueError: If extension is invalid for COBRA model.
     """
-    valid_extensions = [".json", ".xml", ".yml", ".yaml", ".mat"]
+    valid_extensions = ["json", "xml", "yml", "yaml", "mat"]
     filepath_as_str = str(path)
     from cobra.io import save_json_model, save_matlab_model, save_yaml_model, write_sbml_model
 
     match extension:
-        case ".json":
+        case "json":
             save_json_model(data, filepath_as_str)
-        case ".xml":
+        case "xml":
             write_sbml_model(data, filepath_as_str)
-        case ".yml" | ".yaml":
+        case "yml" | ".yaml":
             save_yaml_model(data, filepath_as_str)
-        case ".mat":
+        case "mat":
             save_matlab_model(data, filepath_as_str)
         case _:
             raise ValueError(
