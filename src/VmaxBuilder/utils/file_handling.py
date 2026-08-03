@@ -19,7 +19,7 @@ except ImportError:
 import pandas as pd
 import plotly.graph_objects as go
 
-from src.VmaxBuilder.utils.file_loading import (
+from VmaxBuilder.utils.file_loading import (
     LoadContext,
     load_cobra_model,
     load_csv,
@@ -30,7 +30,7 @@ from src.VmaxBuilder.utils.file_loading import (
     load_rds,
     load_xlsx,
 )
-from src.VmaxBuilder.utils.file_saving import (
+from VmaxBuilder.utils.file_saving import (
     SaveContext,
     TypeInfo,
     save_cobra_model,

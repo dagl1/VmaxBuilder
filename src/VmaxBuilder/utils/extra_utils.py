@@ -1,8 +1,8 @@
 import re
 from typing import TYPE_CHECKING, Any, Dict, Optional, Union, cast
 
-if TYPE_CHECKING:
-    from cobra import Model, Reaction
+import cobra
+from cobra import Model, Reaction
 
 
 def _metabolite_has_same_identifiers(met1: Any, met2: Any) -> bool:
@@ -280,7 +280,7 @@ def _deduplicate_preserve_order(values: list[str]) -> list[str]:
 
 
 def resolve_gene_or_reaction_group_members(
-    model: Any | None,
+    model: Model,
     identifiers: list[str],
     expression_gene_ids: set[str] | None = None,
 ) -> list[str]:
@@ -304,7 +304,7 @@ def resolve_gene_or_reaction_group_members(
         resolved_gene_ids = identifiers
     else:
         reaction_lookup: dict[str, Any] = {
-            str(reaction.id): reaction for reaction in getattr(model, "reactions", [])
+            str(reaction.id): reaction for reaction in model.reactions
         }
         resolved_gene_ids = []
         for identifier in identifiers:
@@ -312,7 +312,7 @@ def resolve_gene_or_reaction_group_members(
             if reaction is None:
                 resolved_gene_ids.append(identifier)
                 continue
-            resolved_gene_ids.extend(str(gene.id) for gene in getattr(reaction, "genes", []))
+            resolved_gene_ids.extend(str(gene.id) for gene in reaction.genes)
 
     if expression_gene_ids is not None:
         resolved_gene_ids = [
@@ -321,48 +321,254 @@ def resolve_gene_or_reaction_group_members(
     return _deduplicate_preserve_order(resolved_gene_ids)
 
 
-def get_transport_reaction_gene_ids(
-    model: Any,
-    expression_gene_ids: set[str] | None = None,
-) -> list[str]:
-    """Generated: validation needed.
-
-    Description:
-        Return genes associated exclusively with transport reactions.
-        Transport reactions are defined as reactions spanning more than one
-        compartment and carrying a non-empty gene-reaction rule.
-
-    Args:
-        model (Any): Cobra-like model with ``reactions`` and ``genes``.
-        expression_gene_ids (set[str] | None): Optional filter restricting
-            returned genes to those present in expression data.
-
-    Returns:
-        list[str]: Ordered unique transport-associated gene IDs.
-    """
-    transport_reactions = [
-        reaction
-        for reaction in getattr(model, "reactions", [])
-        if len(getattr(reaction, "compartments", ())) > 1
-        and str(getattr(reaction, "gene_reaction_rule", "")) != ""
-    ]
-    non_transport_gene_ids = {
-        str(gene.id)
-        for reaction in getattr(model, "reactions", [])
-        if reaction not in transport_reactions
-        and str(getattr(reaction, "gene_reaction_rule", "")) != ""
-        for gene in getattr(reaction, "genes", [])
+def find_energy_carrier_reactions(cobra_model: Model):
+    conservative_energy_consuming_reaction_formulas_dict = {
+        "ATP": [
+            ["ADP", "Pi", "H+"],
+            ["AMP", "PPi", "H+"],
+            ["AMP", "Pi", "H+"],
+            ["ADP", "PPi", "H+"],
+            ["ADP", "H+", "IMP"],
+            ["AMP", "H+", "IMP"],
+            ["PPi", "cAMP"],
+            ["ADP"],
+            ["AMP"],
+            ["Pi"],
+            ["PPi"],
+        ],
+        "ADP": [
+            ["AMP", "Pi", "H+"],
+            ["AMP", "PPi", "H+"],
+            ["AMP", "H+", "IMP"],
+            ["AMP"],
+            ["Pi"],
+            ["PPi"],
+        ],
+        "GTP": [
+            ["GDP", "Pi", "H+"],
+            ["GMP", "PPi", "H+"],
+            ["GMP", "Pi", "H+"],
+            ["GDP", "PPi", "H+"],
+            ["GDP", "H+", "IMP"],
+            ["GMP", "H+", "IMP"],
+            ["PPi", "cGMP"],
+            ["GDP"],
+            ["GMP"],
+            ["Pi"],
+            ["PPi"],
+        ],
+        "GDP": [
+            ["GMP", "Pi", "H+"],
+            ["GMP", "PPi", "H+"],
+            ["GMP", "H+", "IMP"],
+            ["GMP"],
+            ["Pi"],
+            ["PPi"],
+        ],
+        "UTP": [
+            ["UDP", "Pi", "H+"],
+            ["UMP", "PPi", "H+"],
+            ["UMP", "Pi", "H+"],
+            ["UDP", "PPi", "H+"],
+            ["UDP", "H+", "IMP"],
+            ["UMP", "H+", "IMP"],
+            ["PPi", "cUMP"],
+            ["UDP"],
+            ["UMP"],
+            ["Pi"],
+            ["PPi"],
+        ],
+        "UDP": [
+            ["UMP", "Pi", "H+"],
+            ["UMP", "PPi", "H+"],
+            ["UMP", "H+", "IMP"],
+            ["UMP"],
+            ["Pi"],
+            ["PPi"],
+        ],
+        "CTP": [
+            ["CDP", "Pi", "H+"],
+            ["CMP", "PPi", "H+"],
+            ["CMP", "Pi", "H+"],
+            ["CDP", "PPi", "H+"],
+            ["CDP", "H+", "IMP"],
+            ["CMP", "H+", "IMP"],
+            ["PPi", "cCMP"],
+            ["CDP"],
+            ["CMP"],
+            ["Pi"],
+            ["PPi"],
+        ],
+        "CDP": [
+            ["CMP", "Pi", "H+"],
+            ["CMP", "PPi", "H+"],
+            ["CMP", "H+", "IMP"],
+            ["CMP"],
+            ["Pi"],
+            ["PPi"],
+        ],
+        "AMP": [
+            ["Adenosine", "Pi"],
+            ["Adenosine", "H+"],
+            ["Adenosine", "PPi"],
+            ["Pi"],
+            ["H+", "IMP"],
+            ["PPi"],
+        ],
+        "PPi": [["Pi"], ["H+", "IMP"]],
+        "Acetyl-CoA": [["CoA", "Acetate"]],  # Acetyl-CoA hydrolysis
+        "Succinyl-CoA": [["CoA", "Succinate"]],  # Succinyl-CoA hydrolysis
+        "UDP-Glucose": [["UDP", "Glucose"]],  # UDP-glucose as a sugar donor
+        "PAP": [["AMP", "Pi"]],  # PAP → AMP + Pi
+        "PAPS": [["PAP", "SO4"]],
+        "ITP": [
+            ["IMP", "Pi", "H+"],
+            ["Inosine", "Pi", "H+"],
+            ["IMP", "PPi", "H+"],
+            ["Inosine", "PPi", "H+"],
+            ["IMP", "H+"],
+            ["Inosine", "H+"],
+            ["IMP", "Pi"],
+            ["Inosine", "Pi"],
+            ["IMP", "PPi"],
+            ["Inosine", "PPi"],
+            ["IMP"],
+            ["Inosine"],
+            ["Pi"],
+            ["PPi"],
+        ],
+        "IDP": [
+            ["IMP", "Pi", "H+"],
+            ["Inosine", "Pi", "H+"],
+            ["IMP", "PPi", "H+"],
+            ["Inosine", "PPi", "H+"],
+            ["IMP", "H+"],
+            ["Inosine", "H+"],
+            ["IMP", "Pi"],
+            ["Inosine", "Pi"],
+            ["IMP", "PPi"],
+            ["Inosine", "PPi"],
+            ["IMP"],
+            ["Inosine"],
+            ["Pi"],
+            ["PPi"],
+        ],
     }
-    transport_gene_ids = [
-        str(gene.id)
-        for gene in getattr(model, "genes", [])
-        if str(gene.id) not in non_transport_gene_ids
+
+    reactions = cobra_model.reactions
+    energy_carrier_containing_reactions = []
+    found_with_conservative = []
+
+    for reaction in reactions:
+        reactants = reaction.reactants
+        products = reaction.products
+        converted_reactants = [met.name for met in reactants]
+        converted_products = [met.name for met in products]
+        found_in_conservative = False
+        for key in conservative_energy_consuming_reaction_formulas_dict.keys():
+            if found_in_conservative:
+                break
+            if key in converted_reactants:
+                for formula in conservative_energy_consuming_reaction_formulas_dict[key]:
+                    if all([met in converted_products for met in formula]):
+                        found_with_conservative.append(reaction)
+                        found_in_conservative = True
+                        break
+            elif key in converted_products:
+                for formula in conservative_energy_consuming_reaction_formulas_dict[key]:
+                    if all([met in converted_reactants for met in formula]):
+                        found_with_conservative.append(reaction)
+                        found_in_conservative = True
+                        break
+
+    not_found_but_containing_energy_carriers = [
+        reaction for reaction in energy_carrier_containing_reactions
     ]
+    found_only_in_conservative = [reaction for reaction in found_with_conservative]
+
+    return (
+        found_with_conservative,
+        found_only_in_conservative,
+        not_found_but_containing_energy_carriers,
+        energy_carrier_containing_reactions,
+    )
+
+
+def get_transport_reaction_gene_ids(
+    cobra_model: Model,
+    expression_gene_ids: set[str] | None = None,
+) -> tuple[list[str], list[str], list[str]]:
+    reactions = cobra_model.reactions
+
+    results_energy_carriers = find_energy_carrier_reactions(cobra_model)
+    reactions_containing_energy_carriers = results_energy_carriers[0]
+    non_energy_carrier_containing_reaction = [
+        rxn
+        for rxn in cobra_model.reactions
+        if rxn not in reactions_containing_energy_carriers
+    ]
+
+    transport_reactions = []
+    passive_transport_reactions = []
+    active_transport_reactions = []
+
+    transport_reaction_gene_ids = set()
+    passive_transport_reaction_gene_ids = set()
+    active_transport_reaction_gene_ids = set()
+    for reaction in reactions:
+        if len(reaction.compartments) > 1 and reaction.gene_reaction_rule:
+            transport_reactions.append(reaction)
+            transport_reaction_gene_ids.update(str(gene.id) for gene in reaction.genes)
+            if reaction in non_energy_carrier_containing_reaction:
+                passive_transport_reactions.append(reaction)
+                passive_transport_reaction_gene_ids.update(
+                    str(gene.id) for gene in reaction.genes
+                )
+            elif reaction in reactions_containing_energy_carriers:
+                active_transport_reactions.append(reaction)
+                active_transport_reaction_gene_ids.update(
+                    str(gene.id) for gene in reaction.genes
+                )
+
+    _non_transport_reactions = [
+        reaction for reaction in reactions if reaction not in transport_reactions
+    ]
+    non_transport_reaction_gene_ids = set(
+        str(gene.id) for gene in cobra_model.genes if gene not in transport_reaction_gene_ids
+    )
+
     if expression_gene_ids is not None:
-        transport_gene_ids = [
-            gene_id for gene_id in transport_gene_ids if gene_id in expression_gene_ids
+        active_transport_reaction_gene_ids = [
+            gene_id
+            for gene_id in active_transport_reaction_gene_ids
+            if gene_id in expression_gene_ids
         ]
-    return _deduplicate_preserve_order(transport_gene_ids)
+        passive_transport_reaction_gene_ids = [
+            gene_id
+            for gene_id in passive_transport_reaction_gene_ids
+            if gene_id in expression_gene_ids
+        ]
+        non_transport_reaction_gene_ids = [
+            gene_id
+            for gene_id in non_transport_reaction_gene_ids
+            if gene_id in expression_gene_ids
+        ]
+
+    active_transport_reaction_gene_ids = _deduplicate_preserve_order(
+        list(active_transport_reaction_gene_ids)
+    )
+    passive_transport_reaction_gene_ids = _deduplicate_preserve_order(
+        list(passive_transport_reaction_gene_ids)
+    )
+    non_transport_reaction_gene_ids = _deduplicate_preserve_order(
+        list(non_transport_reaction_gene_ids)
+    )
+
+    return (
+        active_transport_reaction_gene_ids,
+        passive_transport_reaction_gene_ids,
+        non_transport_reaction_gene_ids,
+    )
 
 
 def compare_dicts(
@@ -428,8 +634,6 @@ def create_task_specific_model_for_diagnostics(  # noqa: C901
     """
     if make_copy:
         irreversible_cobra_model = irreversible_cobra_model.copy()
-
-    from cobra import Reaction
 
     reactions_in_both_input_and_output = set(
         task_information["input_metabolites"]
