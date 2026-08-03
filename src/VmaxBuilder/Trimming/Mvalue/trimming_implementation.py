@@ -150,11 +150,9 @@ class MValueTrimmingImplementation(BaseImplementation[MValueTrimmingConfig]):
         """
 
         # for typing to work, we explicitly define the types of the config values
-        trim_addition_value: float = (
-            self.full_config.protein.trimming.trim_correction_addition
-        )
+        trim_addition_value: float = self.full_config.protein.trim_correction_addition
         trim_percentiles: tuple[float, float] = self.full_config.protein.trim_percentiles
-        trim_threshold: float = self.full_config.protein.trimming.trim_threshold
+        trim_threshold: float = self.full_config.protein.trim_threshold
 
         expression_df = expression_df.copy()
         expression_df = expression_df + trim_addition_value
