@@ -11,3 +11,8 @@ class ExpressionConfig:
     thresholding: bool | str = False
     protein_coding_aggregation_policy: str = "sum"
     transcript_aggregation_policy: str = "sum"
+
+    minimum_expression_threshold: float = 0.001
+    minimum_expression_threshold_policy: str = "raise_to_threshold"  # ["raise_to_threshold,
+    # "set_to_missing"
+    missing_gene_policy: str = "GPRless"
