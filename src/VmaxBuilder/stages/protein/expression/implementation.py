@@ -1,7 +1,9 @@
 from typing import Any, Protocol, Sequence, cast
 
+import numpy as np
 import pandas as pd
 from cobra.core.model import Model
+from cobra.manipulation.delete import remove_genes
 from pandas import DataFrame
 
 from VmaxBuilder.base.classes import BaseImplementation, RealImplementation
@@ -106,6 +108,9 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
             name="expression_df",
             data_type=DataFrame,
             prefix="data__",
+            loader_args={
+                "index_col": 0,
+            },
             extensions=(
                 ".json",
                 ".csv",
@@ -119,7 +124,18 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
             data_type=DataFrame,
             scaffold_location="outputs",
             save_file_name="processed_expression_df",
-            extension=".feather",
+            extension=".csv",
+            validator=None,
+        ),
+        OutputSpec(
+            "irreversible_cobra_model",
+            data_type=Model,
+            scaffold_location="outputs",
+            saver_args={
+                "is_cobra_model": True,
+            },
+            save_file_name="irreversible_cobra_model",
+            extension=".json",
             validator=None,
         ),
     ]
@@ -178,8 +194,8 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
         cobra_model: Model,
     ) -> dict[
         str,
-        dict[str, DataFrame]
-        | dict[str, str | dict[str, str | int | list[str]]]
+        dict[str, DataFrame | Model]
+        | dict[str, str | dict[str, str | int | list[str]] | dict[str, list[str]]]
         | dict[str, IdentifierTranslationResult],
     ]:
         """Generated: validation needed.
@@ -284,20 +300,185 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
                 identifier_mapping=translation_result.mapped_identifiers,
             )
 
+        missing_genes = [
+            gene_id
+            for gene_id in [model_gene.id for model_gene in cobra_model.genes]
+            if gene_id not in mapped_df.index
+        ]
+
+        (
+            thresholded_df,
+            cobra_model,
+            missing_genes,
+        ) = self.handle_missing_genes(
+            expression_df=mapped_df,
+            cobra_model=cobra_model,
+            minimum_expression_value=self.full_config.protein.minimum_expression_threshold,
+            minimum_gene_policy=self.full_config.protein.minimum_expression_threshold_policy,
+            missing_gene_policy=self.full_config.protein.missing_gene_policy,
+        )
+        if missing_genes:
+            self.logger.warning(
+                f"{len(missing_genes)} genes from the model are missing "
+                "in the expression data. "
+            )
+            diagnostics["expression_processing"] = {"missing_genes": missing_genes}
+
         artifacts = {}
         if translation_result is not None:
             artifacts["identifier_translation_result"] = translation_result
 
-        filtered_df = self.filter_expression_frame(mapped_df, cobra_model)
+        filtered_df = self.filter_expression_frame(thresholded_df, cobra_model)
         new_scaffold_objects = {
             "outputs": {
                 "processed_expression_df": filtered_df,
+                "irreversible_cobra_model": cobra_model,
             },
             "diagnostics": diagnostics,
             "artifacts": artifacts,
         }
 
         return new_scaffold_objects
+
+    def handle_missing_genes(
+        self,
+        expression_df: pd.DataFrame,
+        cobra_model: Model,
+        minimum_expression_value: float,
+        minimum_gene_policy: str,
+        missing_gene_policy: str,
+    ) -> tuple[pd.DataFrame, Model, list[str]]:
+        # we add rows for the missing genes and give them a value of np.nan for all samples,
+        # so that we can set them to GPRless in the model and keep track of them
+        missing_genes = [
+            gene_id
+            for gene_id in [model_gene.id for model_gene in cobra_model.genes]
+            if gene_id not in expression_df.index
+        ]
+        expression_df = expression_df.reindex(
+            expression_df.index.union([gene.id for gene in cobra_model.genes]),
+            fill_value=np.nan,
+        )
+
+        if minimum_gene_policy == "raise_to_threshold":
+            expression_df = self.set_minimum_expression_value(
+                expression_df, minimum_expression_value
+            )
+        elif minimum_gene_policy == "set_to_missing":
+            expression_df = self.set_genes_below_minimum_to_missing(
+                expression_df, minimum_expression_value
+            )
+            # only if a whole row is missing, we set the gene to GPRless in the model
+            additional_missing_genes = [
+                gene_id
+                for gene_id in expression_df.index
+                if expression_df.loc[gene_id].isnull().all()
+            ]
+            missing_genes = list(set(missing_genes + additional_missing_genes))
+            non_missing_genes = [
+                gene_id for gene_id in expression_df.index if gene_id not in missing_genes
+            ]
+            expression_df = self.set_minimum_expression_value(
+                expression_df.loc[non_missing_genes], minimum_expression_value
+            )
+        else:
+            raise ConfigurationError(
+                f"Unsupported minimum_gene_policy: {minimum_gene_policy}. "
+                "Supported values: ['raise_to_threshold', 'set_to_missing']."
+            )
+
+        if missing_gene_policy == "GPRless":
+            cobra_model = self.set_GPRless_genes_in_model(
+                cobra_model=cobra_model,
+                genes_to_set_GPRless=missing_genes,
+            )
+
+            self.logger.warning(
+                f"{len(missing_genes)} genes from the model are missing "
+                "in the expression data. "
+                f"These genes will be ignored in the analysis. "
+                f"Missing genes: {missing_genes}. "
+                f"Ignored genes are set to 'GPRless', deleting their contribution from "
+                "any reaction they are associated with.",
+                print_level=2,
+            )
+        elif missing_gene_policy == "impute":
+            raise NotImplementedError(
+                "The 'impute' missing_gene_policy is not yet implemented. "
+                "Please use 'GPRless' or another supported policy."
+            )
+        else:
+            raise ConfigurationError(
+                f"Unsupported missing_gene_policy: {missing_gene_policy}. "
+                "Supported values: ['GPRless']."
+            )
+
+        return (expression_df, cobra_model, missing_genes)
+
+    def set_minimum_expression_value(
+        self,
+        expression_df: pd.DataFrame,
+        minimum_expression_value: float,
+        genes_below_minimum: list[str] | None = None,
+    ):
+        new_expression_df = expression_df.copy()
+        if genes_below_minimum is not None:
+            new_expression_df.loc[genes_below_minimum] = minimum_expression_value
+        else:
+            new_expression_df = new_expression_df.apply(
+                lambda x: x.where(
+                    x >= minimum_expression_value,
+                    minimum_expression_value,
+                ),
+                axis=0,
+            )
+        return new_expression_df
+
+    def set_genes_below_minimum_to_missing(
+        self,
+        expression_df: pd.DataFrame,
+        minimum_expression_value: float,
+    ):
+        new_expression_df = expression_df.copy()
+        new_expression_df = new_expression_df.apply(
+            lambda x: x.where(
+                x >= minimum_expression_value,
+                np.nan,
+            ),
+            axis=0,
+        )
+        return new_expression_df
+
+    def set_GPRless_genes_in_model(
+        self,
+        cobra_model: Model,
+        genes_to_set_GPRless: list[str],
+    ) -> Model:
+        """
+        Sets the genes in the model that are in the list of genes to set to GPRless.
+        This means that the genes provided to this function are removed from any GPR rule
+         they are associated with, which can lead to reactions being
+         set to GPRless if all associated genes are in the list.
+         :params:
+            model: The COBRApy model to modify
+            genes_to_set_GPRless: A list of gene ids to set to GPRless
+
+        :return: Model
+            The modified COBRApy model with the specified genes set to GPRless
+        """
+        reactions_affected = set()
+        for gene_id in genes_to_set_GPRless:
+            if gene_id in cobra_model.genes:
+                gene = cobra_model.genes.get_by_id(gene_id)
+                reactions_affected.update(gene.reactions)
+        self.logger.info(
+            f"Setting {len(genes_to_set_GPRless)} genes to GPRless, "
+            f"which affects {len(reactions_affected)} reactions: \n"
+            f"Affected reactions: {[reaction.id for reaction in reactions_affected]}",
+            print_level=2,
+        )
+        remove_genes(cobra_model, genes_to_set_GPRless, remove_reactions=False)
+        return cobra_model
 
     def filter_expression_frame(
         self,
@@ -317,10 +498,10 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
 
         """
 
-        model_ids = set(cobra_model.genes.list_attr("id"))
+        model_ids = [gene.id for gene in cobra_model.genes]
 
         filtered_df = expression_df.loc[
-            [str(index_value) in model_ids for index_value in expression_df.index]
+            [gene_id in model_ids for gene_id in expression_df.index]
         ]
 
         return filtered_df
