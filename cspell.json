@@ -11,6 +11,8 @@
     "thresholding",
     "Mvalue",
     "trimmable",
-    "trimmability"
+    "trimmability",
+    "downcasting",
+    "inputspes"
   ]
 }
