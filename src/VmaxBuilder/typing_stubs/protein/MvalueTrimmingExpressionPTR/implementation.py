@@ -23,8 +23,9 @@ class MvalueTrimmingExpressionPTRConfigProtocol(Protocol):
     unobserved_gene_imputation_strategy: str = "sample_after_imputation"
     unobserved_gene_imputation_statistic: str = "median"
     use_special_groups_for_unobserved_imputation: bool = False
-    special_gene_groups: dict[str, list[str]] | None = None
+    PTR_special_gene_groups: dict[str, list[str]] | None = None
     impute_from_metabolic_genes_only: bool = True
+    expression_sample_type_map: dict[str | int, str] | str | None = None
 
     trim_correction_addition: float = 2
     trim_percentiles: tuple[float, float] = (2.5, 97.5)

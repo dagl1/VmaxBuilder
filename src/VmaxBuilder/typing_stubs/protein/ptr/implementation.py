@@ -13,3 +13,4 @@ class PTRInputConfigProtocol(Protocol):
     use_special_groups_for_unobserved_imputation: bool = False
     PTR_special_gene_groups: dict[str, list[str]] | None = None
     impute_from_metabolic_genes_only: bool = True
+    expression_sample_type_map: dict[int | str, str] | str | None = None
