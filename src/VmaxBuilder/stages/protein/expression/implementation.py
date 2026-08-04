@@ -124,6 +124,9 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
             data_type=DataFrame,
             scaffold_location="outputs",
             save_file_name="processed_expression_df",
+            saver_args={
+                "with_index": True,
+            },
             extension=".csv",
             validator=None,
         ),
