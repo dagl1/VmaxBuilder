@@ -291,7 +291,7 @@ def save_with_tries(  # noqa: C901
 
     possible_extensions = TYPE_INFO[datatype].extensions
     log_info(
-        f"Saving {type(data)} to {filename} in {save_dir} with extension {extensions}.",
+        f"Saving {type(data)} to {filename} in {save_path} with extension {extensions}.",
         logger=logger,
         print_level=print_level,
     )

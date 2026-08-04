@@ -29,29 +29,6 @@ def _validate_transformation_type(transformation_type: str, *, field_name: str) 
         )
 
 
-def _resolve_data_columns(df: pd.DataFrame) -> pd.Index:
-    """Generated: validation needed.
-
-    Description:
-        Resolve numeric data columns and allow optional leading identifier column.
-
-    Args:
-        df (pd.DataFrame): Input dataframe.
-
-    Returns:
-        pd.Index: Columns eligible for transformation.
-
-    Raises:
-        ValueError: When more than first column is non-numeric.
-    """
-
-    if all(pd.api.types.is_numeric_dtype(df[column]) for column in df.columns):
-        return df.columns
-    if all(pd.api.types.is_numeric_dtype(df[column]) for column in df.columns[1:]):
-        return df.columns[1:]
-    raise ValueError("All columns must be numeric except possibly first column (ID column).")
-
-
 def _apply_forward_transformation(
     series: pd.Series,
     pretransformed_type: str,
@@ -125,10 +102,11 @@ def transform_dataframe(
     Raises:
         ValueError: When ``pretransformed_type`` is unrecognised.
     """
-    df = df.copy().replace({pd.NA: np.nan})
+    df = df.copy()
+    df = df.replace({pd.NA: np.nan})
     _validate_transformation_type(pretransformed_type, field_name="pretransformed_type")
     _validate_transformation_type(target_transformation, field_name="target_transformation")
-    data_cols = _resolve_data_columns(df)
+    data_cols = df.columns
     df[data_cols] = df[data_cols].infer_objects(copy=False).astype(float)
     df[data_cols] = df[data_cols].apply(
         lambda series: _apply_target_transformation(

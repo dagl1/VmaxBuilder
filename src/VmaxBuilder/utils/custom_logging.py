@@ -41,7 +41,7 @@ from logging import (
 from os import getpid
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Callable, Optional, cast
+from typing import Any, Callable, Iterable, Optional, cast
 
 import line_profiler
 import pandas as pd
@@ -790,7 +790,62 @@ def memory_checker(func, *args, **kwargs):
     return func(*args, **kwargs)
 
 
-def custom_asdict(obj):
+def _reduce_duplicates_dict(iterable: dict) -> dict:
+    if not iterable:
+        return {}
+
+    items = list(iterable.items())
+    modified_dict = {}
+
+    current_value = items[0][1]
+    group_keys = [items[0][0]]
+
+    def format_keys(keys):
+        if len(keys) == 1:
+            return keys[0]
+        if all(isinstance(k, int) for k in keys):
+            return f"{keys[0]}-{keys[-1]}"
+        return f"{keys[0]}-{keys[-1]}"
+
+    for k, v in items[1:]:
+        if v == current_value:
+            group_keys.append(k)
+        else:
+            modified_dict[format_keys(group_keys)] = current_value
+            current_value = v
+            group_keys = [k]
+
+    modified_dict[format_keys(group_keys)] = current_value
+    return modified_dict
+
+
+def _reduce_duplicates(iterable: Any) -> Any:
+    initial_type = type(iterable)
+
+    if isinstance(iterable, dict):
+        return _reduce_duplicates_dict(iterable)
+
+    unique_values = list(dict.fromkeys(iterable))
+    modified_iterable = []
+
+    for value in unique_values:
+        indices = [i for i, x in enumerate(iterable) if x == value]
+        if len(indices) > 1:
+            modified_iterable.append(f"{value} (indices: {indices[0]}-{indices[-1]})")
+        else:
+            modified_iterable.append(value)
+
+    if initial_type is str:
+        return "".join(map(str, modified_iterable))
+    elif initial_type is tuple:
+        return tuple(modified_iterable)
+    elif initial_type is set:
+        return set(modified_iterable)
+
+    return modified_iterable
+
+
+def custom_asdict(obj, verbose=True):
     if is_dataclass(obj):
         result = {}
         ignored = getattr(obj, "_ignore_fields", set())
@@ -800,15 +855,23 @@ def custom_asdict(obj):
                 continue
 
             value = getattr(obj, f.name)
-            result[f.name] = custom_asdict(value)
+            result[f.name] = custom_asdict(value, verbose=verbose)
         return result
 
     elif isinstance(obj, list):
-        return [custom_asdict(v) for v in obj]
+        if not verbose:
+            obj = _reduce_duplicates(obj)
+        return [custom_asdict(v, verbose) for v in obj]
+
     elif isinstance(obj, dict):
-        return {k: custom_asdict(v) for k, v in obj.items()}
+        if not verbose:
+            obj = _reduce_duplicates(obj)
+        return {k: custom_asdict(v, verbose) for k, v in obj.items()}
+
     elif isinstance(obj, tuple):
-        return tuple(custom_asdict(v) for v in obj)
+        if not verbose:
+            obj = _reduce_duplicates(obj)
+        return tuple(custom_asdict(v, verbose) for v in obj)
 
     return obj
 
