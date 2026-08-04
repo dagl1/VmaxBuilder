@@ -9,6 +9,7 @@ from pandas import DataFrame
 from VmaxBuilder.base.classes import BaseImplementation, RealImplementation
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.stages.protein.ptr.config import PTRInputConfig
+from VmaxBuilder.stages.protein.ptr.ptr_utils import _normalize_sample_label
 from VmaxBuilder.typing_stubs.protein.expressionPTR.implementation import (
     ExpressionPTRConfigProtocol,
 )
@@ -53,25 +54,6 @@ def _series_mode(series: pd.Series) -> float:
     return float(mode_values.iloc[0])
 
 
-def _normalize_sample_label(value: Any) -> str:
-    """Generated: validation needed.
-
-    Description:
-        Normalize sample/tissue labels for robust matching across expression,
-        PTR, and explicit tissue-map configuration.
-
-    Args:
-        value (Any): Raw label value.
-
-    Returns:
-        str: Normalized label (trimmed, lower-case, optional ``_ptr`` suffix removed).
-    """
-    text = str(value).strip().lower()
-    if text.endswith("_ptr"):
-        text = text[: -len("_ptr")]
-    return text
-
-
 _IMPUTATION_STATISTICS: dict[str, Any] = {
     "median": lambda s: s.median(skipna=True),
     "mean": lambda s: s.mean(skipna=True),
@@ -94,6 +76,9 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
             name="PTR_df",
             data_type=DataFrame,
             prefix="PTR__",
+            loader_args={
+                "index_col": 0,
+            },
             extensions=(
                 ".json",
                 ".csv",
@@ -117,7 +102,10 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
             data_type=DataFrame,
             scaffold_location="outputs",
             save_file_name="imputed_PTR_df",
-            extension=".feather",
+            saver_args={
+                "with_index": True,
+            },
+            extension=".csv",
             validator=None,
         ),
     ]
@@ -131,16 +119,18 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
         ptr_df = cast(pd.DataFrame, scaffold.get_scaffold_value("PTR_df"))
         cobra_model = cast(Model, scaffold.get_scaffold_value("irreversible_cobra_model"))
         preprocessed_expression_df = cast(
-            pd.DataFrame, scaffold.get_scaffold_value("preprocessed_expression_df")
+            pd.DataFrame, scaffold.get_scaffold_value("processed_expression_df")
         )
+        cobra_genes = {str(gene.id) for gene in cobra_model.genes}
 
         # preprocess ptr df
         time_start = pd.Timestamp.now()
 
         ptr_df = self.prepare_ptr_frame(
-            ptr_df,
-            expression_df=pd.DataFrame(),  # Placeholder, replace with actual expression_df
-            metabolic_genes=None,  # Placeholder, replace with actual metabolic_genes
+            ptr_df=ptr_df,
+            expression_df=preprocessed_expression_df,
+            cobra_model=cobra_model,
+            metabolic_genes=list(cobra_genes),
         )
         # impute partially missing
         partially_imputed_df = self.impute_within_tissue_ptrs(
@@ -176,7 +166,7 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
         metadata = self.create_metadata(time_elapsed)
 
         new_scaffold_objects = {
-            "outputs": {"fully_imputed_PTR_df": fully_imputed_df},
+            "outputs": {"imputed_PTR_df": fully_imputed_df},
             "diagnostics": {},
             "metadata": metadata,
             "artifacts": {},
@@ -761,43 +751,13 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
             trace=trace,
         )
 
-    # ------------------------------------------------------------------
-    # Orchestration
-    # ------------------------------------------------------------------
-
     def prepare_ptr_frame(
         self,
         ptr_df: pd.DataFrame,
         expression_df: pd.DataFrame,
+        cobra_model: Model,
         metabolic_genes: list[str] | None = None,
-        cobra_model: Any | None = None,
     ) -> pd.DataFrame:
-        """Generated: validation needed.
-
-        Description:
-            Full PTR preprocessing pipeline: standardize → deduplicate →
-            optionally filter to metabolic genes → convert to linear scale →
-            impute within-sample missing values → expand to expression gene
-            index.
-
-        Args:
-            ptr_df (pd.DataFrame): Raw PTR input table (genes × tissue-types).
-            expression_df (pd.DataFrame): Preprocessed expression table used
-                to define the target gene universe and guide imputation.
-            config (APIConfig): Root API configuration.  PTR options read from
-                ``config.ptr``.
-            metabolic_genes (list[str] | None): Optional list of gene IDs from
-                the metabolic model.  When provided and
-                ``config.ptr.impute_from_metabolic_genes_only`` is ``True``,
-                PTR is filtered to this set before imputation.
-            cobra_model (Any | None): Optional cobra-like model used to
-                expand shorthand special gene groups such as
-                ``transport_reactions``.
-
-        Returns:
-            pd.DataFrame: Fully preprocessed PTR table aligned to the
-            expression gene index.
-        """
         ptr_cfg = self.full_config.protein
         ptr_imputation_trace: dict[str, Any] = {}
 
@@ -839,12 +799,20 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
             and ptr_cfg.use_special_groups_for_unobserved_imputation
             and cobra_model is not None
         ):
+            (
+                active_transport_reaction_gene_ids,
+                passive_transport_reaction_gene_ids,
+                non_transport_reaction_gene_ids,
+            ) = get_transport_reaction_gene_ids(
+                cobra_model,
+                expression_gene_ids=set(map(str, expression_df.index)),
+            )
             special_gene_groups = {
-                "transport_reactions": get_transport_reaction_gene_ids(
-                    cobra_model,
-                    expression_gene_ids=set(map(str, expression_df.index)),
-                )
+                "active_transport_reactions": list(active_transport_reaction_gene_ids),
+                "passive_transport_reactions": list(passive_transport_reaction_gene_ids),
+                "non_transport_reactions": list(non_transport_reaction_gene_ids),
             }
+
             self.logger.debug(
                 f"PTR: auto-populated transport_reactions group "
                 f"({len(special_gene_groups.get('transport_reactions', []))} genes)."
@@ -890,23 +858,38 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
 
         return df
 
-    def get_latest_preparation_diagnostics(self) -> dict[str, Any]:
+    def create_metadata(
+        self,
+        elapsed_time: float,
+        **kwargs,
+    ) -> dict[str, Any]:
         """Generated: validation needed.
 
         Description:
-            Return diagnostics captured during latest PTR preparation call.
+            Create metadata dictionary for the expression stage.
+
+        Args:
+            elapsed_time (float): Time taken for processing.
 
         Returns:
-            dict[str, Any]: PTR preparation diagnostics for inter-stage artifact
-            persistence.
+            dict[str, object]: Metadata dictionary.
         """
-        diagnostics = getattr(self, "_latest_ptr_preparation_diagnostics", {})
-        return dict(diagnostics)
+
+        metadata = {
+            "PTR_imputation": {
+                "implementation": self.__class__.__name__,
+                "status": "ptr_imputation_completed",
+                "elapsed_time_seconds": elapsed_time,
+                "date_created": pd.Timestamp.now().isoformat(),
+                "params": self.get_implementation_config_params(),
+            }
+        }
+        return metadata
 
     @staticmethod
     def resolve_special_gene_groups(
         config: FullConfig,
-        cobra_model: Any | None = None,
+        cobra_model: Model,
         expression_gene_ids: set[str] | None = None,
     ) -> dict[str, list[str]]:
         """Generated: validation needed.
@@ -946,15 +929,20 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
                 if str(group_entry).strip() != ""
             ]
             if normalized_name == "transport_reactions" and not normalized_entries:
-                if cobra_model is None:
-                    raise ValueError(
-                        "special_gene_groups['transport_reactions'] requires a model "
-                        "artifact when no explicit genes or reactions are supplied."
-                    )
-                normalized_groups[normalized_name] = get_transport_reaction_gene_ids(
+                (
+                    active_transport_reaction_gene_ids,
+                    passive_transport_reaction_gene_ids,
+                    non_transport_reaction_gene_ids,
+                ) = get_transport_reaction_gene_ids(
                     cobra_model,
                     expression_gene_ids=expression_gene_ids,
                 )
+                normalized_groups[normalized_name] = list(
+                    set(active_transport_reaction_gene_ids).union(
+                        set(passive_transport_reaction_gene_ids)
+                    )
+                )
+
                 continue
             normalized_groups[normalized_name] = resolve_gene_or_reaction_group_members(
                 cobra_model,
@@ -962,146 +950,3 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
                 expression_gene_ids=expression_gene_ids,
             )
         return normalized_groups
-
-    # ------------------------------------------------------------------
-    # Sample-type map resolution
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def resolve_sample_type_map(
-        expression_df: pd.DataFrame,
-        sample_type_map: dict[str, str] | str | None,
-    ) -> dict[str, str]:
-        """Generated: validation needed.
-
-        Description:
-            Build a ``{expression_column: ptr_column}`` mapping from the
-            user-supplied ``sample_type_map``.
-
-            * ``None`` → identity map (each expression column maps to itself).
-            * ``str`` → every expression column maps to that single PTR column.
-            * ``dict`` → used directly; expression columns absent from the dict
-              fall back to an identity mapping.
-
-            Labels are normalized for robust matching: lower-case, stripped
-            whitespace, and ``_ptr`` suffix removed.
-
-        Args:
-            expression_df (pd.DataFrame): Expression table whose columns define
-                the source keys.
-            sample_type_map (dict[str, str] | str | None): User-configured
-                column mapping.
-
-        Returns:
-            dict[str, str]: Mapping of expression column → PTR column.
-        """
-        expr_cols_normalized = {
-            expr_col: _normalize_sample_label(expr_col) for expr_col in expression_df.columns
-        }
-
-        if sample_type_map is None:
-            return expr_cols_normalized
-        if isinstance(sample_type_map, str):
-            normalized_target = _normalize_sample_label(sample_type_map)
-            return {col: normalized_target for col in expression_df.columns}
-
-        normalized_input_map: dict[str, str] = {
-            _normalize_sample_label(src_col): _normalize_sample_label(dst_col)
-            for src_col, dst_col in sample_type_map.items()
-        }
-        return {
-            expr_col: normalized_input_map.get(expr_col_norm, expr_col_norm)
-            for expr_col, expr_col_norm in expr_cols_normalized.items()
-        }
-
-    # ------------------------------------------------------------------
-    # Combination
-    # ------------------------------------------------------------------
-
-    def combine_expression_with_ptr(
-        self,
-        expression_df: pd.DataFrame,
-        ptr_df: pd.DataFrame,
-        sample_type_map: dict[str, str] | str | None = None,
-    ) -> pd.DataFrame:
-        """Generated: validation needed.
-
-        Description:
-            Multiply expression values by PTR values for each gene, using the
-            resolved sample-type column mapping to pair expression columns with
-            PTR columns.  Genes absent from PTR retain their expression values.
-
-        Args:
-            expression_df (pd.DataFrame): Preprocessed expression table
-                (genes × expression-samples).
-            ptr_df (pd.DataFrame): Preprocessed PTR table
-                (genes × tissue-types).
-            sample_type_map (dict[str, str] | str | None): Mapping from
-                expression column names to PTR column names.  ``str`` maps
-                every expression column to the same PTR column; ``None`` falls
-                back to direct column intersection.
-
-        Returns:
-            pd.DataFrame: Combined protein abundance table with same shape as
-            ``expression_df``.
-        """
-        col_map = self.resolve_sample_type_map(expression_df, sample_type_map)
-        protein_df = expression_df.copy()
-        common_genes = expression_df.index.intersection(ptr_df.index)
-
-        ptr_col_lookup: dict[str, str] = {}
-        for ptr_col in ptr_df.columns:
-            normalized_ptr_col = _normalize_sample_label(ptr_col)
-            ptr_col_lookup.setdefault(normalized_ptr_col, ptr_col)
-
-        if common_genes.empty:
-            self.logger.warning(
-                "PTR: no overlapping genes between expression and PTR; "
-                "returning unmodified expression."
-            )
-            return protein_df
-
-        for expr_col, ptr_col in col_map.items():
-            if expr_col not in expression_df.columns:
-                continue
-            ptr_col_actual = ptr_col_lookup.get(ptr_col)
-            if ptr_col_actual is None:
-                self.logger.warning(
-                    f"PTR: column '{ptr_col}' not found in PTR frame; "
-                    f"skipping multiplication for expression column '{expr_col}'."
-                )
-                continue
-            protein_df.loc[common_genes, expr_col] = (
-                expression_df.loc[common_genes, expr_col]
-                * ptr_df.loc[common_genes, ptr_col_actual]
-            )
-
-        return protein_df
-
-    def create_metadata(
-        self,
-        elapsed_time: float,
-        **kwargs,
-    ) -> dict[str, Any]:
-        """Generated: validation needed.
-
-        Description:
-            Create metadata dictionary for the expression stage.
-
-        Args:
-            elapsed_time (float): Time taken for processing.
-
-        Returns:
-            dict[str, object]: Metadata dictionary.
-        """
-
-        metadata = {
-            "PTR_imputation": {
-                "implementation": self.__class__.__name__,
-                "status": "ptr_imputation_completed",
-                "elapsed_time_seconds": elapsed_time,
-                "date_created": pd.Timestamp.now().isoformat(),
-                "params": self.get_implementation_config_params(),
-            }
-        }
-        return metadata
