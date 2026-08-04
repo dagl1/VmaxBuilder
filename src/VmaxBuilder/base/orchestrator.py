@@ -4,6 +4,8 @@ from pathlib import Path
 from pprint import pprint
 from typing import Any, TypeVar, cast, get_type_hints
 
+import pandas as pd
+
 from VmaxBuilder.base.classes import BaseImplementation, _iter_implementations
 from VmaxBuilder.base.configs import (
     DiscoveredInput,
@@ -41,8 +43,11 @@ then search based on inputs if not found we raise error
 
 """
 ImplT = TypeVar("ImplT", bound=BaseImplementation[Any])
+pd.set_option(
+    "future.no_silent_downcasting", True
+)  # to avoid future warning for downcasting in pandas
 
-# todo: add validator at end of implemtnation to see if all things in outputs
+# todo: add validator at end of implementation to see if all things in outputs
 # are now present in scaffold outputs
 
 
@@ -127,7 +132,7 @@ class Orchestrator:
         self.logger.info("Orchestrator run completed.")
 
     def return_config(
-        self, sections: list[str] | str | None = None
+        self, sections: list[str] | str | None = None, verbose: bool = True
     ) -> dict[str, dict[str, Any]]:
         return_dict: dict[str, dict[str, Any]] = {}
         if not hasattr(self.config, "run") or self.config.run is None:
@@ -138,11 +143,13 @@ class Orchestrator:
             raise ValueError("Sections must be None, a string, or a list of strings.")
 
         elif sections is None or sections == "all":
-            pprint(custom_asdict(self.config))
-            return_dict = custom_asdict(self.config)
+            pprint(custom_asdict(self.config, verbose=verbose))
+            return_dict = custom_asdict(self.config, verbose=verbose)
         elif isinstance(sections, str):
-            pprint(custom_asdict(getattr(self.config, sections)))
-            return_dict[sections] = custom_asdict(getattr(self.config, sections))
+            pprint(custom_asdict(getattr(self.config, sections), verbose=verbose))
+            return_dict[sections] = custom_asdict(
+                getattr(self.config, sections), verbose=verbose
+            )
         elif isinstance(sections, list):
             for section in sections:
                 if not hasattr(self.config, section):
@@ -150,8 +157,10 @@ class Orchestrator:
                 allowed_types = tuple(f.type for f in fields(self.config))
                 if not isinstance(getattr(self.config, section), allowed_types):
                     raise ValueError(f"Section '{section}' is not a valid config section.")
-                pprint(custom_asdict(getattr(self.config, section)))
-                return_dict[section] = custom_asdict(getattr(self.config, section))
+                pprint(custom_asdict(getattr(self.config, section), verbose=verbose))
+                return_dict[section] = custom_asdict(
+                    getattr(self.config, section), verbose=verbose
+                )
         return return_dict
 
     def return_non_default_configs(self) -> dict[str, dict[str, Any]]:
@@ -580,6 +589,8 @@ if __name__ == "__main__":
     protein = orchestrator.set_protein_implementation(
         MvalueTrimmingExpressionPTRImplementation
     )
+    protein.config.expression_sample_type_map = {idx: "heart" for idx in range(1, 1000)}
+
     # # model.config.maximum_transcript_ifp_expansion_2 = 800
     # orchestrator.config.model.maximum_transcript_ifp_expansion = 800
     #
@@ -590,7 +601,7 @@ if __name__ == "__main__":
     # print("showing discovered paths: ", orchestrator.return_discovered_paths())
     # print("Initial config:")
     #
-    # orchestrator.return_config()
+    orchestrator.return_config(verbose=False)
     # print("setting print level to DEBUG...")
     orchestrator.config.run.overwrite_existing_results = True
     # print("showing user submitted  paths:")
