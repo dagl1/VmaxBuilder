@@ -18,10 +18,13 @@ from typing_extensions import TypedDict, overload
 from VmaxBuilder.base.classes import BaseImplementation, ImplementationConfig
 from VmaxBuilder.base.enums import PrimaryOutputFormat
 from VmaxBuilder.base.exceptions import ConfigurationError
+from VmaxBuilder.utils.custom_logging import CustomLogger
 from VmaxBuilder.utils.file_handling import (
     load_existing_file_based_on_extension,
     save_with_tries,
 )
+
+backup_logger = CustomLogger("VmaxBuilder.base.configs")
 
 
 class Validator(Protocol):
@@ -280,7 +283,7 @@ class InputSpec:
     """
 
     name: str
-    data_type: type | None = None
+    data_type: type | tuple[type, ...] | None = None
     optional: bool = False
     in_scaffold: bool = False  # if True, input is expected to be in scaffold
     loader: Callable | None = load_existing_file_based_on_extension  # file → object loader
@@ -359,7 +362,9 @@ class Scaffold:
 
         return None
 
-    def get_scaffold_value(self, key: str) -> Any | None:
+    def get_scaffold_value(
+        self, key: str, assumed_return_type: type | None = None
+    ) -> Any | None:
         """
         searches the scaffold for the given key in the following order:
         1. inputs
@@ -372,7 +377,18 @@ class Scaffold:
         """
         location = self.get_scaffold_location(key)
         if location is not None:
-            return getattr(self, location)[key]
+            value = getattr(self, location)[key]
+            if assumed_return_type is None:
+                return value
+            else:
+                if isinstance(value, assumed_return_type):
+                    return value
+                else:
+                    backup_logger.warning(
+                        f"Value for key '{key}' in scaffold is not of type "
+                        f"{assumed_return_type.__name__}. "
+                        f"Returning value as is. Actual type: {type(value).__name__}"
+                    )
         else:
             return None
 
