@@ -172,6 +172,10 @@ class BaseImplementationDiagnostics(Generic[ConfigType], ABC):
 
     DIAGNOSTICS_NAME: str
 
+    def __init__(self, full_config: "FullConfig"):
+        self.full_config = full_config
+        self.logger = CustomLogger(f"Fallback logger: {self.DIAGNOSTICS_NAME}")
+
     @abstractmethod
     def before_run(
         self,
@@ -181,7 +185,7 @@ class BaseImplementationDiagnostics(Generic[ConfigType], ABC):
     def after_run(
         self,
         new_scaffold_objects: dict[str, dict[str, Any]],
-        scaffold: Scaffold,
+        scaffold: "Scaffold",
     ) -> dict[str, dict[str, Any]]: ...
 
     # def on_error(self, scaffold: dict[str, dict[str, Any]], error: Exception):
@@ -282,7 +286,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
         ]
         self.logger = CustomLogger(f"Fallback logger: {self.IMPL_NAME}")
         self.full_config = full_config
-        self.diagnostics = [diag() for diag in self.DIAGNOSTICS]
+        self.diagnostics = [diag(full_config) for diag in self.DIAGNOSTICS]
         self.config: ConfigType = resolve_implementation_config_class(
             self,
             self.BASE_STAGE_CONFIG,
@@ -300,8 +304,13 @@ class BaseImplementation(Generic[ConfigType], ABC):
         Run diagnostics before generating outputs. This is implementation-agnostic,
         and thus will be handled per stage.
         """
+
+        scaffold_objects: dict[str, dict[str, Any]] = {
+            "diagnostics": {},
+        }
         for diagnostic in self.diagnostics:
             scaffold_objects = diagnostic.before_run(scaffold)
+
         return scaffold_objects
 
     def run_after_diagnostics(

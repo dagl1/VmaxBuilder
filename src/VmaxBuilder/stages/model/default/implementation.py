@@ -112,7 +112,9 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultModelConf
             validator=None,
         ),
     ]
-    DIAGNOSTICS = ModelDiagnostics()
+    DIAGNOSTICS = [
+        # ModelDiagnostics,
+    ]
 
     def __init__(self, full_config: FullConfig):
         super().__init__(full_config)

@@ -43,7 +43,7 @@ class PTRDiagnostics(BaseImplementationDiagnostics[PTRInputConfig]):
             statistic=self.full_config.protein.partial_missing_imputation_statistic,
         )
         new_scaffold_objects = {
-            "output": {},
+            "outputs": {},
             "diagnostics": {"PTR": {"missing_value_correlation_plot": correlation_plot}},
             "artifacts": {},
             "metadata": {},
@@ -127,6 +127,8 @@ def create_missing_value_PTR_correlation_plot(
         highlight_genes = highlight_info.get("genes", None)
         highlight_title = highlight_info.get("title", None)
 
+    # coerce to numeric and handle non-numeric gracefully
+    PTR_df = PTR_df.apply(pd.to_numeric, errors="coerce")
     missing_counts = PTR_df.isnull().sum(axis=1)
     if statistic not in STATISTIC_FUNCTIONS:
         raise ValueError(f"Statistic '{statistic}' is not supported.")
@@ -214,8 +216,8 @@ def create_missing_value_PTR_correlation_plot(
     )
 
     # trendline
-    X = result_df["missing_count"].values.reshape(-1, 1)
-    y = result_df["stat_value"].values.reshape(-1, 1)
+    X = result_df["missing_count"].values.reshape(-1, 1)  # ty: ignore
+    y = result_df["stat_value"].values.reshape(-1, 1)  # ty: ignore
 
     lr = LinearRegression()
     lr.fit(X, y)
