@@ -2,24 +2,31 @@ import inspect
 import json
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass, fields, is_dataclass, make_dataclass
+from dataclasses import (
+    dataclass,
+    field,
+    fields,
+    is_dataclass,
+    make_dataclass,
+)
 from datetime import datetime
+from hashlib import new
 from inspect import getmembers, isfunction
 from lib2to3.pytree import Base
+from pathlib import Path
 from pprint import pformat, pprint
 from typing import TYPE_CHECKING, Any, Generic, Iterator, ParamSpec, TypeVar
 
 import pandas as pd
 
+from VmaxBuilder.base.exceptions import ImplementationConfigConflictError
+from VmaxBuilder.utils.custom_logging import CustomLogger, custom_asdict
+from VmaxBuilder.utils.file_handling import save_with_tries
 from VmaxBuilder.utils.iterables import make_json_serializable
 
 if TYPE_CHECKING:
-    from VmaxBuilder.base.configs import FullConfig
-from VmaxBuilder.base.exceptions import ImplementationConfigConflictError
-from VmaxBuilder.utils.custom_logging import CustomLogger, custom_asdict
-
-if TYPE_CHECKING:
     from VmaxBuilder.base.configs import (
+        FullConfig,
         InputSpec,
         OutputSpec,
         Scaffold,
@@ -35,7 +42,7 @@ fallback_logger = CustomLogger("Fallback logger: BaseStage & BaseImplementation"
 
 class BaseStage:
     STAGE_NAME: str
-    DIAGNOSTICS = []
+    DIAGNOSTICS: list[type["BaseStageDiagnostics"]] = []
     OUTPUTS: list["OutputSpec"] = []
     CORE_CONFIG_CLASS = None
     ADDITIONAL_IMPLEMENTATIONS: list[type["BaseImplementation"]] = []
@@ -57,6 +64,7 @@ class BaseStage:
             impl.__name__: impl(config)
             for impl in self.ADDITIONAL_IMPLEMENTATIONS
         }
+        self.diagnostics = [diag() for diag in self.DIAGNOSTICS]
         self.logger = CustomLogger(f"Fallback logger: {self.STAGE_NAME}")
 
     def run(self, scaffold):
@@ -72,7 +80,7 @@ class BaseStage:
             Scaffold: Updated scaffold after stage execution.
         """
         # Run diagnostics before the stage execution
-        for diagnostic in self.DIAGNOSTICS:
+        for diagnostic in self.diagnostics:
             diagnostic.before_run(scaffold)
 
         # Run the implementation
@@ -82,7 +90,7 @@ class BaseStage:
         # Run diagnostics after the stage execution
         # todo: debug here or somewhat earlier, appears that scaffold is modified
         # by run additional processes, irreversible_cobra_model disappears
-        for diagnostic in self.DIAGNOSTICS:
+        for diagnostic in self.diagnostics:
             diagnostic.after_run(scaffold)
 
         self.ensure_outputs(scaffold)
@@ -130,25 +138,116 @@ class BaseStage:
                     )
 
 
-class BaseStageDiagnostics:
+class BaseStageDiagnostics(ABC):
     """
     Only used for implementation-independent diagnostics used to verify stage output
     based on stage contracts.
     """
 
-    def after_run(self, scaffold): ...
+    DIAGNOSTICS_NAME: str
+
+    @abstractmethod
+    def after_run(self, scaffold: "Scaffold"): ...
+
+    @abstractmethod
+    def before_run(self, scaffold: "Scaffold"): ...
 
 
-class ImplementationDiagnostics:
+@dataclass(slots=True)
+class DiagnosticOutputSpec:
+    data: Any
+    save_file_name: str
+    extensions: list[str] | str
+    data_type: type | None = None
+    saver: Callable = save_with_tries
+    saver_args: dict[str, Any] = field(default_factory=dict)  # additional args
+
+
+class BaseImplementationDiagnostics(Generic[ConfigType], ABC):
     """
     Used for implementation-specific diagnostics, which may include verifying
     stage output but also more detailed checks that may be specific
     to the implementation's approach.
     """
 
-    def before_run(self, scaffold): ...
-    def after_run(self, scaffold): ...
-    def on_error(self, error): ...
+    DIAGNOSTICS_NAME: str
+
+    @abstractmethod
+    def before_run(
+        self,
+        scaffold: "Scaffold",
+    ) -> dict[str, dict[str, Any]]: ...
+    @abstractmethod
+    def after_run(
+        self,
+        new_scaffold_objects: dict[str, dict[str, Any]],
+        scaffold: Scaffold,
+    ) -> dict[str, dict[str, Any]]: ...
+
+    # def on_error(self, scaffold: dict[str, dict[str, Any]], error: Exception):
+    #     ...  # todo: implement this, unsure how exactly
+    #     # maybe through a context manager  or by returning
+    #     # specific errors. ALternatively we could have
+    #     # specific custom exceptions that call the on_error
+    #     # method when raised
+    # decorator for taking all values in the return of a function
+    # and putting them into the format of diagnosticoutputspec
+
+    def create_diagnostics_outputs(
+        self,
+        func: Callable[..., dict[str, Any] | Any | tuple[Any, ...]],
+        save_file_name: str,
+        extensions: list[str] | str,
+        data_type: type | None = None,
+        saver: Callable = save_with_tries,
+        saver_args: dict[str, Any] | None = None,
+    ) -> Callable[..., dict[str, DiagnosticOutputSpec]]:
+        if saver_args is None:
+            saver_args = {}
+
+        def wrapper(*args, **kwargs) -> dict[str, DiagnosticOutputSpec]:
+            outputs = func(*args, **kwargs)
+            func_name = (
+                str(func.__name__) if hasattr(func, "__name__") else "unknown_function"
+            )
+
+            if isinstance(outputs, dict):
+                return {
+                    key: DiagnosticOutputSpec(
+                        data=value,
+                        save_file_name=save_file_name,
+                        extensions=extensions,
+                        data_type=data_type,
+                        saver=saver,
+                        saver_args=saver_args if saver_args is not None else {},
+                    )
+                    for key, value in outputs.items()
+                }
+            elif isinstance(outputs, (list, tuple)):
+                return {
+                    f"{func_name}_{i}": DiagnosticOutputSpec(
+                        data=value,
+                        save_file_name=save_file_name,
+                        extensions=extensions,
+                        data_type=data_type,
+                        saver=saver,
+                        saver_args=saver_args if saver_args is not None else {},
+                    )
+                    for i, value in enumerate(outputs)
+                }
+            else:
+                return {
+                    func_name: DiagnosticOutputSpec(
+                        data=outputs,
+                        save_file_name=save_file_name,
+                        extensions=extensions,
+                        data_type=data_type,
+                        saver=saver,
+                        saver_args=saver_args if saver_args is not None else {},
+                    )
+                }
+
+        return wrapper
 
 
 class BaseImplementation(Generic[ConfigType], ABC):
@@ -164,7 +263,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
 
     CHILD_IMPLEMENTATIONS: list[type["BaseImplementation"]] = []
 
-    DIAGNOSTICS: list[ImplementationDiagnostics] = []
+    DIAGNOSTICS: list[type["BaseImplementationDiagnostics"]] = []
 
     def __init__(
         self,
@@ -183,6 +282,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
         ]
         self.logger = CustomLogger(f"Fallback logger: {self.IMPL_NAME}")
         self.full_config = full_config
+        self.diagnostics = [diag() for diag in self.DIAGNOSTICS]
         self.config: ConfigType = resolve_implementation_config_class(
             self,
             self.BASE_STAGE_CONFIG,
@@ -191,6 +291,31 @@ class BaseImplementation(Generic[ConfigType], ABC):
 
     def generate_outputs(self, scaffold: "Scaffold") -> dict[str, dict[str, Any]]:
         return {}
+
+    def run_before_diagnostics(
+        self,
+        scaffold: "Scaffold",
+    ) -> dict[str, dict[str, Any]]:
+        """
+        Run diagnostics before generating outputs. This is implementation-agnostic,
+        and thus will be handled per stage.
+        """
+        for diagnostic in self.diagnostics:
+            scaffold_objects = diagnostic.before_run(scaffold)
+        return scaffold_objects
+
+    def run_after_diagnostics(
+        self,
+        scaffold_objects: dict[str, dict[str, Any]],
+        scaffold: "Scaffold",
+    ) -> dict[str, dict[str, Any]]:
+        """
+        Run diagnostics after generating outputs. This is implementation-agnostic,
+        and thus will be handled per stage.
+        """
+        for diagnostic in self.diagnostics:
+            scaffold_objects = diagnostic.after_run(scaffold_objects, scaffold=scaffold)
+        return scaffold_objects
 
     def run(self, scaffold: "Scaffold") -> "Scaffold":
         """Generated: validation needed.
@@ -205,9 +330,29 @@ class BaseImplementation(Generic[ConfigType], ABC):
             Scaffold: Updated scaffold.
         """
         if not self.child_implementations:
+            # before_run diagnostics
+            new_scaffold_objects = self.run_before_diagnostics(scaffold)
+            new_scaffold_objects = self.add_stage_and_run_moment_to_scaffold(
+                new_scaffold_objects, "before_run"
+            )
+            scaffold.update_scaffold(new_scaffold_objects)
+
+            # output generation
             new_scaffold_objects = self.generate_outputs(scaffold)
-            new_scaffold_objects = self.add_stage_to_scaffold(new_scaffold_objects)
+            new_scaffold_objects = self.add_stage_and_run_moment_to_scaffold(
+                new_scaffold_objects, "during_run"
+            )
+            scaffold.update_scaffold(new_scaffold_objects)
+
+            # after_run diagnostics
+            new_scaffold_objects = self.run_after_diagnostics(new_scaffold_objects, scaffold)
+            new_scaffold_objects = self.add_stage_and_run_moment_to_scaffold(
+                new_scaffold_objects, "after_run"
+            )
+
+            # saving
             self.save_all_scaffold_objects(new_scaffold_objects)
+            # update scaffold with all new objects
             scaffold.update_scaffold(new_scaffold_objects)
         else:
             for child_impl in self.child_implementations:
@@ -408,6 +553,18 @@ class BaseImplementation(Generic[ConfigType], ABC):
 
         return wrapper
 
+    def add_diagnostic_modifier_to_scaffold(
+        self, new_scaffold_objects: dict[str, dict[str, Any]], diagnostic_addition: str
+    ) -> dict[str, Any]:
+        for key, value in list(new_scaffold_objects.items()):
+            if isinstance(value, dict) and diagnostic_addition in value:
+                continue
+            elif key == "outputs":
+                continue
+            new_scaffold_objects[key] = {diagnostic_addition: value}
+
+        return new_scaffold_objects
+
     def add_stage_to_scaffold(
         self, new_scaffold_objects: dict[str, dict[str, Any]]
     ) -> dict[str, Any]:
@@ -420,6 +577,17 @@ class BaseImplementation(Generic[ConfigType], ABC):
                 continue
             new_scaffold_objects[key] = {stage_name: value}
 
+        return new_scaffold_objects
+
+    def add_stage_and_run_moment_to_scaffold(
+        self,
+        new_scaffold_objects: dict[str, dict[str, Any]],
+        run_moment: str,
+    ) -> dict[str, Any]:
+        new_scaffold_objects = self.add_diagnostic_modifier_to_scaffold(
+            new_scaffold_objects, run_moment
+        )
+        new_scaffold_objects = self.add_stage_to_scaffold(new_scaffold_objects)
         return new_scaffold_objects
 
     def save_artifacts(self, scaffold_objects: dict[str, Any]) -> None:
@@ -542,17 +710,42 @@ class BaseImplementation(Generic[ConfigType], ABC):
         Diagnostics go into their own stage folders:
             main_folder/diagnostics/stage_name/diagnostic_name
         """
+        diagnostic_times = ["before_run", "during_run", "after_run"]
         diagnostics_folder = self.full_config.run.paths.diagnostics_dir
         diagnostics = scaffold_objects.get("diagnostics", None)
         if diagnostics:
             diagnostic_stage_folder = diagnostics_folder / f"{self.STAGE_NAME}_stage"
-            diagnostic_stage_folder.mkdir(parents=True, exist_ok=True)
-            stage_diagnostics = diagnostics.get(f"{self.STAGE_NAME}_stage", {})
-            for diagnostic_name, diagnostic_value in stage_diagnostics.items():
-                save_location = diagnostic_stage_folder / f"{diagnostic_name}.json"
-                # todo: add way to indicate save_with_tries and extension
-                with open(save_location, "w") as f:
-                    json.dump(make_json_serializable(diagnostic_value), f)
+            for diagnostic_time in diagnostic_times:
+                diagnostic_time_folder = diagnostic_stage_folder / diagnostic_time
+                diagnostic_time_folder.mkdir(parents=True, exist_ok=True)
+
+                time_diagnostics = diagnostics.get(f"{self.STAGE_NAME}_stage", {}).get(
+                    diagnostic_time, {}
+                )
+                for location in time_diagnostics:
+                    for diagnostic_name, diagnostic_value in time_diagnostics[
+                        location
+                    ].items():
+                        if isinstance(diagnostic_value, DiagnosticOutputSpec):
+                            save_location = (
+                                diagnostic_time_folder
+                                / f"{diagnostic_name}{diagnostic_value.extensions}"
+                            )
+                            diagnostic_value.saver(
+                                diagnostic_value.data,
+                                save_location,
+                                **diagnostic_value.saver_args,
+                            )
+                        else:
+                            # if users want to save diagnostics as
+                            # anything other than json, they must use the DiagnosticOutputSpec
+                            # and specify extension and saver function.
+                            # otherwise, we will save as json by default.
+                            save_location = (
+                                diagnostic_stage_folder / f"{diagnostic_name}.json"
+                            )
+                            with open(save_location, "w") as f:
+                                json.dump(make_json_serializable(diagnostic_value), f)
 
     def save_metadata(
         self,
@@ -575,6 +768,10 @@ class BaseImplementation(Generic[ConfigType], ABC):
                 # todo: add way to indicate save_with_tries and extension
                 with open(save_location, "w") as f:
                     json.dump(make_json_serializable(metadata_value), f)
+
+    # def _recurse_dictionary_until_leaf(
+    #     self, node: dict[str, Any], current_path: Path
+    #     ) -> None:
 
     def save_all_scaffold_objects(self, scaffold_objects: dict[str, Any]) -> None:
         """
@@ -701,7 +898,7 @@ def build_flattened_config(config_classes: list[type]) -> type:
             continue
         already_seen_configs.add(config_cls)
 
-        for _field in fields(config_cls):
+        for _field in fields(config_cls):  # ty: ignore
             combined_fields.append(
                 (
                     _field.name,

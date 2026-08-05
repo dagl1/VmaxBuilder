@@ -6,13 +6,13 @@ import pandas as pd
 from cobra.core.model import Model
 from pandas import DataFrame
 
-from VmaxBuilder.base.classes import BaseImplementation, RealImplementation
+from VmaxBuilder.base.classes import (
+    BaseImplementationDiagnostics,
+    RealImplementation,
+)
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.stages.protein.ptr.config import PTRInputConfig
-from VmaxBuilder.stages.protein.ptr.ptr_utils import _normalize_sample_label
-from VmaxBuilder.typing_stubs.protein.expressionPTR.implementation import (
-    ExpressionPTRConfigProtocol,
-)
+from VmaxBuilder.stages.protein.ptr.diagnostics import PTRDiagnostics
 from VmaxBuilder.utils.extra_utils import (
     get_transport_reaction_gene_ids,
     resolve_gene_or_reaction_group_members,
@@ -71,6 +71,7 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
     IMPL_NAME = "simple_ptr_imputation"
     IMPLEMENTATION_CONFIG_CLASS = PTRInputConfig
     CHILD_IMPLEMENTATIONS = []
+    DIAGNOSTICS: list[type[BaseImplementationDiagnostics]] = [PTRDiagnostics]
     INPUTS: list[InputSpec] = [
         InputSpec(
             name="PTR_df",
@@ -102,6 +103,17 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
             data_type=DataFrame,
             scaffold_location="outputs",
             save_file_name="imputed_PTR_df",
+            saver_args={
+                "with_index": True,
+            },
+            extension=".csv",
+            validator=None,
+        ),
+        OutputSpec(
+            name="partially_imputed_df",
+            data_type=DataFrame,
+            scaffold_location="artifacts",
+            save_file_name="partially_imputed_df",
             saver_args={
                 "with_index": True,
             },
@@ -169,7 +181,7 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
             "outputs": {"imputed_PTR_df": fully_imputed_df},
             "diagnostics": {},
             "metadata": metadata,
-            "artifacts": {},
+            "artifacts": {"partially_imputed_df": partially_imputed_df},
         }
 
         return new_scaffold_objects
