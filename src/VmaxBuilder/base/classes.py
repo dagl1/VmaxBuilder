@@ -1,7 +1,7 @@
 import inspect
 import json
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import (
     dataclass,
     field,
@@ -205,43 +205,40 @@ class BaseImplementationDiagnostics(Generic[ConfigType], ABC):
         data_type: type | None = None,
         saver: Callable = save_with_tries,
         saver_args: dict[str, Any] | None = None,
-    ) -> Callable[..., dict[str, DiagnosticOutputSpec]]:
+    ) -> Callable[..., list[DiagnosticOutputSpec]]:
         if saver_args is None:
             saver_args = {}
 
-        def wrapper(*args, **kwargs) -> dict[str, DiagnosticOutputSpec]:
+        def wrapper(*args, **kwargs) -> list[DiagnosticOutputSpec]:
             outputs = func(*args, **kwargs)
-            func_name = (
-                str(func.__name__) if hasattr(func, "__name__") else "unknown_function"
-            )
 
             if isinstance(outputs, dict):
-                return {
-                    key: DiagnosticOutputSpec(
+                return [
+                    DiagnosticOutputSpec(
                         data=value,
-                        save_file_name=save_file_name,
+                        save_file_name=f"{save_file_name}_{key}",
                         extensions=extensions,
                         data_type=data_type,
                         saver=saver,
                         saver_args=saver_args if saver_args is not None else {},
                     )
                     for key, value in outputs.items()
-                }
+                ]
             elif isinstance(outputs, (list, tuple)):
-                return {
-                    f"{func_name}_{i}": DiagnosticOutputSpec(
+                return [
+                    DiagnosticOutputSpec(
                         data=value,
-                        save_file_name=save_file_name,
+                        save_file_name=f"{save_file_name}_n{i}",
                         extensions=extensions,
                         data_type=data_type,
                         saver=saver,
                         saver_args=saver_args if saver_args is not None else {},
                     )
                     for i, value in enumerate(outputs)
-                }
+                ]
             else:
-                return {
-                    func_name: DiagnosticOutputSpec(
+                return [
+                    DiagnosticOutputSpec(
                         data=outputs,
                         save_file_name=save_file_name,
                         extensions=extensions,
@@ -249,7 +246,7 @@ class BaseImplementationDiagnostics(Generic[ConfigType], ABC):
                         saver=saver,
                         saver_args=saver_args if saver_args is not None else {},
                     )
-                }
+                ]
 
         return wrapper
 
@@ -322,9 +319,15 @@ class BaseImplementation(Generic[ConfigType], ABC):
         Run diagnostics after generating outputs. This is implementation-agnostic,
         and thus will be handled per stage.
         """
+        new_scaffold_objects = {
+            "outputs": {},
+            "artifacts": {},
+            "diagnostics": {},
+            "metadata": {},
+        }
         for diagnostic in self.diagnostics:
-            scaffold_objects = diagnostic.after_run(scaffold_objects, scaffold=scaffold)
-        return scaffold_objects
+            new_scaffold_objects = diagnostic.after_run(scaffold_objects, scaffold=scaffold)
+        return new_scaffold_objects
 
     def run(self, scaffold: "Scaffold") -> "Scaffold":
         """Generated: validation needed.
@@ -340,29 +343,31 @@ class BaseImplementation(Generic[ConfigType], ABC):
         """
         if not self.child_implementations:
             # before_run diagnostics
-            new_scaffold_objects = self.run_before_diagnostics(scaffold)
-            new_scaffold_objects = self.add_stage_and_run_moment_to_scaffold(
-                new_scaffold_objects, "before_run"
+            before_run_scaffold_objects = self.run_before_diagnostics(scaffold)
+            before_run_scaffold_objects = self.add_stage_and_run_moment_to_scaffold(
+                before_run_scaffold_objects, "before_run"
             )
-            scaffold.update_scaffold(new_scaffold_objects)
+            scaffold.update_scaffold(before_run_scaffold_objects)
+            self.save_all_scaffold_objects(before_run_scaffold_objects)
 
             # output generation
-            new_scaffold_objects = self.generate_outputs(scaffold)
-            new_scaffold_objects = self.add_stage_and_run_moment_to_scaffold(
-                new_scaffold_objects, "during_run"
+            during_run_scaffold_objects = self.generate_outputs(scaffold)
+            during_run_scaffold_objects = self.add_stage_and_run_moment_to_scaffold(
+                during_run_scaffold_objects, "during_run"
             )
-            scaffold.update_scaffold(new_scaffold_objects)
+            scaffold.update_scaffold(during_run_scaffold_objects)
+            self.save_all_scaffold_objects(during_run_scaffold_objects)
 
             # after_run diagnostics
-            new_scaffold_objects = self.run_after_diagnostics(new_scaffold_objects, scaffold)
-            new_scaffold_objects = self.add_stage_and_run_moment_to_scaffold(
-                new_scaffold_objects, "after_run"
+            after_run_scaffold_objects = self.run_after_diagnostics(
+                during_run_scaffold_objects, scaffold
             )
+            after_run_scaffold_objects = self.add_stage_and_run_moment_to_scaffold(
+                after_run_scaffold_objects, "after_run"
+            )
+            scaffold.update_scaffold(after_run_scaffold_objects)
+            self.save_all_scaffold_objects(after_run_scaffold_objects)
 
-            # saving
-            self.save_all_scaffold_objects(new_scaffold_objects)
-            # update scaffold with all new objects
-            scaffold.update_scaffold(new_scaffold_objects)
         else:
             for child_impl in self.child_implementations:
                 scaffold = child_impl.run(scaffold)
@@ -566,9 +571,11 @@ class BaseImplementation(Generic[ConfigType], ABC):
         self, new_scaffold_objects: dict[str, dict[str, Any]], diagnostic_addition: str
     ) -> dict[str, Any]:
         for key, value in list(new_scaffold_objects.items()):
-            if isinstance(value, dict) and diagnostic_addition in value:
-                continue
-            elif key == "outputs":
+            # if isinstance(value, dict) and diagnostic_addition in value:
+            #     continue
+            # elif key == "outputs":
+            #     continue
+            if key != "diagnostics":
                 continue
             new_scaffold_objects[key] = {diagnostic_addition: value}
 
@@ -608,7 +615,6 @@ class BaseImplementation(Generic[ConfigType], ABC):
                     and self.full_config.run.save_artifacts
                 )
             ):
-                pass
                 artifact_folder = self.full_config.run.paths.artifacts_dir
                 for stage_name, artifacts in value.items():
                     artifact_stage_folder = artifact_folder / stage_name
@@ -640,7 +646,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
                             )
                             save_location.with_suffix(".json")
                             with open(save_location, "w") as f:
-                                json.dump(artifact_value, f)
+                                json.dump(make_json_serializable(artifact_value), f)
 
     def save_outputs(self, scaffold_objects: dict[str, Any]) -> None:
         """
@@ -714,47 +720,110 @@ class BaseImplementation(Generic[ConfigType], ABC):
         scaffold_objects: dict[str, Any],
     ) -> None:
         """
-        Save diagnostics to disk. This is implementation-agnostic,
-        and thus will be handled per stage.
-        Diagnostics go into their own stage folders:
-            main_folder/diagnostics/stage_name/diagnostic_name
-        """
-        diagnostic_times = ["before_run", "during_run", "after_run"]
-        diagnostics_folder = self.full_config.run.paths.diagnostics_dir
-        diagnostics = scaffold_objects.get("diagnostics", None)
-        if diagnostics:
-            diagnostic_stage_folder = diagnostics_folder / f"{self.STAGE_NAME}_stage"
-            for diagnostic_time in diagnostic_times:
-                diagnostic_time_folder = diagnostic_stage_folder / diagnostic_time
-                diagnostic_time_folder.mkdir(parents=True, exist_ok=True)
+        Save diagnostics to disk.
 
-                time_diagnostics = diagnostics.get(f"{self.STAGE_NAME}_stage", {}).get(
-                    diagnostic_time, {}
-                )
-                for location in time_diagnostics:
-                    for diagnostic_name, diagnostic_value in time_diagnostics[
-                        location
-                    ].items():
-                        if isinstance(diagnostic_value, DiagnosticOutputSpec):
-                            save_location = (
-                                diagnostic_time_folder
-                                / f"{diagnostic_name}{diagnostic_value.extensions}"
+        Folder structure:
+
+            diagnostics/
+                <stage_name>/
+                    before_run/
+                        <location>/
+                            ...
+                    during_run/
+                        <location>/
+                            ...
+                    after_run/
+                        <location>/
+                            ...
+        """
+        diagnostics = scaffold_objects.get("diagnostics")
+        if not diagnostics:
+            return
+
+        diagnostic_stage_folder = (
+            self.full_config.run.paths.diagnostics_dir / f"{self.STAGE_NAME}_stage"
+        )
+
+        stage_diagnostics = diagnostics.get(f"{self.STAGE_NAME}_stage", {})
+
+        for diagnostic_time in ("before_run", "during_run", "after_run"):
+            time_diagnostics = stage_diagnostics.get(diagnostic_time)
+            if not time_diagnostics:
+                continue
+
+            diagnostic_time_folder = diagnostic_stage_folder / diagnostic_time
+
+            for location, value in time_diagnostics.items():
+                diagnostic_location_folder = diagnostic_time_folder / location
+                diagnostic_location_folder.mkdir(parents=True, exist_ok=True)
+
+                if isinstance(value, Mapping):
+                    outputs = [(key, val) for key, val in value.items()]
+
+                elif isinstance(value, list):
+                    outputs = [
+                        (
+                            getattr(
+                                diagnostic,
+                                "save_file_name",
+                                f"{location}_{i}",
+                            ),
+                            diagnostic,
+                        )
+                        for i, diagnostic in enumerate(value)
+                    ]
+
+                else:
+                    outputs = [(location, value)]
+
+                for diagnostic_name, diagnostic_value in outputs:
+                    if isinstance(diagnostic_value, list):
+                        for i, diagnostic in enumerate(diagnostic_value):
+                            self._save_specific_diagnostic(
+                                diagnostic_value=diagnostic,
+                                save_location=diagnostic_location_folder,
+                                diagnostic_name=f"{diagnostic_name}_{i}",
                             )
-                            diagnostic_value.saver(
-                                diagnostic_value.data,
-                                save_location,
-                                **diagnostic_value.saver_args,
-                            )
-                        else:
-                            # if users want to save diagnostics as
-                            # anything other than json, they must use the DiagnosticOutputSpec
-                            # and specify extension and saver function.
-                            # otherwise, we will save as json by default.
-                            save_location = (
-                                diagnostic_stage_folder / f"{diagnostic_name}.json"
-                            )
-                            with open(save_location, "w") as f:
-                                json.dump(make_json_serializable(diagnostic_value), f)
+                    else:
+                        self._save_specific_diagnostic(
+                            diagnostic_value=diagnostic_value,
+                            save_location=diagnostic_location_folder,
+                            diagnostic_name=diagnostic_name,
+                        )
+
+    def _save_specific_diagnostic(
+        self,
+        diagnostic_value: Any,
+        save_location: Path,
+        diagnostic_name: str,
+    ) -> None:
+        """
+        Save a single diagnostic object.
+        """
+
+        if isinstance(diagnostic_value, DiagnosticOutputSpec):
+            saver_args = diagnostic_value.saver_args or {}
+            saver_args["overwrite"] = self.full_config.run.overwrite_existing_results
+            saver_args["extension"] = diagnostic_value.extensions
+            accepted_args = inspect.signature(diagnostic_value.saver).parameters
+            filtered_saver_args = {k: v for k, v in saver_args.items() if k in accepted_args}
+
+            diagnostic_value.saver(
+                diagnostic_value.data,
+                save_location / f"{diagnostic_value.save_file_name}",
+                **filtered_saver_args,
+            )
+            return
+
+        with (save_location / f"{diagnostic_name}.json").open(
+            "w",
+            encoding="utf-8",
+        ) as f:
+            json.dump(
+                make_json_serializable(diagnostic_value),
+                f,
+                indent=2,
+            )
 
     def save_metadata(
         self,

@@ -591,6 +591,11 @@ if __name__ == "__main__":
     )
     protein.config.expression_sample_type_map = {idx: "heart" for idx in range(1, 1000)}
 
+    protein.config.PTR_special_gene_groups = {"transport_reactions": []}
+    # todo: rename use_special_groups_for_unobserved_imputation to PTR
+
+    protein.config.use_special_groups_for_unobserved_imputation = True
+
     # # model.config.maximum_transcript_ifp_expansion_2 = 800
     # orchestrator.config.model.maximum_transcript_ifp_expansion = 800
     #
