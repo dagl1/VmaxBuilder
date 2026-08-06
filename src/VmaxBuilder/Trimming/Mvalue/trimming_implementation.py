@@ -5,7 +5,7 @@ from typing import Any, cast
 import pandas as pd
 from cobra import Model
 
-from VmaxBuilder.base.classes import BaseImplementation
+from VmaxBuilder.base.classes import BaseImplementation, DiagnosticOutputSpec
 from VmaxBuilder.base.configs import InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.stages.protein.protein import ProteinStageConfig
 from VmaxBuilder.Trimming.Mvalue.trimming_config import MValueTrimmingConfig
@@ -130,7 +130,9 @@ class MValueTrimmingImplementation(BaseImplementation[MValueTrimmingConfig]):
                 group_trimmable_genes, _, _gene_stats = self._assess_trimmability(group_df)
                 gene_stats.update(_gene_stats)
                 trimmable_genes.update(group_trimmable_genes)
-            non_trimmable_genes = SortedSet(expression_df.index) - trimmable_genes
+            non_trimmable_genes = cast(
+                SortedSet[str], SortedSet(expression_df.index) - trimmable_genes
+            )
         else:
             trimmable_genes, non_trimmable_genes, _gene_stats = self._assess_trimmability(
                 expression_df
@@ -165,8 +167,10 @@ class MValueTrimmingImplementation(BaseImplementation[MValueTrimmingConfig]):
         percentile_diff = upper_percentile - lower_percentile
 
         # identify genes where the difference is below the threshold
-        trimmable_genes = set(percentile_diff[percentile_diff < trim_threshold].index)
-        non_trimmable_genes = set(percentile_diff[percentile_diff >= trim_threshold].index)
+        trimmable_genes = SortedSet(percentile_diff[percentile_diff < trim_threshold].index)
+        non_trimmable_genes = SortedSet(
+            percentile_diff[percentile_diff >= trim_threshold].index
+        )
 
         gene_stats = {}
         for gene in trimmable_genes.union(non_trimmable_genes):
@@ -200,10 +204,15 @@ class MValueTrimmingImplementation(BaseImplementation[MValueTrimmingConfig]):
         trimmable_genes: SortedSet[str],
         non_trimmable_genes: SortedSet[str],
     ) -> dict[str, Any]:
-        diagnostics = {
-            "gene_trimming": {
+        gene_trimming_spec = DiagnosticOutputSpec(
+            {
                 "trimmable_gene_count": len(trimmable_genes),
                 "total_gene_count": len(trimmable_genes) + len(non_trimmable_genes),
-            }
-        }
+            },
+            save_file_name="gene_trimming_summary",
+            extensions=".json",
+            data_type=dict,
+        )
+
+        diagnostics = {"gene_trimming": [gene_trimming_spec]}
         return diagnostics
