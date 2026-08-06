@@ -6,7 +6,7 @@ from cobra.core.model import Model
 from pandas import DataFrame
 from typing_extensions import Protocol
 
-from VmaxBuilder.base.classes import BaseImplementation
+from VmaxBuilder.base.classes import BaseImplementation, DiagnosticOutputSpec
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.database_retrieval.identifier_translation import IdentifierTranslationService
 from VmaxBuilder.stages.model.default.config import ModelConfig
@@ -156,43 +156,57 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultModelConf
 
     def create_model_base_diagnostics(
         self, cobra_model: Model
-    ) -> dict[str, dict[str, int | SortedSet[str]]]:
+    ) -> dict[str, list[DiagnosticOutputSpec]]:
+        data = {
+            "reaction_count": len(cobra_model.reactions),
+            "irreversible_reaction_count": len(
+                [rxn for rxn in cobra_model.reactions if not rxn.reversibility]
+            ),
+            "exchange_reaction_count": len(
+                [rxn for rxn in cobra_model.reactions if rxn.boundary]
+            ),
+            "metabolite_count": len(cobra_model.metabolites),
+            "gene_count": len(cobra_model.genes),
+            "subsystem_count": len(
+                SortedSet([rxn.subsystem for rxn in cobra_model.reactions if rxn.subsystem])
+            ),
+            "subsystems": SortedSet(
+                [rxn.subsystem for rxn in cobra_model.reactions if rxn.subsystem]
+            ),
+        }
+
+        model_diagnostic_output = DiagnosticOutputSpec(
+            data=data,
+            save_file_name="model_summary",
+            extensions=".json",
+            data_type=dict,
+        )
+
         model_diagnostics = {
-            "model": {
-                "reaction_count": len(cobra_model.reactions),
-                "irreversible_reaction_count": len(
-                    [rxn for rxn in cobra_model.reactions if not rxn.reversibility]
-                ),
-                "exchange_reaction_count": len(
-                    [rxn for rxn in cobra_model.reactions if rxn.boundary]
-                ),
-                "metabolite_count": len(cobra_model.metabolites),
-                "gene_count": len(cobra_model.genes),
-                "subsystem_count": len(
-                    SortedSet(
-                        [rxn.subsystem for rxn in cobra_model.reactions if rxn.subsystem]
-                    )
-                ),
-                "subsystems": SortedSet(
-                    [rxn.subsystem for rxn in cobra_model.reactions if rxn.subsystem]
-                ),
-            },
+            "model": [model_diagnostic_output],
         }
         return model_diagnostics
 
     def create_base_transcript_diagnostics(
         self, transcript_df: DataFrame
-    ) -> dict[str, dict[str, int | float]]:
+    ) -> dict[str, list[DiagnosticOutputSpec]]:
+        data = {
+            "transcript_count": len(transcript_df),
+            "gene_count": len(transcript_df["gene_id"].unique()),
+            "mean_transcripts_per_gene": (
+                len(transcript_df) / len(transcript_df["gene_id"].unique())
+            ),
+            "median_transcript_length": transcript_df["cdna_len"].median(),
+            "mean_transcript_length ": transcript_df["cdna_len"].mean(),
+        }
+        transcript_diagnostic_output = DiagnosticOutputSpec(
+            data=data,
+            save_file_name="transcript_summary",
+            extensions=".json",
+            data_type=dict,
+        )
         transcript_diagnostics = {
-            "transcripts": {
-                "transcript_count": len(transcript_df),
-                "gene_count": len(transcript_df["gene_id"].unique()),
-                "mean_transcripts_per_gene": (
-                    len(transcript_df) / len(transcript_df["gene_id"].unique())
-                ),
-                "median_transcript_length": transcript_df["cdna_len"].median(),
-                "mean_transcript_length ": transcript_df["cdna_len"].mean(),
-            },
+            "transcripts": [transcript_diagnostic_output],
         }
         return transcript_diagnostics
 
