@@ -6,7 +6,11 @@ from cobra.core.model import Model
 from cobra.manipulation.delete import remove_genes
 from pandas import DataFrame
 
-from VmaxBuilder.base.classes import BaseImplementation, RealImplementation
+from VmaxBuilder.base.classes import (
+    BaseImplementation,
+    DiagnosticOutputSpec,
+    RealImplementation,
+)
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.base.exceptions import ConfigurationError
 from VmaxBuilder.database_retrieval.identifier_translation import (
@@ -198,8 +202,20 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
     ) -> dict[
         str,
         dict[str, DataFrame | Model]
-        | dict[str, str | dict[str, str | int | list[str]] | dict[str, list[str]]]
-        | dict[str, IdentifierTranslationResult],
+        | dict[
+            str,
+            str
+            | list[DiagnosticOutputSpec]
+            | dict[str, dict[str, str | int | list[str] | list[DiagnosticOutputSpec]]]
+            | dict[str, list[str]],
+        ]
+        | dict[str, IdentifierTranslationResult]
+        | dict[
+            str,
+            dict[str, dict[str, str]]
+            | dict[str, dict[str, str | int | list[str]]]
+            | list[DiagnosticOutputSpec],
+        ],
     ]:
         """Generated: validation needed.
 
@@ -274,11 +290,26 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
             #     )
 
         if not source_id_type or not target_id_type:
-            diagnostics["id_translation"] = "skipped_missing_id_type"
+            diagnostics["id_translation"] = {
+                "translation_summary": {
+                    "source_id_type": "skipped_missing_id_type",
+                    "target_id_type": "skipped_missing_id_type",
+                    "mapped_identifiers": "skipped_missing_id_type",
+                    "unresolved_identifiers": "skipped_missing_id_type",
+                }
+            }
+
             mapped_df = expression_df.copy()
             translation_result = None
         elif source_id_type == target_id_type:
-            diagnostics["id_translation"] = "skipped_matching_id_type"
+            diagnostics["id_translation"] = {
+                "translation_summary": {
+                    "source_id_type": "skipped_missing_id_type",
+                    "target_id_type": "skipped_missing_id_type",
+                    "mapped_identifiers": "skipped_missing_id_type",
+                    "unresolved_identifiers": "skipped_missing_id_type",
+                }
+            }
             mapped_df = expression_df.copy()
             translation_result = None
         else:
@@ -292,22 +323,18 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
                 batch_size=self.full_config.protein.id_translation_batch_size,
             )
             diagnostics["id_translation"] = {
-                "source_id_type": source_id_type,
-                "target_id_type": target_id_type,
-                "mapped_identifiers": len(translation_result.mapped_identifiers),
-                "unresolved_identifiers": translation_result.unresolved_identifiers,
+                "translation_summary": {
+                    "source_id_type": source_id_type,
+                    "target_id_type": target_id_type,
+                    "mapped_identifiers": len(translation_result.mapped_identifiers),
+                    "unresolved_identifiers": translation_result.unresolved_identifiers,
+                }
             }
 
             mapped_df = self._apply_identifier_mapping(
                 expression_df,
                 identifier_mapping=translation_result.mapped_identifiers,
             )
-
-        missing_genes = [
-            gene_id
-            for gene_id in [model_gene.id for model_gene in cobra_model.genes]
-            if gene_id not in mapped_df.index
-        ]
 
         (
             thresholded_df,
@@ -325,7 +352,13 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
                 f"{len(missing_genes)} genes from the model are missing "
                 "in the expression data. "
             )
-            diagnostics["expression_processing"] = {"missing_genes": missing_genes}
+            missing_genes_spec = DiagnosticOutputSpec(
+                data=missing_genes,
+                save_file_name="missing_genes",
+                extensions=".json",
+                data_type=list,
+            )
+            diagnostics["expression_processing"] = [missing_genes_spec]
 
         artifacts = {}
         if translation_result is not None:

@@ -8,14 +8,14 @@ from pandas import DataFrame
 
 from VmaxBuilder.base.classes import (
     BaseImplementationDiagnostics,
+    DiagnosticOutputSpec,
     RealImplementation,
 )
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.stages.protein.ptr.config import PTRInputConfig
 from VmaxBuilder.stages.protein.ptr.diagnostics import PTRDiagnostics
-from VmaxBuilder.utils.extra_utils import (
-    get_transport_reaction_gene_ids,
-    resolve_gene_or_reaction_group_members,
+from VmaxBuilder.stages.protein.ptr.ptr_utils import (
+    resolve_special_gene_groups,
 )
 from VmaxBuilder.utils.transformations import transform_dataframe
 
@@ -110,10 +110,43 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
             validator=None,
         ),
         OutputSpec(
-            name="partially_imputed_df",
+            name="partially_imputed_PTR_df_metabolic_genes",
             data_type=DataFrame,
             scaffold_location="artifacts",
-            save_file_name="partially_imputed_df",
+            save_file_name="partially_imputed_PTR_df_metabolic_genes",
+            saver_args={
+                "with_index": True,
+            },
+            extension=".csv",
+            validator=None,
+        ),
+        OutputSpec(
+            name="partially_imputed_PTR_df_all_genes",
+            data_type=DataFrame,
+            scaffold_location="artifacts",
+            save_file_name="partially_imputed_PTR_df_all_genes",
+            saver_args={
+                "with_index": True,
+            },
+            extension=".csv",
+            validator=None,
+        ),
+        OutputSpec(
+            name="fully_imputed_PTR_df_metabolic_genes",
+            data_type=DataFrame,
+            scaffold_location="artifacts",
+            save_file_name="fully_imputed_PTR_df_metabolic_genes",
+            saver_args={
+                "with_index": True,
+            },
+            extension=".csv",
+            validator=None,
+        ),
+        OutputSpec(
+            name="fully_imputed_PTR_df_all_genes",
+            data_type=DataFrame,
+            scaffold_location="artifacts",
+            save_file_name="fully_imputed_PTR_df_all_genes",
             saver_args={
                 "with_index": True,
             },
@@ -138,50 +171,73 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
         # preprocess ptr df
         time_start = pd.Timestamp.now()
 
-        ptr_df = self.prepare_ptr_frame(
+        prepared_ptr_dfs = self.prepare_ptr_frames(
             ptr_df=ptr_df,
             expression_df=preprocessed_expression_df,
             cobra_model=cobra_model,
             metabolic_genes=list(cobra_genes),
         )
-        # impute partially missing
-        partially_imputed_df = self.impute_within_tissue_ptrs(
-            ptr_df,
-            use_weighted=self.full_config.protein.partial_missing_use_weighted,
-            weighted_statistic=self.full_config.protein.partial_missing_weighted_statistic,
-            imputation_statistic=self.full_config.protein.partial_missing_imputation_statistic,
+        imputed_ptr_dfs: dict[str, pd.DataFrame] = {}
+        special_gene_groups = resolve_special_gene_groups(
+            self.full_config,
+            cobra_model=cobra_model,
+            expression_gene_ids=set(map(str, preprocessed_expression_df.index)),
         )
-        unobserved_genes = self.get_unobserved_genes(
-            partially_imputed_df, cobra_model=cobra_model
-        )
-        # impute fully missing genes
-        fully_imputed_df = self.impute_unobserved_genes(
-            partially_imputed_df,
-            expression_df=preprocessed_expression_df,
-            unobserved_gene_ids=unobserved_genes,
-            strategy=self.full_config.protein.unobserved_gene_imputation_strategy,
-            statistic=self.full_config.protein.unobserved_gene_imputation_statistic,
-            reference_df=ptr_df,
-            special_gene_groups=self.resolve_special_gene_groups(
-                self.full_config,
-                cobra_model=cast(
-                    Model, scaffold.get_scaffold_value("irreversible_cobra_model")
-                ),
-                expression_gene_ids=set(
-                    map(str, pd.DataFrame().index)
-                ),  # Placeholder, replace with actual expression_df
-            ),
-            use_special_groups=self.full_config.protein.use_special_groups_for_unobserved_imputation,
-        )
+        trace_dict: dict[str, Any] = {}
+        for df_name, ptr_df in prepared_ptr_dfs.items():
+            self.logger.debug(f"PTR: prepared frame '{df_name}' shape {ptr_df.shape}")
+            # impute partially missing
+            partially_imputed_df = self.impute_within_tissue_ptrs(
+                ptr_df,
+                use_weighted=self.full_config.protein.partial_missing_use_weighted,
+                weighted_statistic=self.full_config.protein.partial_missing_weighted_statistic,
+                imputation_statistic=self.full_config.protein.partial_missing_imputation_statistic,
+            )
+            unobserved_genes = self.get_unobserved_genes(
+                partially_imputed_df, cobra_model=cobra_model
+            )
+            imputed_ptr_dfs[f"partially_imputed_{df_name}"] = partially_imputed_df
+            # impute fully missing genes
+
+            fully_imputed_df = self.impute_unobserved_genes(
+                partially_imputed_df,
+                unobserved_gene_ids=unobserved_genes,
+                strategy=self.full_config.protein.unobserved_gene_imputation_strategy,
+                statistic=self.full_config.protein.unobserved_gene_imputation_statistic,
+                reference_df=ptr_df,
+                special_gene_groups=special_gene_groups,
+                use_special_groups=self.full_config.protein.use_special_groups_for_unobserved_imputation,
+                trace=trace_dict,
+            )
+            imputed_ptr_dfs[f"fully_imputed_{df_name}"] = fully_imputed_df
+
         end_time = pd.Timestamp.now()
         time_elapsed = (end_time - time_start).total_seconds()
         metadata = self.create_metadata(time_elapsed)
 
+        _latest_ptr_preparation_diagnostics = {
+            "special_gene_groups": special_gene_groups,
+            "special_group_gene_mapping": trace_dict.get("special_group_gene_mapping", {}),
+            "special_group_fill_values_per_sample": trace_dict.get(
+                "special_group_fill_values_per_sample",
+                {},
+            ),
+            "special_group_assigned_values_per_sample": trace_dict.get(
+                "special_group_assigned_values_per_sample",
+                {},
+            ),
+        }
+        ptr_diagnostic_spec = DiagnosticOutputSpec(
+            data=_latest_ptr_preparation_diagnostics,
+            save_file_name="special_gene_grouping",
+            extensions=".json",
+            data_type=dict,
+        )
         new_scaffold_objects = {
             "outputs": {"imputed_PTR_df": fully_imputed_df},
-            "diagnostics": {},
+            "diagnostics": {"PTR": ptr_diagnostic_spec},
             "metadata": metadata,
-            "artifacts": {"partially_imputed_df": partially_imputed_df},
+            "artifacts": imputed_ptr_dfs,
         }
 
         return new_scaffold_objects
@@ -683,7 +739,6 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
     @staticmethod
     def impute_unobserved_genes(
         ptr_df: pd.DataFrame,
-        expression_df: pd.DataFrame,
         unobserved_gene_ids: set[str],
         strategy: str = "sample_after_imputation",
         statistic: str = "median",
@@ -763,112 +818,43 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
             trace=trace,
         )
 
-    def prepare_ptr_frame(
+    def prepare_ptr_frames(
         self,
         ptr_df: pd.DataFrame,
         expression_df: pd.DataFrame,
         cobra_model: Model,
         metabolic_genes: list[str] | None = None,
-    ) -> pd.DataFrame:
+    ) -> dict[str, pd.DataFrame]:
         ptr_cfg = self.full_config.protein
-        ptr_imputation_trace: dict[str, Any] = {}
 
         df = self.standardize_ptr_frame(ptr_df)
         self.logger.debug(f"PTR: standardized frame shape{df.shape}")
 
-        df = self.remove_ptr_duplicates(df)
+        full_df = self.remove_ptr_duplicates(df)
+        dfs_to_impute = {"PTR_df_all_genes": full_df}
         self.logger.debug(f"PTR: deduplicated frame shape{df.shape}")
         if ptr_cfg.impute_from_metabolic_genes_only and metabolic_genes is not None:
             before = len(df)
-            df = df.loc[df.index.isin(metabolic_genes)]
+            metabolic_df = df.loc[df.index.isin(metabolic_genes)]
             self.logger.debug(
                 f"PTR: filtered to {len(df)} metabolic genes (dropped {before - len(df)})."
             )
+            dfs_to_impute["PTR_df_metabolic_genes"] = metabolic_df
 
-        df = self.transform_ptr_to_linear(
-            df,
-        )
-
-        before_within_imputation_df = df.copy()
-
-        df = self.impute_within_tissue_ptrs(
-            df,
-            use_weighted=ptr_cfg.partial_missing_use_weighted,
-            weighted_statistic=ptr_cfg.partial_missing_weighted_statistic,
-            imputation_statistic=ptr_cfg.partial_missing_imputation_statistic,
-        )
-        self.logger.debug("PTR: within-sample imputation done.")
-
-        unobserved_strategy = ptr_cfg.unobserved_gene_imputation_strategy
-        special_gene_groups = self.resolve_special_gene_groups(
-            self.full_config,
-            cobra_model=cobra_model,
-            expression_gene_ids=set(map(str, expression_df.index)),
-        )
-
-        if (
-            not special_gene_groups
-            and ptr_cfg.use_special_groups_for_unobserved_imputation
-            and cobra_model is not None
-        ):
-            (
-                active_transport_reaction_gene_ids,
-                passive_transport_reaction_gene_ids,
-                non_transport_reaction_gene_ids,
-            ) = get_transport_reaction_gene_ids(
-                cobra_model,
-                expression_gene_ids=set(map(str, expression_df.index)),
+        prepared_dfs: dict[str, pd.DataFrame] = {}
+        for df_name, df in dfs_to_impute.items():
+            if df.empty:
+                self.logger.warning(
+                    "PTR: no genes remain after filtering for metabolic genes. "
+                    "Skipping imputation."
+                )
+                continue
+            df = self.transform_ptr_to_linear(
+                df,
             )
-            special_gene_groups = {
-                "active_transport_reactions": list(active_transport_reaction_gene_ids),
-                "passive_transport_reactions": list(passive_transport_reaction_gene_ids),
-                "non_transport_reactions": list(non_transport_reaction_gene_ids),
-            }
+            prepared_dfs[df_name] = df
 
-            self.logger.debug(
-                f"PTR: auto-populated transport_reactions group "
-                f"({len(special_gene_groups.get('transport_reactions', []))} genes)."
-            )
-
-        unobserved_genes: set[str] = set(map(str, expression_df.index)) - set(
-            map(str, df.index)
-        )
-
-        if not unobserved_genes:
-            self.logger.debug(
-                "PTR: no unobserved genes to impute after within-sample imputation."
-            )
-            return df.reindex(expression_df.index)
-
-        df = self.impute_unobserved_genes(
-            df.reindex(df.index.union(list(unobserved_genes)), fill_value=np.nan),
-            expression_df,
-            unobserved_gene_ids=unobserved_genes,
-            strategy=unobserved_strategy,
-            statistic=ptr_cfg.unobserved_gene_imputation_statistic,
-            reference_df=before_within_imputation_df,
-            special_gene_groups=special_gene_groups,
-            use_special_groups=ptr_cfg.use_special_groups_for_unobserved_imputation,
-            trace=ptr_imputation_trace,
-        )
-        self.logger.debug(f"PTR: unobserved-gene imputation done, final shape {df.shape}.")
-
-        self._latest_ptr_preparation_diagnostics = {
-            "special_gene_groups": special_gene_groups,
-            "special_group_gene_mapping": ptr_imputation_trace.get(
-                "special_group_gene_mapping", {}
-            ),
-            "special_group_fill_values_per_sample": ptr_imputation_trace.get(
-                "special_group_fill_values_per_sample",
-                {},
-            ),
-            "special_group_assigned_values_per_sample": ptr_imputation_trace.get(
-                "special_group_assigned_values_per_sample",
-                {},
-            ),
-        }
-
-        return df
+        return prepared_dfs
 
     def create_metadata(
         self,
@@ -897,68 +883,3 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
             }
         }
         return metadata
-
-    @staticmethod
-    def resolve_special_gene_groups(
-        config: FullConfig,
-        cobra_model: Model,
-        expression_gene_ids: set[str] | None = None,
-    ) -> dict[str, list[str]]:
-        """Generated: validation needed.
-
-        Description:
-            Resolve user-provided special gene groups used by PTR unobserved-gene
-            imputation. This endpoint enables independent group-wise imputation
-            (e.g., transport genes or other custom partitions). Group values
-            may contain gene IDs or reaction IDs; ``transport_reactions`` with
-            an empty list auto-resolves transport-associated genes from model.
-
-        Args:
-            config (APIConfig): Root API configuration.
-            model_artifact (Any | None): Optional cobra-like model used for
-                shorthand and reaction-based group expansion.
-            expression_gene_ids (set[str] | None): Optional expression-gene
-                universe used to filter resolved group members.
-
-        Returns:
-            dict[str, list[str]]: Mapping of group name to normalized gene IDs.
-
-        Raises:
-            ValueError: When ``transport_reactions`` shorthand is requested
-                without a model artifact.
-        """
-        raw_groups = config.protein.PTR_special_gene_groups
-        if raw_groups is None:
-            return {}
-        normalized_groups: dict[str, list[str]] = {}
-        for group_name, group_genes in raw_groups.items():
-            normalized_name = str(group_name).strip()
-            if normalized_name == "":
-                continue
-            normalized_entries = [
-                str(group_entry).strip()
-                for group_entry in group_genes
-                if str(group_entry).strip() != ""
-            ]
-            if normalized_name == "transport_reactions" and not normalized_entries:
-                (
-                    active_transport_reaction_gene_ids,
-                    passive_transport_reaction_gene_ids,
-                    non_transport_reaction_gene_ids,
-                ) = get_transport_reaction_gene_ids(
-                    cobra_model,
-                    expression_gene_ids=expression_gene_ids,
-                )
-                normalized_groups[normalized_name] = list(
-                    set(active_transport_reaction_gene_ids).union(
-                        set(passive_transport_reaction_gene_ids)
-                    )
-                )
-
-                continue
-            normalized_groups[normalized_name] = resolve_gene_or_reaction_group_members(
-                cobra_model,
-                normalized_entries,
-                expression_gene_ids=expression_gene_ids,
-            )
-        return normalized_groups
