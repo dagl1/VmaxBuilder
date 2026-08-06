@@ -100,7 +100,7 @@ TYPE_INFO = {
     ),
     "go_figure": TypeInfo(
         go.Figure,
-        ("html", "png", "jpeg", "pdf"),
+        ("html", "png", "jpeg", "pdf", "svg"),
     ),
     "cobra_model": TypeInfo(
         Model,
@@ -146,13 +146,16 @@ def normalize_extension(ext: str) -> str:
     return ext.removeprefix(".")
 
 
-def validate_extension(datatype, extension):
+def validate_extension(datatype: str, extension: str, filename: str) -> None:
     extension = normalize_extension(extension)
 
     valid = TYPE_INFO[datatype].extensions
 
     if extension not in valid:
-        raise ValueError(f"{extension!r} not valid for {datatype}. Choose one of {valid}.")
+        raise ValueError(
+            f"{extension!r} not valid for {datatype} when saving {filename}. "
+            "Choose one of {valid}."
+        )
 
 
 def log_info(msg, logger: Any | None = None, print_level: int | None = None) -> None:
@@ -287,7 +290,7 @@ def save_with_tries(  # noqa: C901
     datatype = get_datatype(data, extensions[0])
 
     for ext in extensions:
-        validate_extension(datatype, ext)
+        validate_extension(datatype, ext, filename)
 
     possible_extensions = TYPE_INFO[datatype].extensions
     log_info(

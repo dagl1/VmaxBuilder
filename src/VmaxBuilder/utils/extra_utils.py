@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Union, cast
 import cobra
 from cobra import Model, Reaction
 
+from VmaxBuilder.base.configs import FullConfig
+
 
 def _metabolite_has_same_identifiers(met1: Any, met2: Any) -> bool:
     """Generated: validation needed.
@@ -277,48 +279,6 @@ def _deduplicate_preserve_order(values: list[str]) -> list[str]:
         list[str]: Ordered unique string list.
     """
     return list(dict.fromkeys(values))
-
-
-def resolve_gene_or_reaction_group_members(
-    model: Model,
-    identifiers: list[str],
-    expression_gene_ids: set[str] | None = None,
-) -> list[str]:
-    """Generated: validation needed.
-
-    Description:
-        Expand a mixed list of gene IDs and reaction IDs into gene IDs.
-        Reaction IDs contribute all associated gene IDs. Gene IDs are passed
-        through unchanged.
-
-    Args:
-        model (Any | None): Cobra-like model with ``reactions`` collection.
-        identifiers (list[str]): Gene or reaction identifiers.
-        expression_gene_ids (set[str] | None): Optional filter restricting
-            returned genes to those present in expression data.
-
-    Returns:
-        list[str]: Ordered unique gene IDs.
-    """
-    if model is None:
-        resolved_gene_ids = identifiers
-    else:
-        reaction_lookup: dict[str, Any] = {
-            str(reaction.id): reaction for reaction in model.reactions
-        }
-        resolved_gene_ids = []
-        for identifier in identifiers:
-            reaction = reaction_lookup.get(identifier)
-            if reaction is None:
-                resolved_gene_ids.append(identifier)
-                continue
-            resolved_gene_ids.extend(str(gene.id) for gene in reaction.genes)
-
-    if expression_gene_ids is not None:
-        resolved_gene_ids = [
-            gene_id for gene_id in resolved_gene_ids if gene_id in expression_gene_ids
-        ]
-    return _deduplicate_preserve_order(resolved_gene_ids)
 
 
 def find_energy_carrier_reactions(cobra_model: Model):

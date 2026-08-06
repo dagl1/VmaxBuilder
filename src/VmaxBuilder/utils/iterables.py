@@ -1,26 +1,34 @@
-from typing import Any
+from typing import Any, Generic, TypeVar
+
+T = TypeVar("T")
 
 
-class SortedSet(set):
-    def __init__(self, iterable=None):
+class SortedSet(set, Generic[T]):
+    def __init__(
+        self,
+        iterable=None,
+    ):
         self._set = set()
         if iterable is not None:
             self._set.update(iterable)
         self._sorted_list = sorted(self._set)
 
-    def add(self, item):
+    def add(self, item: T):
         if item not in self._set:
             self._set.add(item)
             self._sorted_list.append(item)
             self._sorted_list.sort()
 
-    def remove(self, item):
+    def remove(self, item: T):
         if item in self._set:
             self._set.remove(item)
             self._sorted_list.remove(item)
 
-    def __class_getitem__(cls, item: Any):
-        return cls
+    def sort(self, key=None, reverse=False):
+        self._sorted_list.sort(key=key, reverse=reverse)
+
+    # def __class_getitem__(cls, item: Any):
+    #     return cls
 
     def __contains__(self, item):
         return item in self._set
@@ -42,12 +50,9 @@ class SortedSet(set):
     def __ne__(self, other):
         return not self.__eq__(other)
 
-    def sort(self, key=None, reverse=False):
-        self._sorted_list.sort(key=key, reverse=reverse)
-
 
 def make_json_serializable(obj):
-    if isinstance(obj, SortedSet):
+    if isinstance(obj, (SortedSet, set)):
         return list(obj)
     elif isinstance(obj, dict):
         return {key: make_json_serializable(value) for key, value in obj.items()}

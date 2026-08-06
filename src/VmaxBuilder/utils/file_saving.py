@@ -9,6 +9,8 @@ from pickle import dump as pickle_dump
 
 from cobra.core.model import Model
 
+from VmaxBuilder.utils.iterables import make_json_serializable
+
 try:
     import tomllib
 except ImportError:
@@ -93,6 +95,7 @@ def save_dict(
     extension: str,
     context: SaveContext,
 ) -> None:
+    data = make_json_serializable(data)
     if extension == "json":
         with path.open("w", encoding="utf-8") as file_handle:
             json.dump(data, file_handle)
@@ -118,6 +121,7 @@ def save_list(
     if isinstance(data, set):
         data = list(data)
 
+    data = make_json_serializable(data)
     if extension == "json":
         with path.open("w", encoding="utf-8") as file_handle:
             json.dump(data, file_handle)
@@ -166,6 +170,8 @@ def save_go_figure(
         data.write_image(path, format="pdf")
     elif extension == "json":
         data.write_json(path)
+    elif extension == "svg":
+        data.write_image(path, format="svg")
 
 
 def save_cobra_model(
