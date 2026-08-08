@@ -107,6 +107,7 @@ def transform_dataframe(
     _validate_transformation_type(pretransformed_type, field_name="pretransformed_type")
     _validate_transformation_type(target_transformation, field_name="target_transformation")
     data_cols = df.columns
+    df[data_cols] = df[data_cols].apply(lambda x: pd.to_numeric(x, errors="coerce"))
     df[data_cols] = df[data_cols].infer_objects(copy=False).astype(float)
     df[data_cols] = df[data_cols].apply(
         lambda series: _apply_target_transformation(
