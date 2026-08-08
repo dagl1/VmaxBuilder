@@ -65,7 +65,7 @@ class BaseStage:
             for impl in self.ADDITIONAL_IMPLEMENTATIONS
         }
         self.diagnostics = [diag() for diag in self.DIAGNOSTICS]
-        self.logger = CustomLogger(f"Fallback logger: {self.STAGE_NAME}")
+        self.logger = CustomLogger(f"{self.STAGE_NAME}_stage_logger")
 
     def run(self, scaffold):
         """Generated: validation needed.
@@ -174,7 +174,7 @@ class BaseImplementationDiagnostics(Generic[ConfigType], ABC):
 
     def __init__(self, full_config: "FullConfig"):
         self.full_config = full_config
-        self.logger = CustomLogger(f"Fallback logger: {self.DIAGNOSTICS_NAME}")
+        self.logger = CustomLogger(f"{self.DIAGNOSTICS_NAME}_diagnostics_logger")
 
     @abstractmethod
     def before_run(
@@ -281,7 +281,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
         self.child_implementations = [
             impl(full_config) for impl in self.CHILD_IMPLEMENTATIONS
         ]
-        self.logger = CustomLogger(f"Fallback logger: {self.IMPL_NAME}")
+        self.logger = CustomLogger(f"{self.IMPL_NAME}_implementation_logger")
         self.full_config = full_config
         self.diagnostics = [diag(full_config) for diag in self.DIAGNOSTICS]
         self.config: ConfigType = resolve_implementation_config_class(
@@ -630,6 +630,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
                             saver_args["overwrite"] = (
                                 self.full_config.run.overwrite_existing_results
                             )
+                            saver_args["logger"] = self.logger
                             accepted_args = inspect.signature(artifact_spec.saver).parameters
                             filtered_saver_args = {
                                 k: v for k, v in saver_args.items() if k in accepted_args
@@ -688,6 +689,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
                         saver_args["overwrite"] = (
                             self.full_config.run.overwrite_existing_results
                         )
+                        saver_args["logger"] = self.logger
                         accepted_args = inspect.signature(output_spec.saver).parameters
                         filtered_saver_args = {
                             k: v for k, v in saver_args.items() if k in accepted_args
@@ -805,6 +807,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
             saver_args = diagnostic_value.saver_args or {}
             saver_args["overwrite"] = self.full_config.run.overwrite_existing_results
             saver_args["extension"] = diagnostic_value.extensions
+            saver_args["logger"] = self.logger
             accepted_args = inspect.signature(diagnostic_value.saver).parameters
             filtered_saver_args = {k: v for k, v in saver_args.items() if k in accepted_args}
 

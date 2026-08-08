@@ -218,6 +218,9 @@ class Orchestrator:
                     if isinstance(implementation, type):
                         continue
                     all_loggers.append(implementation.logger)
+                    if hasattr(implementation, "diagnostics"):
+                        for diagnostic_impl in implementation.diagnostics:
+                            all_loggers.append(diagnostic_impl.logger)
 
                 additional_implementations = getattr(stage, "additional_implementations", {})
                 for additional_implementation_cls in additional_implementations.values():
@@ -227,6 +230,8 @@ class Orchestrator:
                         if isinstance(additional_implementation, type):
                             continue
                         all_loggers.append(additional_implementation.logger)
+        print("All loggers in the orchestrator:")
+        pprint([logger.name for logger in all_loggers])
         return all_loggers
 
     def set_print_level(self, level: str | int, log_modification: bool = True):
