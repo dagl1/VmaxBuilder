@@ -1,5 +1,6 @@
 from typing import Any
 
+import pandas as pd
 from cobra import Model
 
 from VmaxBuilder.base.configs import FullConfig
@@ -7,6 +8,33 @@ from VmaxBuilder.utils.extra_utils import (
     _deduplicate_preserve_order,
     get_transport_reaction_gene_ids,
 )
+from VmaxBuilder.utils.transformations import transform_dataframe
+
+
+def transform_ptr_to_linear(ptr_df: pd.DataFrame, pretransformed_type: str) -> pd.DataFrame:
+    """Generated: validation needed.
+
+    Description:
+        Convert PTR frame to linear space from configured transform state.
+        Supports ``none`` alias for ``linear``.
+
+    Args:
+        ptr_df (pd.DataFrame): PTR table in source transform space.
+        pretransformed_type (str): Source transform key. One of
+            ``linear``, ``log10``, ``log2``, ``ln``.
+
+    Returns:
+        pd.DataFrame: PTR table transformed to linear space.
+
+    Raises:
+        ValueError: When ``pretransformed_type`` is unsupported.
+    """
+
+    return transform_dataframe(
+        ptr_df,
+        pretransformed_type=pretransformed_type,
+        target_transformation="linear",
+    )
 
 
 def resolve_gene_or_reaction_group_members(

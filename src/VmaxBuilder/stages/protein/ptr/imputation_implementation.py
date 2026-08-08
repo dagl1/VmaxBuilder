@@ -16,8 +16,8 @@ from VmaxBuilder.stages.protein.ptr.config import PTRInputConfig
 from VmaxBuilder.stages.protein.ptr.diagnostics import PTRDiagnostics
 from VmaxBuilder.stages.protein.ptr.ptr_utils import (
     resolve_special_gene_groups,
+    transform_ptr_to_linear,
 )
-from VmaxBuilder.utils.transformations import transform_dataframe
 
 _NA_TOKENS: frozenset[str] = frozenset(
     {
@@ -337,34 +337,6 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
     # ------------------------------------------------------------------
     # Within-sample imputation
     # ------------------------------------------------------------------
-
-    def transform_ptr_to_linear(
-        self,
-        ptr_df: pd.DataFrame,
-    ) -> pd.DataFrame:
-        """Generated: validation needed.
-
-        Description:
-            Convert PTR frame to linear space from configured transform state.
-            Supports ``none`` alias for ``linear``.
-
-        Args:
-            ptr_df (pd.DataFrame): PTR table in source transform space.
-            pretransformed_type (str): Source transform key. One of
-                ``linear``, ``log10``, ``log2``, ``ln``.
-
-        Returns:
-            pd.DataFrame: PTR table transformed to linear space.
-
-        Raises:
-            ValueError: When ``pretransformed_type`` is unsupported.
-        """
-        original_transformation = self.full_config.protein.PTR_pretransformed_type
-        return transform_dataframe(
-            ptr_df,
-            pretransformed_type=original_transformation,
-            target_transformation="linear",
-        )
 
     @staticmethod
     def get_weights(
@@ -849,9 +821,7 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
                     "Skipping imputation."
                 )
                 continue
-            df = self.transform_ptr_to_linear(
-                df,
-            )
+            df = transform_ptr_to_linear(df, self.full_config.protein.PTR_pretransformed_type)
             prepared_dfs[df_name] = df
 
         return prepared_dfs

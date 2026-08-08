@@ -507,11 +507,11 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
             if gene_id in cobra_model.genes:
                 gene = cobra_model.genes.get_by_id(gene_id)
                 reactions_affected.update(gene.reactions)
+
         self.logger.info(
             f"Setting {len(genes_to_set_GPRless)} genes to GPRless, "
             f"which affects {len(reactions_affected)} reactions: \n"
             f"Affected reactions: {[reaction.id for reaction in reactions_affected]}",
-            print_level=2,
         )
         remove_genes(cobra_model, genes_to_set_GPRless, remove_reactions=False)
         return cobra_model
