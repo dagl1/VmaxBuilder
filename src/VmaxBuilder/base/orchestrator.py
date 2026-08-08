@@ -86,6 +86,7 @@ class Orchestrator:
         self._validated_outputs: dict[str, OutputSpec] = {}
         self.validation_results: dict[str, Any] = {}
         self.diagnostics: dict[str, Any] = {}
+        self._all_loggers = [self.logger]
 
     def set_model_implementation(self, implementation_cls: type[ImplT]) -> ImplT:
         implementation = implementation_cls(full_config=self.config)
@@ -274,6 +275,8 @@ class Orchestrator:
             # necessary to init using the caster
             # self.config.run._print_level = cast(PrintLevelType, level_literal)
             self.config.run.print_level = cast(PrintLevelType, level_literal)
+
+        self._all_loggers = all_loggers
 
     def return_user_submitted_paths(self) -> list[PathInfo]:
         user_submitted_paths = []
