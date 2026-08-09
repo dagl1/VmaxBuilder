@@ -12,7 +12,7 @@ from typing import Any
 from cobra.core.model import Model
 
 from VmaxBuilder.base.classes import BaseImplementation
-from VmaxBuilder.base.configs import FullConfig, Scaffold
+from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.GPR.gpr_preprocessing import (
     build_gene_to_transcripts_mapping,
     build_ifp_mapping_from_gpr_rules,
@@ -28,6 +28,23 @@ from VmaxBuilder.GPR.gpr_preprocessing import (
 class DefaultGPRImplementation(BaseImplementation[FullConfig]):
     STAGE_NAME: str = "model"
     IMPL_NAME: str = "default_gpr"
+    INPUTS: list[InputSpec] = [
+        InputSpec(
+            name="irreversible_cobra_model",
+            data_type=Model,
+            in_scaffold=True,
+        ),
+    ]
+    OUTPUTS: list[OutputSpec] = [
+        OutputSpec(
+            name="ifp_mapping",
+            data_type=dict,
+            scaffold_location="outputs",
+            save_file_name="ifp_mapping",
+            extension=".json",
+            validator=None,
+        ),
+    ]
 
     # BASE_STAGE_CONFIG: type | None = None
     # IMPLEMENTATION_CONFIG_CLASS: type | None = None
@@ -61,7 +78,7 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
             scaffold artifacts and metadata payloads.
         """
 
-        cobra_model = scaffold.get_scaffold_value("cobra_model")
+        cobra_model = scaffold.get_scaffold_value("irreversible_cobra_model")
         if cobra_model is None:
             raise ValueError("No COBRA model found in scaffold for GPR processing.")
         gpr_rules = get_unique_gpr_rules(cobra_model)
@@ -87,6 +104,7 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
         metadata_payload = self.create_metadata(
             elapsed_time=elapsed_time, additional_metadata=metadata_payload
         )
+        # todo: change IFP mapping to be: rule -> {ifps, reactions, genes}
         self.logger.debug(f"Generated IFP mapping for {len(ifp_mapping)} GPR rules.")
 
         return {
