@@ -10,7 +10,7 @@ from VmaxBuilder.base.classes import BaseImplementation, DiagnosticOutputSpec
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.database_retrieval.identifier_translation import IdentifierTranslationService
 from VmaxBuilder.stages.model.default.config import ModelConfig
-from VmaxBuilder.stages.model.default.diagnostics import ModelDiagnostics
+# from VmaxBuilder.stages.model.default.diagnostics import ModelDiagnostics
 from VmaxBuilder.stages.model.default.preprocessing import (
     _build_transcript_artifacts_for_model,
     create_irreversible_model,
