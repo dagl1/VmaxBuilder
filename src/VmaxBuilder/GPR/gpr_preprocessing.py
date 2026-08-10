@@ -23,7 +23,7 @@ _GPR_AND_SPLIT_PATTERN = re.compile(r"\band\b", flags=re.IGNORECASE)
 _GPRNode = str | tuple[str, "_GPRNode", "_GPRNode"]
 
 
-class TranscriptIfpExpansionOutcome(dict[str, Any]):
+class TranscriptIFPExpansionOutcome(dict[str, Any]):
     """Generated: validation needed.
 
     Description:
@@ -101,7 +101,7 @@ def simplify_gpr_rule_cached(gpr_rule: str) -> tuple[tuple[str, ...], ...]:
     parsed_tree, cursor = _parse_or_expression(_TokenCursor(tokens=token_stream))
     if cursor.peek() is not None:
         raise ValueError(f"Unexpected trailing token in GPR rule: '{cursor.peek()}'.")
-    return _deduplicate_ifps(_expand_tree_to_gene_ifps(parsed_tree))
+    return _deduplicate_IFPs(_expand_tree_to_gene_IFPs(parsed_tree))
 
 
 def simplify_gpr_rule(gpr_rule: str) -> list[str]:
@@ -117,10 +117,12 @@ def simplify_gpr_rule(gpr_rule: str) -> list[str]:
         list[str]: Simplified IFP strings.
     """
 
-    return [" and ".join(ifp) for ifp in simplify_gpr_rule_cached(gpr_rule)]
+    return [" and ".join(IFP) for IFP in simplify_gpr_rule_cached(gpr_rule)]
 
 
-def build_ifp_mapping_from_gpr_rules(gpr_rules: set[str]) -> dict[str, dict[str, Any]]:
+def build_IFP_mapping_from_gpr_rules(
+    gpr_rules: dict[str, list[str]],
+) -> dict[str, dict[str, Any]]:
     """Generated: validation needed.
 
     Description:
@@ -133,57 +135,33 @@ def build_ifp_mapping_from_gpr_rules(gpr_rules: set[str]) -> dict[str, dict[str,
         dict[str, dict[str, Any]]: Per-rule payload with simplified IFPs and counts.
     """
 
-    ifp_mapping: dict[str, dict[str, Any]] = {}
+    # todo: change IFP mapping to be: rule -> {IFPs, reactions, genes}
+    IFP_mapping: dict[str, dict[str, Any]] = {}
     for gpr_rule in sorted(gpr_rules):
-        simplified_gene_ifps = simplify_gpr_rule(gpr_rule)
-        ifp_mapping[gpr_rule] = {
-            "simplified_gene_ifps": simplified_gene_ifps,
-            "expansion_count": len(simplified_gene_ifps),
+        simplified_gene_IFPs = simplify_gpr_rule(gpr_rule)
+        IFP_payloads: list[dict[str, Any]] = []
+        for IFP in simplified_gene_IFPs:
+            IFP_payload = {
+                "IFP": IFP,
+                "reactions_with_IFP": gpr_rules[gpr_rule],
+                "genes_in_IFP": sorted(set(token for token in IFP.split(" and "))),
+            }
+            IFP_payloads.append(IFP_payload)
+        genes = sorted(
+            set(token for IFP in simplified_gene_IFPs for token in IFP.split(" and "))
+        )
+        _expansion_count = calculate_IFP_expansion_count(
+            [tuple(token.split(" and ")) for token in simplified_gene_IFPs]
+        )
+        reactions = gpr_rules[gpr_rule]
+        IFP_mapping[gpr_rule] = {
+            "IFP_objects": IFP_payloads,
+            # "expansion_count": expansion_count,
+            "n_IFPs_in_GPR_rule": len(simplified_gene_IFPs),
+            "reactions_with_GPR_rule": reactions,
+            "genes_in_GPR_rule": genes,
         }
-    return ifp_mapping
-
-
-def build_reaction_ifp_indexes(
-    model: Model,
-    ifp_mapping: Mapping[str, Mapping[str, Any]],
-) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
-    """Generated: validation needed.
-
-    Description:
-        Build bidirectional mapping between reactions and IFPs.
-
-    Args:
-        model (cobra.Model): Cobra model containing reactions and GPR rules.
-        ifp_mapping (Mapping[str, Mapping[str, Any]]): Per-rule IFP payload.
-
-    Returns:
-        tuple[dict[str, list[str]], dict[str, list[str]]]:
-            reaction_to_ifps and ifp_to_reactions indexes.
-    """
-
-    reaction_to_ifps: dict[str, list[str]] = {}
-    ifp_to_reactions: dict[str, list[str]] = {}
-
-    for reaction in model.reactions:
-        gpr_rule = reaction.gene_reaction_rule.strip()
-        if not gpr_rule:
-            continue
-        rule_payload = ifp_mapping.get(gpr_rule)
-        if rule_payload is None:
-            continue
-
-        ifps = [str(ifp) for ifp in rule_payload.get("simplified_gene_ifps", [])]
-        if not ifps:
-            continue
-
-        unique_ifps = sorted(set(ifps))
-        reaction_to_ifps[reaction.id] = unique_ifps
-        for ifp in unique_ifps:
-            ifp_to_reactions.setdefault(ifp, []).append(reaction.id)
-
-    for ifp, reaction_ids in ifp_to_reactions.items():
-        ifp_to_reactions[ifp] = sorted(set(reaction_ids))
-    return reaction_to_ifps, ifp_to_reactions
+    return IFP_mapping
 
 
 def build_gene_to_transcripts_mapping(
@@ -217,7 +195,7 @@ def build_gene_to_transcripts_mapping(
     }
 
 
-def get_unique_gpr_rules(cobra_model: Model) -> set[str]:
+def get_unique_gpr_rules(cobra_model: Model) -> dict[str, list[str]]:
     """Generated: validation needed.
 
     Description:
@@ -233,11 +211,12 @@ def get_unique_gpr_rules(cobra_model: Model) -> set[str]:
     if cobra_model is None:
         raise ValueError("Cobra model not found in scaffold artifacts.")
 
-    gpr_rules: set[str] = set()
+    gpr_rules: dict[str, list[str]] = {}
     for reaction in cobra_model.reactions:
         rule = reaction.gene_reaction_rule.strip()
         if rule:
-            gpr_rules.add(rule)
+            gpr_rules.setdefault(rule, []).append(reaction.id)
+
     return gpr_rules
 
 
@@ -300,35 +279,35 @@ def _collect_transcripts_from_dataframe_like(
             gene_to_transcripts.setdefault(gene_id, set()).add(transcript_id)
 
 
-def expand_gene_ifp_to_transcript_ifps(
-    gene_ifp: str,
+def expand_gene_IFP_to_transcript_IFPs(
+    gene_IFP: str,
     gene_to_transcripts: Mapping[str, Sequence[str]],
     *,
     maximum_expansion: int,
-) -> TranscriptIfpExpansionOutcome:
+) -> TranscriptIFPExpansionOutcome:
     """Generated: validation needed.
 
     Description:
         Expand one gene-level IFP into transcript-level IFPs using gene mappings.
 
     Args:
-        gene_ifp (str): Gene-level IFP string joined by `and`.
+        gene_IFP (str): Gene-level IFP string joined by `and`.
         gene_to_transcripts (Mapping[str, Sequence[str]]): Gene->transcript mapping.
         maximum_expansion (int): Maximum allowed expansion count.
 
     Returns:
-        TranscriptIfpExpansionOutcome: Structured expansion result including
+        TranscriptIFPExpansionOutcome: Structured expansion result including
             transcript IFPs, expansion count, threshold flag, and transcript choices.
     """
 
     gene_tokens = [
         gene_token.strip()
-        for gene_token in _GPR_AND_SPLIT_PATTERN.split(gene_ifp)
+        for gene_token in _GPR_AND_SPLIT_PATTERN.split(gene_IFP)
         if gene_token.strip()
     ]
     if not gene_tokens:
-        return TranscriptIfpExpansionOutcome(
-            transcript_ifps=[],
+        return TranscriptIFPExpansionOutcome(
+            transcript_IFPs=[],
             expansion_count=0,
             exceeded_threshold=False,
             transcripts_used_by_gene={},
@@ -349,27 +328,27 @@ def expand_gene_ifp_to_transcript_ifps(
         transcript_choices.append(transcript_group)
         transcripts_used_by_gene[gene_token] = transcript_group
 
-    expansion_count = calculate_ifp_expansion_count(transcript_choices)
+    expansion_count = calculate_IFP_expansion_count(transcript_choices)
     if expansion_count > maximum_expansion:
-        return TranscriptIfpExpansionOutcome(
-            transcript_ifps=[],
+        return TranscriptIFPExpansionOutcome(
+            transcript_IFPs=[],
             expansion_count=expansion_count,
             exceeded_threshold=True,
             transcripts_used_by_gene=transcripts_used_by_gene,
         )
 
-    transcript_ifps = {
+    transcript_IFPs = {
         " and ".join(transcript_tuple) for transcript_tuple in product(*transcript_choices)
     }
-    return TranscriptIfpExpansionOutcome(
-        transcript_ifps=sorted(transcript_ifps),
+    return TranscriptIFPExpansionOutcome(
+        transcript_IFPs=sorted(transcript_IFPs),
         expansion_count=expansion_count,
         exceeded_threshold=False,
         transcripts_used_by_gene=transcripts_used_by_gene,
     )
 
 
-def calculate_ifp_expansion_count(transcript_choices: Sequence[Sequence[str]]) -> int:
+def calculate_IFP_expansion_count(transcript_choices: Sequence[Sequence[str]]) -> int:
     """Generated: validation needed.
 
     Description:
@@ -542,7 +521,7 @@ def _parse_primary_expression(cursor: _TokenCursor) -> tuple[_GPRNode, _TokenCur
     return gene_token, cursor
 
 
-def _expand_tree_to_gene_ifps(gpr_tree: _GPRNode) -> tuple[tuple[str, ...], ...]:
+def _expand_tree_to_gene_IFPs(gpr_tree: _GPRNode) -> tuple[tuple[str, ...], ...]:
     """Generated: validation needed.
 
     Description:
@@ -558,41 +537,41 @@ def _expand_tree_to_gene_ifps(gpr_tree: _GPRNode) -> tuple[tuple[str, ...], ...]
     if isinstance(gpr_tree, str):
         return ((gpr_tree,),)
     operator, left_node, right_node = gpr_tree
-    left_ifps = _expand_tree_to_gene_ifps(left_node)
-    right_ifps = _expand_tree_to_gene_ifps(right_node)
+    left_IFPs = _expand_tree_to_gene_IFPs(left_node)
+    right_IFPs = _expand_tree_to_gene_IFPs(right_node)
     if operator == "OR":
-        return left_ifps + right_ifps
-    expanded_ifps: list[tuple[str, ...]] = []
-    for left_ifp in left_ifps:
-        for right_ifp in right_ifps:
-            expanded_ifps.append(left_ifp + right_ifp)
-    return tuple(expanded_ifps)
+        return left_IFPs + right_IFPs
+    expanded_IFPs: list[tuple[str, ...]] = []
+    for left_IFP in left_IFPs:
+        for right_IFP in right_IFPs:
+            expanded_IFPs.append(left_IFP + right_IFP)
+    return tuple(expanded_IFPs)
 
 
-def _deduplicate_ifps(gene_ifps: Sequence[tuple[str, ...]]) -> tuple[tuple[str, ...], ...]:
+def _deduplicate_IFPs(gene_IFPs: Sequence[tuple[str, ...]]) -> tuple[tuple[str, ...], ...]:
     """Generated: validation needed.
 
     Description:
         Deduplicate repeated genes inside IFPs and repeated IFPs overall.
 
     Args:
-        gene_ifps (Sequence[tuple[str, ...]]): Candidate IFPs.
+        gene_IFPs (Sequence[tuple[str, ...]]): Candidate IFPs.
 
     Returns:
         tuple[tuple[str, ...], ...]: Deduplicated IFPs.
     """
 
-    seen_ifps: set[tuple[str, ...]] = set()
-    deduplicated_ifps: list[tuple[str, ...]] = []
-    for gene_ifp in gene_ifps:
+    seen_IFPs: set[tuple[str, ...]] = set()
+    deduplicated_IFPs: list[tuple[str, ...]] = []
+    for gene_IFP in gene_IFPs:
         unique_gene_order: list[str] = []
         seen_genes: set[str] = set()
-        for gene_symbol in gene_ifp:
+        for gene_symbol in gene_IFP:
             if gene_symbol not in seen_genes:
                 unique_gene_order.append(gene_symbol)
                 seen_genes.add(gene_symbol)
-        canonical_ifp = tuple(unique_gene_order)
-        if canonical_ifp not in seen_ifps:
-            deduplicated_ifps.append(canonical_ifp)
-            seen_ifps.add(canonical_ifp)
-    return tuple(deduplicated_ifps)
+        canonical_IFP = tuple(unique_gene_order)
+        if canonical_IFP not in seen_IFPs:
+            deduplicated_IFPs.append(canonical_IFP)
+            seen_IFPs.add(canonical_IFP)
+    return tuple(deduplicated_IFPs)

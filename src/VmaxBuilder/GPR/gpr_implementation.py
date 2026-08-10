@@ -15,10 +15,9 @@ from VmaxBuilder.base.classes import BaseImplementation
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.GPR.gpr_preprocessing import (
     build_gene_to_transcripts_mapping,
-    build_ifp_mapping_from_gpr_rules,
-    build_reaction_ifp_indexes,
+    build_IFP_mapping_from_gpr_rules,
     clear_simplification_cache,
-    expand_gene_ifp_to_transcript_ifps,
+    expand_gene_IFP_to_transcript_IFPs,
     get_simplification_cache_info,
     get_unique_gpr_rules,
     simplify_gpr_rule,
@@ -37,10 +36,26 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
     ]
     OUTPUTS: list[OutputSpec] = [
         OutputSpec(
-            name="ifp_mapping",
+            name="IFP_mapping",
             data_type=dict,
             scaffold_location="outputs",
-            save_file_name="ifp_mapping",
+            save_file_name="IFP_mapping",
+            extension=".json",
+            validator=None,
+        ),
+        OutputSpec(
+            name="gene_to_IFP_mapping",
+            data_type=dict,
+            scaffold_location="artifacts",
+            save_file_name="gene_to_IFP_mapping",
+            extension=".json",
+            validator=None,
+        ),
+        OutputSpec(
+            name="reaction_to_IFP_mapping",
+            data_type=dict,
+            scaffold_location="artifacts",
+            save_file_name="reaction_to_IFP_mapping",
             extension=".json",
             validator=None,
         ),
@@ -82,34 +97,52 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
         if cobra_model is None:
             raise ValueError("No COBRA model found in scaffold for GPR processing.")
         gpr_rules = get_unique_gpr_rules(cobra_model)
-        (elapsed_time, ifp_mapping) = self.get_time_decorator(
-            self._convert_gene_gpr_rules_to_ifp
+        (elapsed_time, IFP_mapping) = self.get_time_decorator(
+            build_IFP_mapping_from_gpr_rules
         )(gpr_rules)
+        (elapsed_time_2, gene_to_IFP_mapping) = self.get_time_decorator(
+            self.build_gene_to_IFP_mapping
+        )(IFP_mapping)
+        (elapsed_time_3, reaction_to_IFP_mapping) = self.get_time_decorator(
+            self.build_reaction_to_IFP_mapping
+        )(IFP_mapping)
+
         artifacts_payload = {}
         metadata_payload = {}
         diagnostics_payload = {}
+        elapsed_time_4 = 0
         if self.full_config.run.run_target_transcript_gene_level.lower() == "transcript":
+            # todo:
             (
-                ifp_mapping,
-                artifacts_payload,
-                metadata_payload,
-                diagnostics_payload,
-            ) = self._convert_gene_ifp_to_transcript_ifp(
+                elapsed_time_4,
+                (
+                    IFP_mapping,
+                    artifacts_payload,
+                    metadata_payload,
+                    diagnostics_payload,
+                ),
+            ) = self.get_time_decorator(self._convert_gene_IFP_to_transcript_IFP)(
                 cobra_model,
-                ifp_mapping=ifp_mapping,
+                IFP_mapping=IFP_mapping,
                 config=self.full_config,
             )
-        artifacts_IFP_payload = self._assign_ifps_to_reactions(cobra_model, ifp_mapping)
-        artifact_payload = {**artifacts_payload, **artifacts_IFP_payload}
+        elapsed_time = elapsed_time + elapsed_time_2 + elapsed_time_3 + elapsed_time_4
+        artifacts = {
+            "gene_to_IFP_mapping": gene_to_IFP_mapping,
+            "reaction_to_IFP_mapping": reaction_to_IFP_mapping,
+            **artifacts_payload,
+        }
+
         metadata_payload = self.create_metadata(
             elapsed_time=elapsed_time, additional_metadata=metadata_payload
         )
-        # todo: change IFP mapping to be: rule -> {ifps, reactions, genes}
-        self.logger.debug(f"Generated IFP mapping for {len(ifp_mapping)} GPR rules.")
+        self.logger.debug(f"Generated IFP mapping for {len(IFP_mapping)} GPR rules.")
 
         return {
-            "outputs": {"ifp_mapping": ifp_mapping},
-            "artifacts": artifact_payload,
+            "outputs": {
+                "IFP_mapping": IFP_mapping,
+            },
+            "artifacts": artifacts,
             "metadata": metadata_payload,
             "diagnostics": diagnostics_payload,
         }
@@ -133,42 +166,66 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
         }
         return metadata_payload
 
-    def _assign_ifps_to_reactions(
+    def build_gene_to_IFP_mapping(
         self,
-        cobra_model: Model,
-        ifp_mapping: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Generated: validation needed.
+        IFP_mapping: dict[str, dict[str, Any]],
+    ) -> dict[str, dict[str, list[str]]]:
+        gene_to_IFP_mapping: dict[str, dict[str, list[str]]] = {}
+        for gpr_rule, _IFP_mapping in IFP_mapping.items():
+            for IFP_payload in _IFP_mapping.get("IFP_objects", []):
+                IFP = IFP_payload.get("IFP")
+                genes_in_IFP = IFP_payload.get("genes_in_IFP", [])
+                for gene in genes_in_IFP:
+                    gene_to_IFP_mapping[gene] = {
+                        "IFPs": gene_to_IFP_mapping.get(gene, {}).get("IFPs", []) + [IFP],
+                        "reactions_with_gene": gene_to_IFP_mapping.get(gene, {}).get(
+                            "reactions_with_IFP", []
+                        ),
+                        "gpr_rules_with_gene": gene_to_IFP_mapping.get(gene, {}).get(
+                            "gpr_rules_with_gene", []
+                        )
+                        + [gpr_rule],
+                    }
 
-        Description:
-            Assign bidirectional reaction<->IFP indexes into scaffold artifacts.
+        for _, mapping in gene_to_IFP_mapping.items():
+            mapping["IFPs"] = sorted(set(mapping["IFPs"]))
+            mapping["reactions_with_gene"] = sorted(set(mapping["reactions_with_gene"]))
+            mapping["gpr_rules_with_gene"] = sorted(set(mapping["gpr_rules_with_gene"]))
 
-        Args:
-            scaffold (Scaffold): Shared pipeline scaffold.
-            ifp_mapping (dict[str, Any]): Mapping of GPR rules to IFP payloads.
+        return gene_to_IFP_mapping
 
-        Returns:
-            Scaffold: Updated scaffold with reaction/IFP indexes.
+    def build_reaction_to_IFP_mapping(
+        self,
+        IFP_mapping: dict[str, dict[str, Any]],
+    ):
+        reaction_to_IFP_mapping: dict[str, dict[str, list[str]]] = {}
+        for gpr_rule, _IFP_mapping in IFP_mapping.items():
+            for IFP_payload in _IFP_mapping.get("IFP_objects", []):
+                IFP = IFP_payload.get("IFP")
+                reactions_with_IFP = IFP_payload.get("reactions_with_IFP", [])
+                for reaction in reactions_with_IFP:
+                    reaction_to_IFP_mapping[reaction] = {
+                        "IFPs": reaction_to_IFP_mapping.get(reaction, {}).get("IFPs", [])
+                        + [IFP],
+                        "gpr_rules": reaction_to_IFP_mapping.get(reaction, {}).get(
+                            "gpr_rules", []
+                        )
+                        + [gpr_rule],
+                        "genes": reaction_to_IFP_mapping.get(reaction, {}).get("genes", []),
+                    }
 
-        Modifies:
-            scaffold artifacts payload.
-        """
+        for _, mapping in reaction_to_IFP_mapping.items():
+            mapping["IFPs"] = sorted(set(mapping["IFPs"]))
+            mapping["gpr_rules"] = sorted(set(mapping["gpr_rules"]))
+            mapping["genes"] = sorted(set(mapping["genes"]))
 
-        artifacts_payload = {}
+        return reaction_to_IFP_mapping
 
-        reaction_to_ifps, ifp_to_reactions = build_reaction_ifp_indexes(
-            model=cobra_model,
-            ifp_mapping=ifp_mapping,
-        )
-        artifacts_payload["reaction_to_ifps"] = reaction_to_ifps
-        artifacts_payload["ifp_to_reactions"] = ifp_to_reactions
-        return artifacts_payload
-
-    def _convert_gene_ifp_to_transcript_ifp(
+    def _convert_gene_IFP_to_transcript_IFP(
         self,
         cobra_model: Model,
         *,
-        ifp_mapping: dict[str, Any],
+        IFP_mapping: dict[str, Any],
         config: FullConfig,
     ) -> tuple[
         dict[str, Any],
@@ -184,7 +241,7 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
 
         Args:
             scaffold (Scaffold): Shared pipeline scaffold.
-            ifp_mapping (dict[str, Any]): Per-rule gene-level IFP payload.
+            IFP_mapping (dict[str, Any]): Per-rule gene-level IFP payload.
             config (FullConfig): Root API configuration containing expansion limit.
 
         Returns:
@@ -203,11 +260,11 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
 
         gene_to_transcripts = build_gene_to_transcripts_mapping(mapping_artifact)
         if not gene_to_transcripts:
-            metadata_payload.setdefault("gpr", {})["transcript_ifp_conversion"] = (
+            metadata_payload.setdefault("gpr", {})["transcript_IFP_conversion"] = (
                 "skipped_missing_gene_transcript_mapping"
             )
             return (
-                ifp_mapping,
+                IFP_mapping,
                 artifacts_payload,
                 metadata_payload,
                 diagnostics_payload,
@@ -223,23 +280,23 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
         complexity_skips: list[dict[str, Any]] = []
 
         transcript_level_mapping: dict[str, Any] = {}
-        for gpr_rule, payload in ifp_mapping.items():
-            gene_ifps = [str(ifp) for ifp in payload.get("simplified_gene_ifps", [])]
-            transcript_ifps: set[str] = set()
+        for gpr_rule, payload in IFP_mapping.items():
+            gene_IFPs = [str(IFP) for IFP in payload.get("simplified_gene_IFPs", [])]
+            transcript_IFPs: set[str] = set()
 
-            for gene_ifp in gene_ifps:
-                expansion_outcome = expand_gene_ifp_to_transcript_ifps(
-                    gene_ifp,
+            for gene_IFP in gene_IFPs:
+                expansion_outcome = expand_gene_IFP_to_transcript_IFPs(
+                    gene_IFP,
                     gene_to_transcripts,
-                    maximum_expansion=(config.model.maximum_transcript_ifp_expansion),
+                    maximum_expansion=(config.model.maximum_transcript_IFP_expansion),
                 )
 
                 if bool(expansion_outcome["exceeded_threshold"]):
                     complexity_skips.append(
                         {
-                            "gene_ifp": gene_ifp,
-                            "maximum_transcript_ifp_expansion": (
-                                config.maximum_transcript_ifp_expansion  # ty: ignore[unresolved-attribute] # noqa
+                            "gene_IFP": gene_IFP,
+                            "maximum_transcript_IFP_expansion": (
+                                config.maximum_transcript_IFP_expansion  # ty: ignore[unresolved-attribute] # noqa
                             ),
                             "actual_expansion_count": int(
                                 expansion_outcome["expansion_count"]
@@ -248,57 +305,42 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
                                 "transcripts_used_by_gene"
                             ],
                             "affected_reactions": sorted(rule_to_reactions.get(gpr_rule, [])),
-                            "fallback": "kept_gene_level_ifp",
+                            "fallback": "kept_gene_level_IFP",
                         }
                     )
-                    transcript_ifps.add(gene_ifp)
+                    transcript_IFPs.add(gene_IFP)
                     continue
 
-                transcript_ifps.update(
-                    str(transcript_ifp)
-                    for transcript_ifp in expansion_outcome["transcript_ifps"]
+                transcript_IFPs.update(
+                    str(transcript_IFP)
+                    for transcript_IFP in expansion_outcome["transcript_IFPs"]
                 )
 
             transcript_level_mapping[gpr_rule] = {
                 **payload,
-                "simplified_gene_ifps": sorted(transcript_ifps),
-                "transcript_expansion_count": len(transcript_ifps),
+                "simplified_gene_IFPs": sorted(transcript_IFPs),
+                "transcript_expansion_count": len(transcript_IFPs),
             }
 
-        metadata_payload.setdefault("gpr", {})["transcript_ifp_conversion"] = {
+        metadata_payload.setdefault("gpr", {})["transcript_IFP_conversion"] = {
             "status": "applied",
             "rules_converted": len(transcript_level_mapping),
             "gene_transcript_mapping_genes": len(gene_to_transcripts),
-            "maximum_transcript_ifp_expansion": (
-                config.model.maximum_transcript_ifp_expansion
+            "maximum_transcript_IFP_expansion": (
+                config.model.maximum_transcript_IFP_expansion
             ),
             "complexity_skips": len(complexity_skips),
         }
-        diagnostics_payload["model_stage"]["gpr"]["transcript_ifp_complexity_skips"] = (
+        diagnostics_payload["model_stage"]["gpr"]["transcript_IFP_complexity_skips"] = (
             complexity_skips
         )
-        artifacts_payload["transcript_ifp_complexity_report"] = complexity_skips
+        artifacts_payload["transcript_IFP_complexity_report"] = complexity_skips
         return (
             transcript_level_mapping,
             artifacts_payload,
             metadata_payload,
             diagnostics_payload,
         )
-
-    def _convert_gene_gpr_rules_to_ifp(self, gpr_rules: set[str]) -> dict[str, Any]:
-        """Generated: validation needed.
-
-        Description:
-            Convert unique GPR rules into simplified gene IFPs.
-
-        Args:
-            gpr_rules (set[str]): Unique GPR rules.
-
-        Returns:
-            dict[str, Any]: Per-rule simplified IFPs and expansion count.
-        """
-
-        return build_ifp_mapping_from_gpr_rules(gpr_rules)
 
     def _simplify_gpr_rule(self, gpr_rule: str) -> list[str]:
         """Generated: validation needed.
@@ -337,3 +379,76 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
         """
 
         return get_simplification_cache_info()
+
+
+if __name__ == "__main__":
+    from pathlib import Path
+
+    from VmaxBuilder.base.configs import RunConfig, StageLoading, StageLoadingInfo
+    from VmaxBuilder.base.orchestrator import Orchestrator
+    from VmaxBuilder.stages.model.default.implementation import (
+        DefaultIrreversibleModelImplementation,
+    )
+    from VmaxBuilder.stages.protein.MvalueTrimmingExpressionPTR.implementation import (
+        MvalueTrimmingExpressionPTRImplementation,
+    )
+
+    base_dir = Path("~/git/SWAPAM/data/for_SWAMP/")
+    models_dir = base_dir / "models"
+    model_name = "model_inhouse_v7_human"
+    model_dir = models_dir / model_name
+    model_path = model_dir
+
+    expression_path = base_dir / "expression_datasets" / "NCI_60_human"
+    ptr_path = base_dir / "PTR_datasets" / "Eraslan2019_human"
+    # proteomics_path = base_dir / "proteomics" / "NCI60"
+    output_path = Path("~/git/VmaxBuilder/data/run_example_output")
+    create_dynamically_named_results = False
+    model_stage_loading_info = StageLoadingInfo(
+        stage_name="model",
+        directories=model_dir,
+        file_paths={
+            "smiles_df": model_dir / "smiles_df.csv",
+            "transcript_df": model_dir / "transcript_df.csv",
+        },
+    )
+    protein_stage_loading_info = StageLoadingInfo(
+        stage_name="protein",
+        directories=[
+            expression_path,
+            ptr_path,
+        ],
+    )
+
+    # Protein inputs (set whichever mode needs).
+    stage_loading_info = StageLoading(
+        model_loading_info=model_stage_loading_info,
+        protein_loading_info=protein_stage_loading_info,
+    )
+
+    run_config = RunConfig(
+        output_dir=output_path,
+        run_name="test_model_implementation",
+        create_dynamically_named_results=create_dynamically_named_results,
+        # print_level="DEBUG",
+    )
+
+    orchestrator = Orchestrator(stage_loading_info, run_config)
+    orchestrator.set_print_level("WARNING")
+    model = orchestrator.set_model_implementation(DefaultIrreversibleModelImplementation)
+    protein = orchestrator.set_protein_implementation(
+        MvalueTrimmingExpressionPTRImplementation
+    )
+
+    protein.config.expression_sample_type_map = {idx: "heart" for idx in range(1, 1000)}
+    protein.config.PTR_special_gene_groups = {"transport_reactions": []}
+    protein.config.use_special_groups_for_unobserved_imputation = True
+
+    orchestrator.return_config(verbose=False)
+    orchestrator.config.run.overwrite_existing_results = True
+    orchestrator.config.run.lazy_load = True
+
+    orchestrator._discover_user_submitted_paths()
+    orchestrator.config.run.paths._create_dirs()
+    orchestrator.logger.info("Starting orchestrator run...")
+    orchestrator._run_stage("model")
