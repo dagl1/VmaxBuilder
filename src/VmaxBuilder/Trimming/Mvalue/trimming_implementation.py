@@ -63,6 +63,14 @@ class MValueTrimmingImplementation(BaseImplementation[MValueTrimmingConfig]):
         self,
         scaffold: Scaffold,
     ) -> dict[str, Any]:
+        if not self.full_config.protein.trim_enable:
+            return {
+                "outputs": {},
+                "artifacts": {},
+                "diagnostics": {},
+                "metadata": {},
+            }
+
         processed_expression_df: pd.DataFrame = cast(
             pd.DataFrame, scaffold.get_scaffold_value("processed_expression_df")
         )

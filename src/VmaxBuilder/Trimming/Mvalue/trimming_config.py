@@ -24,7 +24,7 @@ class MValueTrimmingConfig:
             enough to be trimmed.
     """
 
-    is_on: bool = True
+    trim_enable: bool = True
     trim_correction_addition: float = 2
     trim_percentiles: tuple[float, float] = (2.5, 97.5)
     trim_threshold: float = 0.585  # is 1.5 in log2

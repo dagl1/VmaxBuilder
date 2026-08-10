@@ -62,6 +62,7 @@ class GPRDiagnostics(BaseImplementationDiagnostics[FullConfig]):
             "metadata": {},
         }
 
+        # todo:
         # IFP to gene distribution (amount of genes with x IFPs)
         # gene to IFP distribution (amount of IFPs with x genes)
         # IFP to reaction distribution (amount of reactions with x IFPs)
