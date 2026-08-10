@@ -237,7 +237,7 @@ class SimplePTRImputationImplementation(RealImplementation[PTRInputConfig]):
             "outputs": {"imputed_PTR_df": fully_imputed_df},
             "diagnostics": {"PTR": ptr_diagnostic_spec},
             "metadata": metadata,
-            "artifacts": imputed_ptr_dfs,
+            "artifacts": {**imputed_ptr_dfs},
         }
 
         return new_scaffold_objects

@@ -20,7 +20,7 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
     DIAGNOSTICS: list[type[BaseImplementationDiagnostics]] = []
     INPUTS: list[InputSpec] = [
         InputSpec(
-            name="ifp_mapping",
+            name="IFP_mapping",
             in_scaffold=True,
             data_type=dict,
         ),
@@ -35,7 +35,7 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             data_type=dict,
         ),
         InputSpec(
-            name="ifp_to_reactions",
+            name="IFP_to_reactions",
             in_scaffold=True,
             data_type=dict,
         ),
