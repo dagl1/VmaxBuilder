@@ -1,4 +1,4 @@
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 
 
 def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -22,6 +22,69 @@ def rgb_to_rgba(rgb: tuple[int, int, int] | tuple[str, str, str], alpha: float) 
     return f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, {alpha})"
 
 
+def blend_hex_color(hex_color_one: str, hex_color_two: str, factor: float = 0.5) -> str:
+    """Generated: validation needed.
+
+    Description:
+        Blend two hex colours using linear interpolation.
+
+    Args:
+        hex_color_one (str): First hex colour.
+        hex_color_two (str): Second hex colour.
+        factor (float): Interpolation factor where ``1.0`` keeps first colour and
+            ``0.0`` keeps second colour.
+
+    Returns:
+        str: Blended hex colour.
+
+    Raises:
+        ValueError: If ``factor`` is outside inclusive ``[0.0, 1.0]`` range.
+    """
+    if factor < 0.0 or factor > 1.0:
+        raise ValueError("factor must be between 0.0 and 1.0")
+
+    red_one, green_one, blue_one = hex_to_rgb(hex_color_one)
+    red_two, green_two, blue_two = hex_to_rgb(hex_color_two)
+
+    blended_red = int(red_one * factor + red_two * (1.0 - factor))
+    blended_green = int(green_one * factor + green_two * (1.0 - factor))
+    blended_blue = int(blue_one * factor + blue_two * (1.0 - factor))
+    return rgb_to_hex((blended_red, blended_green, blended_blue))
+
+
+def blend_hex_color_sequence(hex_colors: Sequence[str]) -> str:
+    """Generated: validation needed.
+
+    Description:
+        Blend ordered sequence of hex colours into one representative colour.
+
+    Args:
+        hex_colors (Sequence[str]): Ordered colour sequence to blend.
+
+    Returns:
+        str: Blended hex colour.
+
+    Raises:
+        ValueError: If ``hex_colors`` is empty.
+    """
+    if not hex_colors:
+        raise ValueError("hex_colors must contain at least one colour")
+    if len(hex_colors) == 1:
+        return hex_colors[0]
+
+    amount_of_steps = len(hex_colors)
+    factor_steps = 1 / (amount_of_steps - 1)
+
+    blended_color = hex_colors[0]
+    for index, hex_color in enumerate(hex_colors[1:], start=1):
+        blended_color = blend_hex_color(
+            blended_color,
+            hex_color,
+            factor=index * factor_steps,
+        )
+    return blended_color
+
+
 # rewrite as only rgba
 COLORS_HEX = {
     "gray_hex": "#808080",  # Standard gray color
@@ -37,15 +100,13 @@ COLORS_HEX = {
 COLORS_RGB = {name: hex_to_rgb(hex_color) for name, hex_color in COLORS_HEX.items()}
 
 
-def custom_colorblind_color_discrete_palette() -> (
-    tuple[
-        list[str],  # hex
-        list[str],  # rgb
-        list[str],  # rgba
-        list[str],  # hsl
-        list[tuple[int, int, int]],  # as tuple
-    ]
-):
+def custom_colorblind_color_discrete_palette() -> tuple[
+    list[str],  # hex
+    list[str],  # rgb
+    list[str],  # rgba
+    list[str],  # hsl
+    list[tuple[int, int, int]],  # as tuple
+]:
     """
     Taken from https://www.nature.com/articles/nmeth.1618
     Wong, Bang. "Points of view: Color blindness." (2011): 441-441.

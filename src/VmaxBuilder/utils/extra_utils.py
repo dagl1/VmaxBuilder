@@ -281,7 +281,17 @@ def _deduplicate_preserve_order(values: list[str]) -> list[str]:
     return list(dict.fromkeys(values))
 
 
-def find_energy_carrier_reactions(cobra_model: Model):
+def find_energy_carrier_reactions(
+    cobra_model: Model | None = None, reactions: list[Reaction] | None = None
+) -> tuple[list[Reaction], list[Reaction], list[Reaction], list[Reaction]]:
+    if cobra_model is None and reactions is None:
+        raise ValueError("Either cobra_model or reactions must be provided.")
+    elif cobra_model is not None:
+        reactions = cobra_model.reactions
+    elif reactions is not None:
+        reactions = reactions
+    else:
+        raise ValueError("Unexpected state: both cobra_model and reactions are None.")
     conservative_energy_consuming_reaction_formulas_dict = {
         "ATP": [
             ["ADP", "Pi", "H+"],
@@ -415,7 +425,6 @@ def find_energy_carrier_reactions(cobra_model: Model):
         ],
     }
 
-    reactions = cobra_model.reactions
     energy_carrier_containing_reactions = []
     found_with_conservative = []
 
@@ -452,6 +461,50 @@ def find_energy_carrier_reactions(cobra_model: Model):
         not_found_but_containing_energy_carriers,
         energy_carrier_containing_reactions,
     )
+
+def _get_reaction_compartments(reaction: Reaction) -> set[str]:
+    """Generated: validation needed.
+
+    Description:
+        Collect distinct compartments touched by reaction metabolites.
+
+    Args:
+        reaction (Reaction): Cobra reaction to inspect.
+
+    Returns:
+        set[str]: Compartments present in reaction.
+    """
+    return {
+        metabolite.compartment
+        for metabolite in reaction.metabolites
+        if metabolite.compartment is not None
+    }
+
+def get_transport_reactions(
+    reactions: list[Reaction],
+) -> tuple[list[Reaction], list[Reaction]]:
+    # active vs non active transport reactions
+    # active is based on energy carrier reactions
+    active_transport_reactions = []
+    passive_transport_reactions = []
+    (energy_carrier_containing_reactions,
+        _,
+        _,
+        _,
+    ) = find_energy_carrier_reactions(reactions=reactions)
+
+    energy_carrier_containing_reactions_ids = {reaction.id for reaction in energy_carrier_containing_reactions}
+
+    for reaction in reactions:
+        compartments = _get_reaction_compartments(reaction)
+        if len(reaction.compartments) > 1:
+            if reaction.id not in energy_carrier_containing_reactions_ids:
+                passive_transport_reactions.append(reaction)
+                continue
+            elif reaction.id in energy_carrier_containing_reactions_ids:
+                active_transport_reactions.append(reaction)
+
+    return (active_transport_reactions, passive_transport_reactions)
 
 
 def get_transport_reaction_gene_ids(
