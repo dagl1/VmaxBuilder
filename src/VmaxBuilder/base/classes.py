@@ -80,6 +80,13 @@ class BaseStage:
             Scaffold: Updated scaffold after stage execution.
         """
         # Run diagnostics before the stage execution
+        if self.config.run.lazy_load:
+            stage_implementation: BaseImplementation = self.implementation
+            for implementation in _iter_implementations(stage_implementation):
+                if isinstance(implementation, type):
+                    continue
+                implementation.load_inputs(scaffold=scaffold)
+
         for diagnostic in self.diagnostics:
             diagnostic.before_run(scaffold)
 
