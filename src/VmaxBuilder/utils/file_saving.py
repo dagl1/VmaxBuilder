@@ -35,6 +35,23 @@ class TypeInfo:
 class SaveContext:
     with_index: bool = False
     header: bool | list[str] = True
+    plot_size: tuple[int, int] | None = (1600, 1200)  # Default width and height for plots
+
+    def __post_init__(self):
+        if not isinstance(self.with_index, bool):
+            raise TypeError(f"with_index must be a boolean, got {type(self.with_index)}")
+        if not isinstance(self.header, (bool, list)):
+            raise TypeError(
+                f"header must be a boolean or list of strings, got {type(self.header)}"
+            )
+        if self.plot_size is None:
+            self.plot_size = (1600, 1200)  # Default width and height for plots
+        if not isinstance(self.plot_size, tuple) or len(self.plot_size) != 2:
+            raise TypeError(
+                f"plot_size must be a tuple of two integers, got {self.plot_size}"
+            )
+        if not all(isinstance(dim, int) for dim in self.plot_size):
+            raise TypeError(f"plot_size dimensions must be integers, got {self.plot_size}")
 
 
 def save_dataframe(
@@ -162,16 +179,21 @@ def save_go_figure(
     extension: str,
     context: SaveContext,
 ) -> None:
+    size = context.plot_size
+    if size is not None:
+        (width, height) = size
+    else:
+        size = (1600, 1200)
     if extension == "html":
         data.write_html(path)
     elif extension in ["png", "jpeg"]:
-        data.write_image(path)
+        data.write_image(path, format=extension, width=width, height=height)
     elif extension == "pdf":
-        data.write_image(path, format="pdf")
+        data.write_image(path, format="pdf", width=width, height=height)
     elif extension == "json":
         data.write_json(path)
     elif extension == "svg":
-        data.write_image(path, format="svg")
+        data.write_image(path, format="svg", width=width, height=height)
 
 
 def save_cobra_model(

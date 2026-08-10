@@ -300,7 +300,9 @@ def save_with_tries(  # noqa: C901
     )
 
     save_path.mkdir(parents=True, exist_ok=True)
-    context = SaveContext(with_index=with_index, header=header)
+    context = SaveContext(
+        with_index=with_index, header=header, plot_size=kwargs.get("plot_size", None)
+    )
     for extension in extensions:
         resolved_filename, extension = resolve_filename_extension(
             filename=filename,

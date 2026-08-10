@@ -33,8 +33,32 @@ COLORS = custom_colorblind_color_discrete_palette()
 COLORBLIND_COLORS_RGB = COLORS[4]  # RGB format for Plotly
 
 
+@dataclass
+class PlotConfig:
+    point_size: int = 3
+    highlight_opacity: float = 0.8
+    x_axis_title_size: int = 14
+    x_axis_label_size: int = 12
+    y_axis_title_size: int = 14
+    Y_axis_unit: str = "Log10"
+    Y_axis_margin: float = 0.5
+    with_boxplot: bool = True
+    with_percentage_bar: bool = True
+    with_trendline: bool = True
+    trendline_type: str = "linear"  # Options: "linear" or "poly"
+    Y_transformation: str = "log10"  # Options: "linear", "log", "log10", "sqrt"
+    histogram_axis_type: str = "probability"  # "count", "probability"
+    histogram_nbinsx: int = 50  # Number of bins for histogram
+    histogram_base_overlay_opacity = 0.55  # if only 1 group then is 1,
+    # otherwise start from this value (at 2 groups) and then reduce with an
+    # exponential decay based on the number of groups to avoid
+
+
 class PTRDiagnostics(BaseImplementationDiagnostics[PTRInputConfig]):
     DIAGNOSTICS_NAME = "PTR Diagnostics"
+    # todo: later on maybe amend model diagnostics
+    # alluvial plot to include something related to PTR
+    # has any missing from PTR data
 
     def __init__(
         self,
@@ -57,6 +81,12 @@ class PTRDiagnostics(BaseImplementationDiagnostics[PTRInputConfig]):
                 "Please ensure that the PTR data is loaded correctly."
             )
 
+        plot_config = PlotConfig(
+            trendline_type="poly",
+            x_axis_title_size=16,
+            x_axis_label_size=14,
+            y_axis_title_size=16,
+        )
         transformed_ptr_df = transform_ptr_to_linear(
             base_ptr_df, self.full_config.protein.PTR_pretransformed_type
         )
@@ -76,13 +106,14 @@ class PTRDiagnostics(BaseImplementationDiagnostics[PTRInputConfig]):
             )
 
         missing_value_plots = self.missing_value_plots(
-            transformed_ptr_df,
-            metabolic_ptr_df,
-            special_gene_groups,
+            transformed_ptr_df, metabolic_ptr_df, special_gene_groups, plot_config=plot_config
         )
 
         gene_group_plots = self.gene_group_plots(
-            transformed_ptr_df, metabolic_ptr_df, special_gene_groups
+            transformed_ptr_df,
+            metabolic_ptr_df,
+            special_gene_groups,
+            plot_config=plot_config,
         )
 
         new_scaffold_objects = {
@@ -111,9 +142,13 @@ class PTRDiagnostics(BaseImplementationDiagnostics[PTRInputConfig]):
         transformed_ptr_df: pd.DataFrame,
         metabolic_ptr_df: pd.DataFrame,
         special_gene_groups: dict[str, list[str]] | None,
+        plot_config: PlotConfig | None = None,
     ) -> list[DiagnosticOutputSpec]:
-        plot_config = PlotConfig()
+        if plot_config is None:
+            plot_config = PlotConfig()
         plot_config.trendline_type = "poly"
+        all_gene_name = "all"
+        metabolic_gene_name = "metabolic"
 
         missing_value_correlation_plot_metabolic_only = (
             create_missing_value_PTR_correlation_plot(
@@ -121,71 +156,104 @@ class PTRDiagnostics(BaseImplementationDiagnostics[PTRInputConfig]):
                 statistic=self.full_config.protein.partial_missing_imputation_statistic,
                 highlight_groups=special_gene_groups,
                 plot_config=plot_config,
+                name=metabolic_gene_name,
             )
         )
         missing_value_correlation_spec_metabolic_only = DiagnosticOutputSpec(
             data=missing_value_correlation_plot_metabolic_only,
             save_file_name="missing_value_correlation_plot_metabolic_only",
-            extensions=["html", "png", "svg"],
+            extensions=[
+                "html",
+                # "png",
+                "svg",
+            ],
+            saver_args={"plot_size": (1600, 1200)},
             data_type=go.Figure,
         )
         missing_value_correlation_plot_all_genes = create_missing_value_PTR_correlation_plot(
             transformed_ptr_df,
             statistic=self.full_config.protein.partial_missing_imputation_statistic,
             highlight_groups=special_gene_groups,
+            plot_config=plot_config,
+            name=all_gene_name,
         )
         missing_value_correlation_spec_all_genes = DiagnosticOutputSpec(
             data=missing_value_correlation_plot_all_genes,
             save_file_name="missing_value_correlation_plot_all_genes",
-            extensions=["html", "png", "svg"],
+            extensions=[
+                "html",
+                # "png",
+                "svg",
+            ],
+            saver_args={"plot_size": (1600, 1200)},
             data_type=go.Figure,
         )
         if special_gene_groups is None:
             special_gene_groups = {}
 
-        all_gene_name = "all"
-        metabolic_gene_name = "metabolic"
         missing_overlay_histogram_all_genes = create_overlaying_histograms(
             transformed_ptr_df,
             special_gene_groups=special_gene_groups,
             name=all_gene_name,
+            plot_config=plot_config,
         )
         missing_overlay_histogram_spec_all_genes = DiagnosticOutputSpec(
             data=missing_overlay_histogram_all_genes,
             save_file_name="missing_overlay_histogram",
-            extensions=["html", "png", "svg"],
+            extensions=[
+                "html",
+                # "png",
+                "svg",
+            ],
             data_type=go.Figure,
         )
         missing_overlay_histogram_metabolic_only = create_overlaying_histograms(
             metabolic_ptr_df,
             special_gene_groups=special_gene_groups,
             name=metabolic_gene_name,
+            plot_config=plot_config,
         )
         missing_overlay_histogram_spec_metabolic_only = DiagnosticOutputSpec(
             data=missing_overlay_histogram_metabolic_only,
             save_file_name="missing_overlay_histogram_metabolic_only",
-            extensions=["html", "png", "svg"],
+            extensions=[
+                "html",
+                # "png",
+                "svg",
+            ],
             data_type=go.Figure,
         )
 
         missing_violin_plot_all_genes = create_violin_plot(
-            transformed_ptr_df, special_gene_groups=special_gene_groups, name=all_gene_name
+            transformed_ptr_df,
+            special_gene_groups=special_gene_groups,
+            name=all_gene_name,
+            plot_config=plot_config,
         )
         missing_violin_plot_spec = DiagnosticOutputSpec(
             data=missing_violin_plot_all_genes,
             save_file_name="missing_violin_plot",
-            extensions=["html", "png", "svg"],
+            extensions=[
+                "html",
+                # "png",
+                "svg",
+            ],
             data_type=go.Figure,
         )
         missing_violin_plot_metabolic_only = create_violin_plot(
             metabolic_ptr_df,
             special_gene_groups=special_gene_groups,
             name=metabolic_gene_name,
+            plot_config=plot_config,
         )
         missing_violin_plot_spec_metabolic_only = DiagnosticOutputSpec(
             data=missing_violin_plot_metabolic_only,
             save_file_name="missing_violin_plot_metabolic_only",
-            extensions=["html", "png", "svg"],
+            extensions=[
+                "html",
+                # "png",
+                "svg",
+            ],
             data_type=go.Figure,
         )
 
@@ -203,11 +271,14 @@ class PTRDiagnostics(BaseImplementationDiagnostics[PTRInputConfig]):
         transformed_ptr_df: pd.DataFrame,
         metabolic_ptr_df: pd.DataFrame,
         special_gene_groups: dict[str, list[str]] | None,
+        plot_config: PlotConfig | None = None,
     ) -> list[DiagnosticOutputSpec]:
         if special_gene_groups is None:
             special_gene_groups = {}
+        if plot_config is None:
+            plot_config = PlotConfig()
 
-        all_gene_name = "All"
+        all_gene_name = "all"
         metabolic_gene_name = "metabolic"
         statistic_gene_group_statistics_df_all_genes = calculate_statistics(
             transformed_ptr_df,
@@ -220,6 +291,7 @@ class PTRDiagnostics(BaseImplementationDiagnostics[PTRInputConfig]):
             special_gene_groups=special_gene_groups,
             value_type=self.full_config.protein.partial_missing_imputation_statistic,
             name=all_gene_name,
+            plot_config=plot_config,
         )
 
         statistic_gene_group_violin_all_genes = create_violin_plot(
@@ -227,6 +299,7 @@ class PTRDiagnostics(BaseImplementationDiagnostics[PTRInputConfig]):
             special_gene_groups=special_gene_groups,
             value_type=self.full_config.protein.partial_missing_imputation_statistic,
             name=all_gene_name,
+            plot_config=plot_config,
         )
         # metabolic
 
@@ -241,6 +314,7 @@ class PTRDiagnostics(BaseImplementationDiagnostics[PTRInputConfig]):
             special_gene_groups=special_gene_groups,
             value_type=self.full_config.protein.partial_missing_imputation_statistic,
             name=metabolic_gene_name,
+            plot_config=plot_config,
         )
 
         statistic_gene_group_violin_metabolic_only = create_violin_plot(
@@ -248,6 +322,7 @@ class PTRDiagnostics(BaseImplementationDiagnostics[PTRInputConfig]):
             special_gene_groups=special_gene_groups,
             value_type=self.full_config.protein.partial_missing_imputation_statistic,
             name=metabolic_gene_name,
+            plot_config=plot_config,
         )
 
         default_gene_group_statistics_df_all_genes = calculate_statistics(
@@ -260,12 +335,14 @@ class PTRDiagnostics(BaseImplementationDiagnostics[PTRInputConfig]):
             special_gene_groups=special_gene_groups,
             value_type="default",
             name=all_gene_name,
+            plot_config=plot_config,
         )
         default_gene_group_violin_all_genes = create_violin_plot(
             transformed_ptr_df,
             special_gene_groups=special_gene_groups,
             value_type="default",
             name=all_gene_name,
+            plot_config=plot_config,
         )
 
         default_gene_group_statistics_df_metabolic_only = calculate_statistics(
@@ -278,12 +355,14 @@ class PTRDiagnostics(BaseImplementationDiagnostics[PTRInputConfig]):
             special_gene_groups=special_gene_groups,
             value_type="default",
             name=metabolic_gene_name,
+            plot_config=plot_config,
         )
         default_gene_group_violin_metabolic_only = create_violin_plot(
             metabolic_ptr_df,
             special_gene_groups=special_gene_groups,
             value_type="default",
             name=metabolic_gene_name,
+            plot_config=plot_config,
         )
 
         # outputs
@@ -389,24 +468,6 @@ STATISTIC_FUNCTIONS = {
 }
 
 
-@dataclass
-class PlotConfig:
-    point_size: int = 3
-    highlight_opacity: float = 0.8
-    Y_axis_unit: str = "Log10"
-    Y_axis_margin: float = 0.5
-    with_boxplot: bool = True
-    with_percentage_bar: bool = True
-    with_trendline: bool = True
-    trendline_type: str = "linear"  # Options: "linear" or "poly"
-    Y_transformation: str = "log10"  # Options: "linear", "log", "log10", "sqrt"
-    histogram_axis_type: str = "probability"  # "count", "probability"
-    histogram_nbinsx: int = 50  # Number of bins for histogram
-    histogram_base_overlay_opacity = 0.55  # if only 1 group then is 1,
-    # otherwise start from this value (at 2 groups) and then reduce with an
-    # exponential decay based on the number of groups to avoid
-
-
 def _apply_Y_transformation(
     PTR_df: pd.DataFrame,
     plot_config: PlotConfig | None = None,
@@ -442,6 +503,7 @@ def _apply_Y_transformation(
 
 def create_missing_value_PTR_correlation_plot(
     PTR_df: pd.DataFrame,
+    name: str,
     statistic: str = "mean",
     highlight_groups: dict[str, list[str]] | None = None,
     plot_config: PlotConfig | None = None,
@@ -562,47 +624,11 @@ def create_missing_value_PTR_correlation_plot(
     y = result_df["stat_value"].values.reshape(-1, 1)  # ty: ignore
 
     # use
+
     if plot_config.with_trendline:
-        if plot_config.trendline_type == "linear":
-            lr = LinearRegression()
-            lr.fit(X, y)
-
-            # Calculate R² to display in the legend/title
-            r_squared = lr.score(X, y)
-
-            # Safely extract slope regardless of y shape (1D vs 2D)
-            slope = lr.coef_[0][0] if lr.coef_.ndim > 1 else lr.coef_[0]
-
-            # Generate line endpoints based on unique X values
-            x_range = np.array(
-                [[result_df["missing_count"].min()], [result_df["missing_count"].max()]]
-            )
-            y_pred = lr.predict(x_range)
-
-            # Format the legend name for linear
-            trace_name = f"Linear Trend (R²={r_squared:.2f}, Slope={slope:.3f})"
-
-        elif plot_config.trendline_type == "poly":
-            # Fit a polynomial regression model (degree 2)
-            coeffs = np.polyfit(result_df["missing_count"], result_df["stat_value"], 2)
-            poly_eq = np.poly1d(coeffs)
-
-            # Calculate R² to display in the legend/title
-            missing_scalar = result_df["missing_count"].values.reshape(-1, 1)  # ty: ignore
-            y_pred_poly = poly_eq(missing_scalar.flatten()).reshape(-1, 1)
-
-            ss_res = np.sum((result_df["stat_value"] - y_pred_poly.flatten()) ** 2)
-            ss_tot = np.sum((result_df["stat_value"] - np.mean(result_df["stat_value"])) ** 2)
-            r_squared = 1 - (ss_res / ss_tot)
-
-            # Generate line endpoints based on unique X values
-            x_range = np.linspace(
-                result_df["missing_count"].min(), result_df["missing_count"].max(), 100
-            ).reshape(-1, 1)
-            y_pred = poly_eq(x_range.flatten()).reshape(-1, 1)
-
-            # Format the legend name for polynomial (omitting slope)
-            trace_name = f"Polynomial(2) trend (R²={r_squared:.2f})"
+        (x_range, y_pred, y_lower, y_upper, trace_name) = _create_trendline(
+            X, result_df, y, trendline_type=plot_config.trendline_type
+        )
 
         fig.add_trace(
             go.Scatter(
@@ -613,6 +639,17 @@ def create_missing_value_PTR_correlation_plot(
                 line=dict(
                     color=rgb_to_rgba(COLORS_RGB["lightred_hex"], 0.8), width=2, dash="dash"
                 ),
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=np.concatenate([x_range.flatten(), x_range.flatten()[::-1]]),
+                y=np.concatenate([y_upper, y_lower[::-1]]),
+                fill="toself",
+                fillcolor=rgb_to_rgba(COLORS_RGB["gray_red_hex"], 0.2),
+                line=dict(color=rgb_to_rgba(COLORS_RGB["gray_red_hex"], 0.2)),
+                hoverinfo="skip",
+                showlegend=False,
             )
         )
 
@@ -642,11 +679,14 @@ def create_missing_value_PTR_correlation_plot(
         tickvals=xaxis_ticks,
         ticktext=[f"{x} ({percentages[x]:.1f}%)" for x in xaxis_ticks],
         tickangle=45,
+        # size label and title
+        title_font=dict(size=plot_config.x_axis_title_size),
+        tickfont=dict(size=plot_config.x_axis_label_size),
     )
 
     #  layout
     fig.update_layout(
-        title=f"Missing value PTR Correlation (Total Rows: {total_ptrs:,})",
+        title=f"Missing value PTR Correlation {name} (Total Rows: {total_ptrs:,})",
         xaxis_title="Number of missing values",
         yaxis=dict(
             title=f"Gene {statistic.capitalize()} value ({plot_config.Y_axis_unit})",
@@ -669,6 +709,146 @@ def create_missing_value_PTR_correlation_plot(
     )
 
     return fig
+
+
+def _create_trendline(
+    X, result_df, y, trendline_type: str
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, str]:
+    if trendline_type == "linear":
+        lr = LinearRegression()
+        lr.fit(X, y)
+
+        # R²
+        r_squared = lr.score(X, y)
+
+        # Slope
+        slope = lr.coef_[0][0] if lr.coef_.ndim > 1 else lr.coef_[0]
+        x_range = np.linspace(
+            result_df["missing_count"].min(),
+            result_df["missing_count"].max(),
+            100,
+        ).reshape(-1, 1)
+
+        y_pred = lr.predict(x_range)
+        y_fitted = lr.predict(X)
+
+        # Make both 1D
+        x_values = X.flatten()
+        y_values = np.asarray(y).flatten()
+        y_fitted = np.asarray(y_fitted).flatten()
+
+        residuals = y_values - y_fitted
+
+        # --------------------------------------------------
+        # 3. Sort by X
+        # --------------------------------------------------
+
+        sorted_indices = np.argsort(x_values)
+
+        x_sorted = x_values[sorted_indices]
+        residuals_sorted = residuals[sorted_indices]
+
+        # --------------------------------------------------
+        # 4. Local 68% residual interval
+        # --------------------------------------------------
+
+        window_size = max(20, len(x_sorted) // 10)
+
+        lower_quantiles = []
+        upper_quantiles = []
+        x_centers = []
+
+        for i in range(len(x_sorted)):
+            start = max(0, i - window_size // 2)
+            end = min(len(x_sorted), i + window_size // 2)
+
+            local_residuals = residuals_sorted[start:end]
+            lower_quantiles.append(np.quantile(local_residuals, 0.16))
+            upper_quantiles.append(np.quantile(local_residuals, 0.84))
+            x_centers.append(x_sorted[i])
+
+        lower_residual = np.interp(
+            x_range.flatten(),
+            x_centers,
+            lower_quantiles,
+        )
+
+        upper_residual = np.interp(
+            x_range.flatten(),
+            x_centers,
+            upper_quantiles,
+        )
+        y_lower = y_pred.flatten() + lower_residual
+        y_upper = y_pred.flatten() + upper_residual
+
+        # Format the legend name for linear
+        trace_name = f"Linear trend (68% interval) (R²={r_squared:.2f}, Slope={slope:.3f})"
+        return x_range, y_pred, y_lower, y_upper, trace_name
+
+    elif plot_config.trendline_type == "poly":
+        # Fit a polynomial regression model (degree 2)
+        coeffs = np.polyfit(result_df["missing_count"], result_df["stat_value"], 2)
+        poly_eq = np.poly1d(coeffs)
+
+        # Calculate R² to display in the legend/title
+        missing_scalar = result_df["missing_count"].values.reshape(-1, 1)  # ty: ignore
+        y_pred_poly = poly_eq(missing_scalar.flatten()).reshape(-1, 1)
+
+        ss_res = np.sum((result_df["stat_value"] - y_pred_poly.flatten()) ** 2)
+        ss_tot = np.sum((result_df["stat_value"] - np.mean(result_df["stat_value"])) ** 2)
+        r_squared = 1 - (ss_res / ss_tot)
+
+        # Generate line endpoints based on unique X values
+        x_range = np.linspace(
+            result_df["missing_count"].min(), result_df["missing_count"].max(), 100
+        ).reshape(-1, 1)
+        y_pred = poly_eq(x_range.flatten()).reshape(-1, 1)
+
+        # prediction interval
+        x = result_df["missing_count"].to_numpy()
+        y = result_df["stat_value"].to_numpy()
+
+        y_fitted = poly_eq(x)
+        residuals = y - y_fitted
+        sorted_indices = np.argsort(x)
+
+        x_sorted = x[sorted_indices]
+        residuals_sorted = residuals[sorted_indices]
+
+        window_size = max(20, len(x_sorted) // 10)
+
+        lower_quantiles = []
+        upper_quantiles = []
+        x_centers = []
+
+        for i in range(len(x_sorted)):
+            start = max(0, i - window_size // 2)
+            end = min(len(x_sorted), i + window_size // 2)
+
+            local_residuals = residuals_sorted[start:end]
+            lower_quantiles.append(np.quantile(local_residuals, 0.16))
+            upper_quantiles.append(np.quantile(local_residuals, 0.84))
+            x_centers.append(x_sorted[i])
+
+        lower_residual = np.interp(
+            x_range.flatten(),
+            x_centers,
+            lower_quantiles,
+        )
+
+        upper_residual = np.interp(
+            x_range.flatten(),
+            x_centers,
+            upper_quantiles,
+        )
+        y_lower = y_pred.flatten() + lower_residual
+        y_upper = y_pred.flatten() + upper_residual
+
+        # Format the legend name for polynomial (omitting slope)
+        trace_name = f"Polynomial(2) trend (68% interval) (R²={r_squared:.2f})"
+        return x_range, y_pred, y_lower, y_upper, trace_name
+    else:
+        raise ValueError(f"Trendline type '{trendline_type}' is not supported.")
 
 
 def _separate_special_gene_groups(
@@ -817,7 +997,7 @@ def create_overlaying_histograms(
         )
         title_name = (
             f"Overlaying histograms of {value_type.capitalize()} "
-            f"PTR values {name} gene ({len(PTR_df):,})"
+            f"PTR values {name} genes ({len(PTR_df):,})"
         )
         fig.update_layout(
             title=title_name,
@@ -848,9 +1028,7 @@ def create_overlaying_histograms(
                 nbinsx=nbinsx,
             )
         )
-        title_name = (
-            f"Overlaying histograms of missing values per {name} genes ({len(PTR_df):,})"
-        )
+        title_name = f"Overlaying histograms of missing values {name} genes ({len(PTR_df):,})"
 
         fig.update_layout(
             title=title_name,
@@ -859,6 +1037,13 @@ def create_overlaying_histograms(
             barmode="overlay",
             template="plotly_white",
         )
+
+    # update xaxis tick and title size, as well as for y axxis title
+    fig.update_xaxes(
+        title_font=dict(size=plot_config.x_axis_title_size),
+        tickfont=dict(size=plot_config.x_axis_label_size),
+    )
+    fig.update_yaxes(title_font=dict(size=plot_config.y_axis_title_size))
 
     return fig
 
@@ -994,6 +1179,12 @@ def create_violin_plot(
             yaxis_title="Missing values",
             template="plotly_white",
         )
+    # update xaxis tick and title size, as well as for y axxis title
+    fig.update_xaxes(
+        title_font=dict(size=plot_config.x_axis_title_size),
+        tickfont=dict(size=plot_config.x_axis_label_size),
+    )
+    fig.update_yaxes(title_font=dict(size=plot_config.y_axis_title_size))
 
     return fig
 
@@ -1162,24 +1353,28 @@ if __name__ == "__main__":
     plot_config = PlotConfig(
         point_size=3,
         highlight_opacity=0.8,
+        x_axis_title_size=16,
+        x_axis_label_size=14,
+        y_axis_title_size=16,
         Y_axis_unit="Log10",
         Y_axis_margin=0.5,
         with_boxplot=True,
         with_percentage_bar=True,
         with_trendline=True,
-        trendline_type="poly",
+        trendline_type="linear",
         Y_transformation="log10",
         histogram_axis_type="probability",
-        histogram_nbinsx=50,
+        histogram_nbinsx=80,
     )
-    show_figs = True
+    show_figs = False
+    all_gene_name = "all"
     missing_correlation_fig = create_missing_value_PTR_correlation_plot(
         PTR_df,
         statistic="median",
         highlight_groups=highlight_info,
         plot_config=plot_config,
+        name=all_gene_name,
     )
-    all_gene_name = "all"
     missing_overlaying_histogram_fig = create_overlaying_histograms(
         PTR_df,
         special_gene_groups=highlight_info,
@@ -1192,7 +1387,10 @@ if __name__ == "__main__":
         special_gene_groups=highlight_info,
         plot_config=plot_config,
     )
-    missing_statistics_df = calculate_statistics(PTR_df, special_gene_groups=highlight_info)
+    missing_statistics_df = calculate_statistics(
+        PTR_df,
+        special_gene_groups=highlight_info,
+    )
 
     values_overlaying_histogram_fig = create_overlaying_histograms(
         PTR_df,
@@ -1239,6 +1437,7 @@ if __name__ == "__main__":
         y_transformation="log10",
     )
 
+    missing_correlation_fig.show()
     if show_figs:
         missing_correlation_fig.show()
         missing_overlaying_histogram_fig.show()

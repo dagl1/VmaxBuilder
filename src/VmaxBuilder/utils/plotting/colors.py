@@ -24,6 +24,8 @@ def rgb_to_rgba(rgb: tuple[int, int, int] | tuple[str, str, str], alpha: float) 
 
 # rewrite as only rgba
 COLORS_HEX = {
+    "gray_hex": "#808080",  # Standard gray color
+    "gray_red_hex": "#D0A9A9",  # Dark gray for trendline and boxplot
     "red_hex": "#FF0000",  # Standard red color
     "dark_purple_hex": "#800080",  # Dark purple for highlights
     "lightred_hex": "#FF6F21",  # A visually distinct light red color,
