@@ -22,7 +22,8 @@ from pyomo.environ import (
 )
 from pyomo.opt import SolverFactory
 
-from VmaxBuilder.base.classes import BaseImplementationDiagnostics, RealImplementation
+from VmaxBuilder.base.classes import BaseImplementationDiagnostics, RealImplementation, \
+    DiagnosticOutputSpec
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.stages.allocation.FairAllocation.config import FairAllocationConfig
 from VmaxBuilder.typing_stubs.allocation.FairALlocation.implementation import (
@@ -96,14 +97,32 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             extension=".csv",
             validator=None,
         ),
+
         OutputSpec(
-            name="trimmed_genes_per_IFP_per_sample",
+            name="IFPs_per_sample",
             data_type=dict,
             scaffold_location="outputs",
-            save_file_name="trimmed_genes_per_IFP_per_sample",
+            save_file_name="IFPs_per_sample",
             extension=".json",
             validator=None,
         ),
+        OutputSpec(
+            name="base_connected_IFPs",
+            data_type=dict,
+            scaffold_location="artifacts",
+            save_file_name="base_connected_IFPs",
+            extension=".json",
+            validator=None,
+        ),
+        OutputSpec(
+            name="trimming_output",
+            data_type=dict,
+            scaffold_location="artifacts",
+            save_file_name="trimming_output",
+            extension=".json",
+            validator=None,
+        ),
+
     ]
 
     def __init__(self, full_config: FullConfig):
@@ -112,7 +131,7 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
 
     def create_metadata(self, elapsed_time: float, **kwargs) -> dict[str, Any]:
         metadata = {
-            "gene_trimming": {
+            "allocation": {
                 "implementation": type(self).__name__,
                 "elapsed_time_seconds": elapsed_time,
                 "status": "All sample abundance allocated",
@@ -127,21 +146,51 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             pd.DataFrame, scaffold.get_scaffold_value("protein_abundance_df")
         )
         IFP_mapping = cast(dict, scaffold.get_scaffold_value("IFP_mapping"))
-        gene_to_IFPs = cast(dict, scaffold.get_scaffold_value("gene_to_IFP_mapping"))
-        reaction_to_IFPs = cast(dict, scaffold.get_scaffold_value("reaction_to_IFP_mapping"))
         trimmable_genes = scaffold.get_scaffold_value("trimmable_genes")
         if trimmable_genes is not None:
             trimmable_genes = cast(set[str], set(trimmable_genes))
 
-        (time_elapsed, (IFP_sample_abundance_df, trimmed_IFPs_per_sample)) = (
-            self.get_time_decorator(self.run_IFP_allocation)(
-                protein_abundance_df,
-                IFP_mapping,
-                gene_to_IFPs,
-                reaction_to_IFPs,
-                trimmable_genes,
-            )
+        (
+            time_elapsed,
+            (
+                base_connected_IFPs,
+                base_connected_component_diagnostics,
+                per_sample_IFP_abundances,
+                trimming_output,
+                IFPs_per_sample,
+            ),
+        ) = self.get_time_decorator(self.run_IFP_allocation)(
+            protein_abundance_df,
+            IFP_mapping,
+            trimmable_genes,
         )
+
+        metadata = self.create_metadata(
+            elapsed_time=time_elapsed,
+        )
+        base_connected_component_diagnostic = DiagnosticOutputSpec(
+            data=base_connected_component_diagnostics,
+            save_file_name="connected_component_diagnostics",
+            extensions=".json",
+            data_type=dict,
+        )
+        IFP_sample_abundance_df = pd.DataFrame.from_dict(
+            per_sample_IFP_abundances,
+            orient="index",
+        ).transpose()
+
+        new_scaffold_objects = {
+            "outputs": {
+                "IFP_sample_abundance_df": IFP_sample_abundance_df,
+            },
+            "artifacts": {
+                "trimming_output": trimming_output,
+                "IFPs_per_sample": IFPs_per_sample,
+            },
+            "diagnostics": {"allocation": [base_connected_component_diagnostic]},
+            "metadata": metadata,
+        }
+        return new_scaffold_objects
 
     def convert_IFP_to_IFPDefinition(
         self,
@@ -165,10 +214,14 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
         self,
         protein_abundance_df: pd.DataFrame,
         IFP_mapping: dict[str, Any],
-        gene_to_IFPs: dict[str, Any],
-        reaction_to_IFPs: dict[str, Any],
         trimmable_genes: set[str] | None,
-    ) -> tuple[pd.DataFrame, dict[str, Any]]:
+    ) -> tuple[
+        list[set[str]],
+        dict[str, Any],
+        dict[str, dict[str, float]],
+        dict[str, IFPTrimmingOutput],
+        dict[str, list[dict[str, str | list[str] | dict[str, float]]]],
+    ]:
         IFPs_per_sample = {}
         (
             _,
@@ -188,6 +241,8 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             for IFP_name in component
             if IFP_name in IFP_definitions
         }
+        trimming_output = {}
+        IFPs_per_sample = {}
         if (
             hasattr(self.full_config.protein, "trim_enable")
             and self.full_config.protein.trim_enable
@@ -204,7 +259,10 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
         quadratic_model = self.prepare_quadratic_problem_model(
             list(connected_IFP_definitions.values()), list(protein_abundance_df.index)
         )
+        solver_factory = SolverFactory("gurobi")
+        # todo: allow different solvers
 
+        per_sample_IFP_abundances: dict[str, dict[str, float]] = {}
         for sample in protein_abundance_df.columns:
             (
                 sample_specific_IFP_mapping,
@@ -230,17 +288,21 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
                 protein_abundance_df,
                 sample,
             )
+            results = solver_factory.solve(quadratic_model, tee=False)
+            _sample_IFP_abundances = self.postprocess_results(
+                _sample_IFP_abundances,
+                quadratic_model,
+                solver_result=results,
+            )
+            per_sample_IFP_abundances[sample] = _sample_IFP_abundances
 
-            # self.adjust_quadratic_model_for_sample_specific()
-
-        #     quadratic_model = self.prepare_quadratic_model(
-        #         _protein_abundance_df, _IFP_mapping
-        #     )
-        #     result = self.run_quadratic_model(quadratic_model)
-        #     postprocessed_result = self.postprocess_results(result)
-        # todo: change the return type to include the results of the quadratic
-        # model and postprocessing
-        return (protein_abundance_df, IFP_mapping)
+        return (
+            base_connected_IFPs,
+            base_connected_component_diagnostics,
+            per_sample_IFP_abundances,
+            trimming_output,
+            IFPs_per_sample,
+        )
 
     def iteratively_remove_trimmable_proteins(
         self,
