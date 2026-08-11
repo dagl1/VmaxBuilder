@@ -19,6 +19,7 @@ from VmaxBuilder.GPR.gpr_preprocessing import (
     clear_simplification_cache,
     expand_gene_IFP_to_transcript_IFPs,
     get_simplification_cache_info,
+    get_unique_genes_from_IFP_mapping,
     get_unique_gpr_rules,
     simplify_gpr_rule,
 )
@@ -100,6 +101,18 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
         (elapsed_time, IFP_mapping) = self.get_time_decorator(
             build_IFP_mapping_from_gpr_rules
         )(gpr_rules)
+        model_genes = set(gene.id for gene in cobra_model.genes)
+        missing_genes_from_model = (
+            get_unique_genes_from_IFP_mapping(IFP_mapping) - model_genes
+        )
+        missing_genes_from_IFP_mapping = model_genes - get_unique_genes_from_IFP_mapping(
+            IFP_mapping
+        )
+        self.logger.error(
+            f"Missing genes from model: {missing_genes_from_model}. "
+            f"Missing genes from IFP mapping: {missing_genes_from_IFP_mapping}."
+        )
+
         (elapsed_time_2, gene_to_IFP_mapping) = self.get_time_decorator(
             self.build_gene_to_IFP_mapping
         )(IFP_mapping)

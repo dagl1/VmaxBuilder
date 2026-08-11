@@ -120,6 +120,17 @@ def simplify_gpr_rule(gpr_rule: str) -> list[str]:
     return [" and ".join(IFP) for IFP in simplify_gpr_rule_cached(gpr_rule)]
 
 
+def get_unique_genes_from_IFP_mapping(
+    IFP_mapping: dict[str, dict[str, Any]],
+) -> set[str]:
+    return set(
+        gene
+        for _, gpr_data in IFP_mapping.items()
+        for ifp in gpr_data.get("IFP_objects", [])
+        for gene in ifp.get("genes_in_IFP", [])
+    )
+
+
 def build_IFP_mapping_from_gpr_rules(
     gpr_rules: dict[str, list[str]],
 ) -> dict[str, dict[str, Any]]:
@@ -161,6 +172,7 @@ def build_IFP_mapping_from_gpr_rules(
             "reactions_with_GPR_rule": reactions,
             "genes_in_GPR_rule": genes,
         }
+
     return IFP_mapping
 
 
