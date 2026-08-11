@@ -4,6 +4,7 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from itertools import cycle
 from typing import Any
+
 from plotly import graph_objects as go
 
 from VmaxBuilder.utils.plotting.colors import (
