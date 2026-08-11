@@ -8,15 +8,11 @@ from cobra import Metabolite, Model, Reaction
 
 from VmaxBuilder.base.classes import BaseImplementationDiagnostics
 from VmaxBuilder.base.configs import FullConfig, Scaffold
+from VmaxBuilder.utils.extra_utils import _get_reaction_compartments, get_transport_reactions
 from VmaxBuilder.utils.plotting.alluvial import (
+    create_alluvial_plot,
     prepare_alluvial_data,
     prepare_alluvial_plot_data,
-    create_alluvial_plot,
-)
-from VmaxBuilder.utils.extra_utils import (
-    get_transport_reactions,
-    _get_reaction_compartments
-
 )
 from VmaxBuilder.utils.plotting.config import PlotConfig
 
@@ -94,22 +90,19 @@ class ModelDiagnostics(BaseImplementationDiagnostics):
         if irreversible_cobra_model is None:
             raise ValueError("'irreversible_cobra_model' missing from scaffold.")
         reactions = irreversible_cobra_model.reactions
-        category_participation_dict = self._divide_model_reactions_into_categories(
-            reactions
-        )
-        alluvial_data = prepare_alluvial_data(category_participation_dict)
+        category_participation_dict = self._divide_model_reactions_into_categories(reactions)
+        _alluvial_data = prepare_alluvial_data(category_participation_dict)
         alluvial_plot_data = prepare_alluvial_plot_data(category_participation_dict)
         plot_config = PlotConfig()
-        reaction_alluvial_plot_figure = create_alluvial_plot(alluvial_plot_data,
-                                                             plot_config=plot_config)
+        _reaction_alluvial_plot_figure = create_alluvial_plot(
+            alluvial_plot_data, plot_config=plot_config
+        )
         # todo add to diagnosticoutput and put in scaffol
 
         return new_scaffold_objects
 
-
     def _divide_model_reactions_into_categories(
         self,
-
         reactions: list[Reaction],
     ) -> dict[str, dict[str, list[str]]]:
         """Generated: validation needed.
@@ -185,7 +178,6 @@ class ModelDiagnostics(BaseImplementationDiagnostics):
                 [],
             ).append(reaction.id)
 
-
         return category_participation_dict
 
     def _invert_category_participation_dict(
@@ -214,6 +206,7 @@ class ModelDiagnostics(BaseImplementationDiagnostics):
 
 if __name__ == "__main__":
     from pathlib import Path
+
     from cobra.io import load_json_model
 
     plot_config = PlotConfig()
