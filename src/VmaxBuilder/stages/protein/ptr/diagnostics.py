@@ -34,8 +34,6 @@ COLORS = custom_colorblind_color_discrete_palette()
 COLORBLIND_COLORS_RGB = COLORS[4]  # RGB format for Plotly
 
 
-
-
 class PTRDiagnostics(BaseImplementationDiagnostics[PTRInputConfig]):
     DIAGNOSTICS_NAME = "PTR Diagnostics"
     # todo: later on maybe amend model diagnostics
@@ -694,7 +692,10 @@ def create_missing_value_PTR_correlation_plot(
 
 
 def _create_trendline(
-    X, result_df, y, trendline_type: str
+    X,
+    result_df,
+    y,
+    trendline_type: str,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, str]:
     if trendline_type == "linear":
         lr = LinearRegression()
@@ -767,7 +768,7 @@ def _create_trendline(
         trace_name = f"Linear trend (68% interval) (R²={r_squared:.2f}, Slope={slope:.3f})"
         return x_range, y_pred, y_lower, y_upper, trace_name
 
-    elif plot_config.trendline_type == "poly":
+    elif trendline_type == "poly":
         # Fit a polynomial regression model (degree 2)
         coeffs = np.polyfit(result_df["missing_count"], result_df["stat_value"], 2)
         poly_eq = np.poly1d(coeffs)
