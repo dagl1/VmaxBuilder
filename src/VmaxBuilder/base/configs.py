@@ -42,7 +42,7 @@ class StageLoadingInfo:
 class StageLoading:
     model_loading_info: StageLoadingInfo
     protein_loading_info: StageLoadingInfo
-    # allocation_stage: str
+    allocation_loading_info: StageLoadingInfo
     # protein_stage: str
 
 
@@ -269,6 +269,8 @@ class TranscriptProcessingConfig:
 class FullConfig:
     model: Any
     protein: Any
+    allocation: Any
+    Kcat: Any
     run: RunConfig
     paths: Paths
     transcripts: TranscriptProcessingConfig

@@ -20,6 +20,10 @@ from VmaxBuilder.base.configs import (
     StageLoadingInfo,
     TranscriptProcessingConfig,
 )
+from VmaxBuilder.stages.allocation.allocation import AllocationStage
+from VmaxBuilder.stages.allocation.FairAllocation.implementation import (
+    FairAllocationImplementation,
+)
 from VmaxBuilder.stages.model.default.implementation import (
     DefaultIrreversibleModelImplementation,
 )
@@ -55,7 +59,9 @@ class Orchestrator:
     stages = {
         "model": ModelStage,
         "protein": ProteinStage,
-        # "allocation": AllocationStage,
+        "allocation": AllocationStage,
+        # "Vmax"
+        # "Kcat": KcatStage,
         # add more stages here as needed
         # "stage_name": StageClass,
     }
@@ -113,6 +119,19 @@ class Orchestrator:
         )
         self.set_print_level(self.config.run.print_level)
         self._discover_user_submitted_paths(stage_name="protein")
+        self.scaffold.discovered_inputs = self.discovered_inputs
+
+        return implementation
+
+    def set_allocation_implementation(self, implementation_cls: type[ImplT]) -> ImplT:
+        implementation = implementation_cls(full_config=self.config)
+        self._allocation = implementation
+        self.config.allocation = implementation.config
+        self.allocation_stage = self.stages["allocation"](
+            implementation=implementation, full_config=self.config
+        )
+        self.set_print_level(self.config.run.print_level)
+        self._discover_user_submitted_paths(stage_name="allocation")
         self.scaffold.discovered_inputs = self.discovered_inputs
 
         return implementation
@@ -369,6 +388,8 @@ class Orchestrator:
         return FullConfig(
             model=ImplementationConfig(),
             protein=ImplementationConfig(),
+            allocation=ImplementationConfig(),
+            Kcat=ImplementationConfig(),
             run=run_config,
             paths=run_config.paths,
             transcripts=TranscriptProcessingConfig(),
@@ -557,7 +578,7 @@ if __name__ == "__main__":
     model_dir = models_dir / model_name
     model_path = model_dir
 
-    expression_path = base_dir / "expression_datasets" / "NCI_60_human"
+    expression_path = base_dir / "expression_datasets" / "DCM_magnet"
     ptr_path = base_dir / "PTR_datasets" / "Eraslan2019_human"
     # proteomics_path = base_dir / "proteomics" / "NCI60"
     output_path = Path("~/git/VmaxBuilder/data/run_example_output")
@@ -578,15 +599,19 @@ if __name__ == "__main__":
         ],
     )
 
+    allocation_stage_loading_info = StageLoadingInfo(
+        stage_name="allocation",
+    )
     # Protein inputs (set whichever mode needs).
     stage_loading_info = StageLoading(
         model_loading_info=model_stage_loading_info,
         protein_loading_info=protein_stage_loading_info,
+        allocation_loading_info=allocation_stage_loading_info,
     )
 
     run_config = RunConfig(
         output_dir=output_path,
-        run_name="VmaxBuilder_Run",
+        run_name="DCM_magnet_run",
         create_dynamically_named_results=create_dynamically_named_results,
         # print_level="DEBUG",
     )
@@ -597,6 +622,7 @@ if __name__ == "__main__":
     protein = orchestrator.set_protein_implementation(
         MvalueTrimmingExpressionPTRImplementation
     )
+    allocation = orchestrator.set_allocation_implementation(FairAllocationImplementation)
     protein.config.expression_sample_type_map = {idx: "heart" for idx in range(1, 1000)}
 
     protein.config.PTR_special_gene_groups = {"transport_reactions": []}

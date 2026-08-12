@@ -1,17 +1,12 @@
-"""Generated: validation needed.
-
-Description:
-    GPR stage implementation for deriving independently functioning protein
-    (IFP) complex mappings for model workflows.
-"""
-
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
+import numpy as np
 from cobra.core.model import Model
 
-from VmaxBuilder.base.classes import BaseImplementation
+from VmaxBuilder.base.classes import BaseImplementation, DiagnosticOutputSpec
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.GPR.gpr_preprocessing import (
     build_gene_to_transcripts_mapping,
@@ -98,6 +93,16 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
         if cobra_model is None:
             raise ValueError("No COBRA model found in scaffold for GPR processing.")
         gpr_rules = get_unique_gpr_rules(cobra_model)
+
+        gpr_rule_diagnostics = self.diagnose_gpr_rules(
+            gpr_rules,
+        )
+        gpr_rule_diagnostic_spec = DiagnosticOutputSpec(
+            data=gpr_rule_diagnostics,
+            save_file_name="gpr_rule_diagnostics",
+            extensions=".json",
+            data_type=dict,
+        )
         (elapsed_time, IFP_mapping) = self.get_time_decorator(
             build_IFP_mapping_from_gpr_rules
         )(gpr_rules)
@@ -122,8 +127,10 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
 
         artifacts_payload = {}
         metadata_payload = {}
-        diagnostics_payload = {}
+
         elapsed_time_4 = 0
+        transcript_metadata_payload = {}
+        transcript_diagnostics_payload = {}
         if self.full_config.run.run_target_transcript_gene_level.lower() == "transcript":
             # todo:
             (
@@ -131,8 +138,8 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
                 (
                     IFP_mapping,
                     artifacts_payload,
-                    metadata_payload,
-                    diagnostics_payload,
+                    transcript_metadata_payload,
+                    transcript_diagnostics_payload,
                 ),
             ) = self.get_time_decorator(self._convert_gene_IFP_to_transcript_IFP)(
                 cobra_model,
@@ -140,15 +147,21 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
                 config=self.full_config,
             )
         elapsed_time = elapsed_time + elapsed_time_2 + elapsed_time_3 + elapsed_time_4
+        metadata_payload = self.create_metadata(
+            elapsed_time=elapsed_time, additional_metadata=metadata_payload
+        )
+        metadata = {**transcript_metadata_payload, **metadata_payload}
+
         artifacts = {
             "gene_to_IFP_mapping": gene_to_IFP_mapping,
             "reaction_to_IFP_mapping": reaction_to_IFP_mapping,
             **artifacts_payload,
         }
+        diagnostics = {
+            "gpr": gpr_rule_diagnostic_spec,
+            **transcript_diagnostics_payload,
+        }
 
-        metadata_payload = self.create_metadata(
-            elapsed_time=elapsed_time, additional_metadata=metadata_payload
-        )
         self.logger.debug(f"Generated IFP mapping for {len(IFP_mapping)} GPR rules.")
 
         return {
@@ -156,8 +169,165 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
                 "IFP_mapping": IFP_mapping,
             },
             "artifacts": artifacts,
-            "metadata": metadata_payload,
-            "diagnostics": diagnostics_payload,
+            "metadata": metadata,
+            "diagnostics": diagnostics,
+        }
+
+    def diagnose_gpr_rules(
+        self,
+        gpr_rules: dict[str, list[str]],
+    ) -> dict[str, Any]:
+        total_gpr_rules = len(gpr_rules)
+
+        # A reaction should normally occur under only one GPR rule,
+        # but use a set in case the input contains duplicates.
+        all_reactions = {
+            reaction for reactions in gpr_rules.values() for reaction in reactions
+        }
+
+        total_reactions = len(all_reactions)
+
+        # ---------------------------------------------------------
+        # Gene counts per GPR rule
+        # ---------------------------------------------------------
+
+        # IMPORTANT:
+        # This assumes the GPR rule is whitespace-tokenized.
+        # If your GPR rules contain "and"/"or", replace this with
+        # your actual GPR parser.
+        genes_per_rule = {gpr_rule: len(gpr_rule.split()) for gpr_rule in gpr_rules}
+
+        gene_counts = np.asarray(
+            list(genes_per_rule.values()),
+            dtype=float,
+        )
+
+        # ---------------------------------------------------------
+        # Reaction counts per GPR rule
+        # ---------------------------------------------------------
+
+        reactions_per_rule = {
+            gpr_rule: len(set(reactions)) for gpr_rule, reactions in gpr_rules.items()
+        }
+
+        reaction_counts = np.asarray(
+            list(reactions_per_rule.values()),
+            dtype=float,
+        )
+
+        # ---------------------------------------------------------
+        # Summary helper
+        # ---------------------------------------------------------
+
+        def summarize(values: np.ndarray) -> dict[str, float]:
+            q25, median, q75 = np.percentile(
+                values,
+                [25, 50, 75],
+            )
+
+            return {
+                "min": float(np.min(values)),
+                "q25": float(q25),
+                "median": float(median),
+                "q75": float(q75),
+                "max": float(np.max(values)),
+                "mean": float(np.mean(values)),
+                "iqr": float(q75 - q25),
+            }
+
+        # ---------------------------------------------------------
+        # How many GPR rules are used by N reactions?
+        # ---------------------------------------------------------
+
+        rules_by_reaction_count = Counter(reactions_per_rule.values())
+
+        # ---------------------------------------------------------
+        # Unique vs shared rules
+        # ---------------------------------------------------------
+
+        single_reaction_rules = sum(count == 1 for count in reactions_per_rule.values())
+
+        shared_rules = sum(count > 1 for count in reactions_per_rule.values())
+
+        # Fraction of reactions belonging to shared rules
+        shared_reactions = sum(count for count in reactions_per_rule.values() if count > 1)
+
+        # ---------------------------------------------------------
+        # Most shared rules
+        # ---------------------------------------------------------
+
+        most_shared_gpr_rules = [
+            {
+                "gpr_rule": gpr_rule,
+                "reaction_count": len(set(gpr_rules[gpr_rule])),
+                "reactions": list(set(gpr_rules[gpr_rule])),
+            }
+            for gpr_rule, _ in sorted(
+                reactions_per_rule.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )[:20]
+        ]
+
+        # ---------------------------------------------------------
+        # Concentration of reactions among shared rules
+        # ---------------------------------------------------------
+
+        sorted_reaction_counts = np.sort(reaction_counts)[::-1]
+
+        cumulative_fraction = np.cumsum(sorted_reaction_counts) / np.sum(
+            sorted_reaction_counts
+        )
+
+        # Helper: fraction of reactions covered by top N rules
+        def top_n_fraction(n: int) -> float:
+            if len(sorted_reaction_counts) == 0:
+                return 0.0
+
+            n = min(n, len(sorted_reaction_counts))
+
+            return float(np.sum(sorted_reaction_counts[:n]) / np.sum(sorted_reaction_counts))
+
+        return {
+            "total_gpr_rules": total_gpr_rules,
+            "total_reactions": total_reactions,
+            "genes_per_gpr_rule": summarize(gene_counts),
+            "reactions_per_gpr_rule": summarize(reaction_counts),
+            "rules_by_reaction_count": dict(sorted(rules_by_reaction_count.items())),
+            "single_reaction_rules": single_reaction_rules,
+            "shared_gpr_rules": shared_rules,
+            "fraction_gpr_rules_used_by_one_reaction": (
+                single_reaction_rules / total_gpr_rules
+            ),
+            "fraction_gpr_rules_shared": (shared_rules / total_gpr_rules),
+            "fraction_reactions_using_shared_gpr_rules": (
+                shared_reactions / total_reactions if total_reactions > 0 else 0.0
+            ),
+            "top_n_reaction_fraction": {
+                "top_1": top_n_fraction(1),
+                "top_5": top_n_fraction(5),
+                "top_10": top_n_fraction(10),
+                "top_25": top_n_fraction(25),
+                "top_50": top_n_fraction(50),
+            },
+            "most_shared_gpr_rules": most_shared_gpr_rules,
+            "cumulative_fraction_of_reactions_by_top_n_rules": {
+                "top_1": float(cumulative_fraction[0])
+                if len(cumulative_fraction) > 0
+                else 0.0,
+                "top_5": float(cumulative_fraction[4])
+                if len(cumulative_fraction) > 4
+                else 0.0,
+                "top_10": float(cumulative_fraction[9])
+                if len(cumulative_fraction) > 9
+                else 0.0,
+                "top_25": float(cumulative_fraction[24])
+                if len(cumulative_fraction) > 24
+                else 0.0,
+                "top_50": float(cumulative_fraction[49])
+                if len(cumulative_fraction) > 49
+                else 0.0,
+            },
         }
 
     def create_metadata(
@@ -266,7 +436,7 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
 
         artifacts_payload = {}
         metadata_payload = {}
-        diagnostics_payload = {"model_stage": {"gpr": {}}}
+        diagnostics_payload = {}
         mapping_artifact = artifacts_payload.get("gene_transcript_mapping")
         if mapping_artifact is None:
             mapping_artifact = artifacts_payload.get("transcript_gene_map")
@@ -344,9 +514,10 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
             ),
             "complexity_skips": len(complexity_skips),
         }
-        diagnostics_payload["model_stage"]["gpr"]["transcript_IFP_complexity_skips"] = (
-            complexity_skips
-        )
+        diagnostics_payload = {
+            "gpr_transcript_mapping": {"transcript_IFP_complexity_skips": complexity_skips}
+        }
+
         artifacts_payload["transcript_IFP_complexity_report"] = complexity_skips
         return (
             transcript_level_mapping,

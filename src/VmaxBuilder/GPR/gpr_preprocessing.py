@@ -224,6 +224,7 @@ def get_unique_gpr_rules(cobra_model: Model) -> dict[str, list[str]]:
         raise ValueError("Cobra model not found in scaffold artifacts.")
 
     gpr_rules: dict[str, list[str]] = {}
+
     for reaction in cobra_model.reactions:
         rule = reaction.gene_reaction_rule.strip()
         if rule:

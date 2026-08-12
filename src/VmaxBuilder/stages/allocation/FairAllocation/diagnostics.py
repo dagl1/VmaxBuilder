@@ -18,3 +18,8 @@
 # last we could also try jaccard similarity between samples, samples with high similarity
 # indicate they share same IFPs
 # and/or same for between IFPs
+
+# todo: total amount of trimming
+
+# ensure that IFPs that are trimmed can be traced back to their real IFP
+# todo: ensure that old version and new version give similar output

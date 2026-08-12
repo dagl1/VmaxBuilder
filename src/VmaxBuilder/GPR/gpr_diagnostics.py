@@ -26,6 +26,11 @@ from VmaxBuilder.utils.plotting.colors import (
 COLORS = custom_colorblind_color_discrete_palette()
 COLORBLIND_COLORS_RGB = COLORS[4]  # RGB format for Plotly
 
+# todo: just like for IFPs, we want to know how many GPR rules there are and how many
+# reactions they affect
+
+# distribution of gpr rules affecting how many reactions (cumulative)
+
 
 class GPRDiagnostics(BaseImplementationDiagnostics[FullConfig]):
     DIAGNOSTICS_NAME = "GPR Diagnostics"
