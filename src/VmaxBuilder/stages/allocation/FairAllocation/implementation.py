@@ -54,7 +54,7 @@ class IFPTrimmingOutput(TypedDict):
 
 
 class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtocol]):
-    STAGE_NAME = "protein"
+    STAGE_NAME = "allocation"
     IMPL_NAME = "FairAllocation"
     IMPLEMENTATION_CONFIG_CLASS = FairAllocationConfig
     CHILD_IMPLEMENTATIONS = []
