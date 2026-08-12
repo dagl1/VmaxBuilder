@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import random
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
@@ -32,7 +31,7 @@ from VmaxBuilder.stages.allocation.FairAllocation.config import FairAllocationCo
 from VmaxBuilder.typing_stubs.allocation.FairALlocation.implementation import (
     FairAllocationConfigProtocol,
 )
-from VmaxBuilder.utils.custom_logging import CustomFormatter, CustomLogger
+from VmaxBuilder.utils.custom_logging import CustomLogger
 
 
 @dataclass
