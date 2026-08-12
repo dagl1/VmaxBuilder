@@ -22,8 +22,11 @@ from pyomo.environ import (
 )
 from pyomo.opt import SolverFactory
 
-from VmaxBuilder.base.classes import BaseImplementationDiagnostics, RealImplementation, \
-    DiagnosticOutputSpec
+from VmaxBuilder.base.classes import (
+    BaseImplementationDiagnostics,
+    DiagnosticOutputSpec,
+    RealImplementation,
+)
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.stages.allocation.FairAllocation.config import FairAllocationConfig
 from VmaxBuilder.typing_stubs.allocation.FairALlocation.implementation import (
@@ -97,7 +100,6 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             extension=".csv",
             validator=None,
         ),
-
         OutputSpec(
             name="IFPs_per_sample",
             data_type=dict,
@@ -122,7 +124,6 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             extension=".json",
             validator=None,
         ),
-
     ]
 
     def __init__(self, full_config: FullConfig):
@@ -252,7 +253,7 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             (IFPs_per_sample, trimming_output) = self.trim_IFPs(
                 protein_abundance_df,
                 IFP_mapping,
-                self.full_config.protein.trim_minimum_proteins_in_IFP,
+                self.full_config.allocation.trim_minimum_proteins_in_IFP,
                 trimmable_genes,
             )
 
@@ -263,30 +264,32 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
         # todo: allow different solvers
 
         per_sample_IFP_abundances: dict[str, dict[str, float]] = {}
-        for sample in protein_abundance_df.columns:
+        for _sample in protein_abundance_df.columns:
             (
                 sample_specific_IFP_mapping,
-                connected_IFPs,
-                non_connected_IFPs,
-                connected_component_diagnostics,
+                sample_specific_connected_IFPs,
+                sample_specific_non_connected_IFPs,
+                _sample_specific_connected_component_diagnostics,
             ) = self.prepare_IFPs(
                 IFP_mapping,
-                IFPs_per_sample.get(sample, []),
+                IFPs_per_sample.get(_sample, []),
             )
-            _sample_IFP_abundances = allocator.resolve_non_connected_IFPs(
-                non_connected_IFPs,
+            _sample_IFP_abundances = self.resolve_non_connected_IFPs(
+                sample_specific_IFP_mapping,
+                sample_specific_non_connected_IFPs,
                 protein_abundance_df,
+                _sample,
             )
             self.adjust_quadratic_model_for_sample_specific(
                 quadratic_model,
                 [
                     connected_IFP_definitions[IFP_name]
-                    for component in connected_IFPs
+                    for component in sample_specific_connected_IFPs
                     for IFP_name in component
                     if IFP_name in connected_IFP_definitions
                 ],
                 protein_abundance_df,
-                sample,
+                _sample,
             )
             results = solver_factory.solve(quadratic_model, tee=False)
             _sample_IFP_abundances = self.postprocess_results(
@@ -294,7 +297,7 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
                 quadratic_model,
                 solver_result=results,
             )
-            per_sample_IFP_abundances[sample] = _sample_IFP_abundances
+            per_sample_IFP_abundances[_sample] = _sample_IFP_abundances
 
         return (
             base_connected_IFPs,
@@ -452,34 +455,11 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
         adjusted_IFP_mapping = deepcopy(IFP_mapping)
         if not sample_specific_IFPs:
             return adjusted_IFP_mapping
-        for IFP_data in sample_specific_IFPs:
-            sample_IFP = IFP_data.get("IFP")
 
-            # find the corresponding IFP in the adjusted_IFP_mapping
-            for gpr_rule, gpr_data in adjusted_IFP_mapping.items():
-                IFPs = gpr_data.get("IFP_objects")
-                if IFPs is None:
-                    continue
-                for i, IFP in enumerate(IFPs):
-                    if IFP.get("IFP") == sample_IFP:
-                        # update the genes_in_IFP to the trimmed version
-                        adjusted_IFP_mapping[gpr_rule]["IFP_objects"][i]["genes_in_IFP"] = (
-                            IFP_data["remaining_genes_in_IFP"]
-                        )
-        # we emove any duplicate IFPs that may have been created by trimming,
+        self._adjust_IFP_mapping(sample_specific_IFPs, adjusted_IFP_mapping)
+        # we remove any duplicate IFPs that may have been created by trimming,
         # keeping only the first occurrence
-        seen_IFPs = set()
-        for gpr_rule, gpr_data in adjusted_IFP_mapping.items():
-            IFPs = gpr_data.get("IFP_objects")
-            if IFPs is None:
-                continue
-            unique_IFPs = []
-            for IFP in IFPs:
-                IFP_str = IFP.get("IFP")
-                if IFP_str not in seen_IFPs:
-                    seen_IFPs.add(IFP_str)
-                    unique_IFPs.append(IFP)
-            adjusted_IFP_mapping[gpr_rule]["IFP_objects"] = unique_IFPs
+        self._remove_duplicate_IFPs(adjusted_IFP_mapping)
 
         # ensure that if we have trimmed genes, that there are differences between
         # the IFP_mapping and the adjusted_IFP_mapping
@@ -494,6 +474,42 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             )
 
         return adjusted_IFP_mapping
+
+    def _adjust_IFP_mapping(
+        self,
+        sample_specific_IFPs: list[dict[str, str | list[str] | dict[str, float]]],
+        adjusted_IFP_mapping: dict[str, Any],
+    ):
+        for IFP_data in sample_specific_IFPs:
+            sample_IFP = IFP_data.get("IFP")
+            # find the corresponding IFP in the adjusted_IFP_mapping
+            for gpr_rule, gpr_data in adjusted_IFP_mapping.items():
+                IFPs = gpr_data.get("IFP_objects")
+                if IFPs is None:
+                    continue
+                for i, IFP in enumerate(IFPs):
+                    if IFP.get("IFP") == sample_IFP:
+                        # update the genes_in_IFP to the trimmed version
+                        adjusted_IFP_mapping[gpr_rule]["IFP_objects"][i]["genes_in_IFP"] = (
+                            IFP_data["remaining_genes_in_IFP"]
+                        )
+
+    def _remove_duplicate_IFPs(
+        self,
+        adjusted_IFP_mapping: dict[str, Any],
+    ):
+        seen_IFPs = set()
+        for gpr_rule, gpr_data in adjusted_IFP_mapping.items():
+            IFPs = gpr_data.get("IFP_objects")
+            if IFPs is None:
+                continue
+            unique_IFPs = []
+            for IFP in IFPs:
+                IFP_str = IFP.get("IFP")
+                if IFP_str not in seen_IFPs:
+                    seen_IFPs.add(IFP_str)
+                    unique_IFPs.append(IFP)
+            adjusted_IFP_mapping[gpr_rule]["IFP_objects"] = unique_IFPs
 
     def _compare_IFP_mappings(
         self,
@@ -518,10 +534,10 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
 
         return False  # No differences found
 
-    def get_connected_components(
+    def _IFP_to_genes_mapping(
         self,
         IFP_mapping: dict[str, Any],
-    ) -> tuple[list[set[str]], list[str], dict[str, Any]]:
+    ) -> dict[str, set[str]]:
         IFP_to_genes: dict[str, set[str]] = {}
         for _, IFP_data in IFP_mapping.items():
             IFPs = IFP_data.get("IFP_objects")
@@ -537,6 +553,25 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
                     continue
 
                 IFP_to_genes[IFP_name] = genes
+
+        return IFP_to_genes
+
+    @staticmethod
+    def dfs(
+        node: str, component: set[str], visited: set[str], graph: dict[str, set[str]]
+    ) -> None:
+        visited.add(node)
+        component.add(node)
+
+        for neighbor in graph[node]:
+            if neighbor not in visited:
+                FairAllocationImplementation.dfs(neighbor, component, visited, graph)
+
+    def get_connected_components(
+        self,
+        IFP_mapping: dict[str, Any],
+    ) -> tuple[list[set[str]], list[str], dict[str, Any]]:
+        IFP_to_genes = self._IFP_to_genes_mapping(IFP_mapping)
 
         graph: dict[str, set[str]] = {IFP_name: set() for IFP_name in IFP_to_genes}
         IFP_names = list(IFP_to_genes)
@@ -554,22 +589,17 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
         visited: set[str] = set()
         connected_components: list[set[str]] = []
 
-        def dfs(node: str, component: set[str]) -> None:
-            visited.add(node)
-            component.add(node)
-
-            for neighbor in graph[node]:
-                if neighbor not in visited:
-                    dfs(neighbor, component)
-
         for node in graph:
             if node not in visited:
                 component: set[str] = set()
-                dfs(node, component)
+                self.dfs(node, component, visited, graph)
                 connected_components.append(component)
 
         non_connected_IFPs = [
             next(iter(component)) for component in connected_components if len(component) == 1
+        ]
+        connected_components = [
+            component for component in connected_components if len(component) > 1
         ]
         connected_genes: list[set[str]] = []
         non_connected_genes: set[str] = set()
@@ -583,6 +613,9 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             else:
                 non_connected_genes.update(component_genes)
 
+        self.validate_connected_components(
+            connected_genes, connected_components, non_connected_genes, IFP_to_genes
+        )
         diagnostics_payload = {
             "connected_IFP_components": len(connected_genes),
             "non_connected_IFPs": len(non_connected_IFPs),
@@ -596,6 +629,38 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
         }
 
         return connected_components, non_connected_IFPs, diagnostics_payload
+
+    def validate_connected_components(
+        self,
+        connected_genes: list[set[str]],
+        connected_components: list[set[str]],
+        non_connected_genes: set[str],
+        IFP_to_genes: dict[str, set[str]],
+    ) -> None:
+        # ensure that any gene in non_connected_genes is not in any of the connected_genes
+        if non_connected_genes & set().union(*connected_genes):
+            raise ValueError(
+                "Some genes are present in both connected and non-connected components."
+            )
+        # ensure that any gene in a connected IFPs is not in any of the non_connected_genes
+        if any(
+            IFP_to_genes[IFP] & non_connected_genes
+            for component in connected_components
+            for IFP in component
+        ):
+            raise ValueError(
+                "Some genes in connected IFPs are present in non-connected components."
+            )
+
+    def validate_quadratic_model_result_without_trimming(
+        self,
+    ):
+        pass
+
+    def validate_quadratic_model_result_with_trimming(
+        self,
+    ):
+        pass
 
     def prepare_IFPs(
         self,
@@ -625,8 +690,10 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
 
     def resolve_non_connected_IFPs(
         self,
+        sample_specific_IFP_mapping: dict[str, Any],
         non_connected_IFPs: list[str],
         protein_abundance_df: pd.DataFrame,
+        sample: str,
     ) -> dict[str, Any]:
         # for any IFP that is not connected to any other IFP through genes, we can
         # resolve it immediately
@@ -815,21 +882,13 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
         # Extract the optimized abundance for each IFP that is present
         # in sample_IFP_abundances.
         per_IFP_abundances = {
-            IFP: float(value(quadratic_model.x[IFP])) for IFP in sample_IFP_abundances
+            IFP: float(value(quadratic_model.x[IFP]))  # ty: ignore
+            for IFP in sample_IFP_abundances
+            if IFP in quadratic_model.IFPs  # ty: ignore
         }
 
         # Replace the original/sample-specific values with the QP allocation.
         sample_IFP_abundances.update(per_IFP_abundances)
-
-        # Print a few random IFPs for diagnostics.
-
-        random_IFPs = random.sample(
-            list(sample_IFP_abundances),
-            min(10, len(sample_IFP_abundances)),
-        )
-
-        for IFP in random_IFPs:
-            self.logger.error(f"IFP: {IFP}, Abundance: {sample_IFP_abundances[IFP]}")
 
         return sample_IFP_abundances
 
@@ -867,6 +926,13 @@ if __name__ == "__main__":
         IFP_mapping,
         [],
     )
+    print(
+        f"Base connected IFPs: len={len(base_connected_IFPs)}",
+    )
+    print(
+        f"Base non-connected IFPs: len={len(base_non_connected_IFPs)}",
+    )
+
     IFP_definitions = allocator.convert_IFP_to_IFPDefinition(
         IFP_mapping, set(protein_abundance_df.index)
     )
@@ -889,32 +955,44 @@ if __name__ == "__main__":
         list(connected_IFP_definitions.values()), list(protein_abundance_df.index)
     )
 
-    for sample in protein_abundance_df.columns:
+    for _sample in protein_abundance_df.columns:
         (
             sample_specific_IFP_mapping,
-            connected_IFPs,
-            non_connected_IFPs,
-            connected_component_diagnostics,
+            sample_specific_connected_IFPs,
+            sample_specific_non_connected_IFPs,
+            _sample_specific_connected_component_diagnostics,
         ) = allocator.prepare_IFPs(
             IFP_mapping,
-            IFPs_per_sample.get(sample, []),
+            IFPs_per_sample.get(_sample, []),
         )
         sample_IFP_abundances = allocator.resolve_non_connected_IFPs(
-            non_connected_IFPs,
+            sample_specific_IFP_mapping,
+            sample_specific_non_connected_IFPs,
             protein_abundance_df,
+            _sample,
+        )
+        ten_IFPs = list(sample_IFP_abundances.items())[:10]
+        print(
+            f"Sample: {_sample}, First 10 IFP Abundances: {ten_IFPs}, "
+            f"values: {list(sample_IFP_abundances.values())[:10]}"
         )
         allocator.adjust_quadratic_model_for_sample_specific(
             quadratic_model,
             [
                 connected_IFP_definitions[IFP_name]
-                for component in connected_IFPs
+                for component in sample_specific_connected_IFPs
                 for IFP_name in component
                 if IFP_name in connected_IFP_definitions
             ],
             protein_abundance_df,
-            sample,
+            _sample,
         )
         results = solver_factory.solve(quadratic_model, tee=False)
         sample_IFP_abundances = allocator.postprocess_results(
             sample_IFP_abundances, quadratic_model, solver_result=results
+        )
+        last_ten_IFPs = list(sample_IFP_abundances.items())[-10:]
+        print(
+            f"Sample: {_sample}, Last 10 IFP Abundances: {last_ten_IFPs}, "
+            f"values: {list(sample_IFP_abundances.values())[-10:]}"
         )
