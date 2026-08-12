@@ -271,6 +271,7 @@ class FullConfig:
     protein: Any
     allocation: Any
     Kcat: Any
+    Vmax: Any
     run: RunConfig
     paths: Paths
     transcripts: TranscriptProcessingConfig

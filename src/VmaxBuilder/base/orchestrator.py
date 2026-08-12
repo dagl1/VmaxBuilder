@@ -390,6 +390,7 @@ class Orchestrator:
             protein=ImplementationConfig(),
             allocation=ImplementationConfig(),
             Kcat=ImplementationConfig(),
+            Vmax=ImplementationConfig(),
             run=run_config,
             paths=run_config.paths,
             transcripts=TranscriptProcessingConfig(),
