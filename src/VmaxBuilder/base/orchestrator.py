@@ -579,7 +579,8 @@ if __name__ == "__main__":
     model_dir = models_dir / model_name
     model_path = model_dir
 
-    expression_path = base_dir / "expression_datasets" / "DCM_magnet"
+    expression_name = "NCI_60_human"
+    expression_path = base_dir / "expression_datasets" / expression_name
     ptr_path = base_dir / "PTR_datasets" / "Eraslan2019_human"
     # proteomics_path = base_dir / "proteomics" / "NCI60"
     output_path = Path("~/git/VmaxBuilder/data/run_example_output")
@@ -612,7 +613,7 @@ if __name__ == "__main__":
 
     run_config = RunConfig(
         output_dir=output_path,
-        run_name="DCM_magnet_run",
+        run_name=f"{expression_name}_run",
         create_dynamically_named_results=create_dynamically_named_results,
         # print_level="DEBUG",
     )

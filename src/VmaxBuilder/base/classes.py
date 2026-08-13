@@ -350,6 +350,10 @@ class BaseImplementation(Generic[ConfigType], ABC):
         """
         if not self.child_implementations:
             # before_run diagnostics
+            self.logger.info(
+                f"Running: {self.IMPL_NAME} implementation for stage: {self.STAGE_NAME}",
+                print_level=1,
+            )
             before_run_scaffold_objects = self.run_before_diagnostics(scaffold)
             before_run_scaffold_objects = self.add_stage_and_run_moment_to_scaffold(
                 before_run_scaffold_objects, "before_run"
