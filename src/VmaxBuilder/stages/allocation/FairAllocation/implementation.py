@@ -484,7 +484,7 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             pd.to_numeric, errors="coerce"
         ).astype(float)
 
-        for sample in protein_abundance_df.columns:
+        for sample in protein_abundance_df.columns: # ty: ignore
             trimmed = False
             sample_values = protein_abundance_df[sample].to_numpy(dtype=float)
             protein_abundances: dict[str, float] = dict(
