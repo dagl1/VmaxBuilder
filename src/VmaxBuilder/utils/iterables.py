@@ -22,6 +22,10 @@ class SortedSet(Set, Generic[T]):
             self._set.remove(item)
             self._sorted_list.remove(item)
 
+    def update(self, iterable: Iterable[T]):
+        self._set.update(iterable)
+        self._sorted_list = sorted(self._set)
+
     def sort(self, key=None, reverse=False):
         self._sorted_list.sort(key=key, reverse=reverse)
 

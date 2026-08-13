@@ -21,7 +21,7 @@ class MvalueTrimmingExpressionPTRImplementation(
 ):
     BASE_STAGE_CONFIG = ProteinStageConfig
     STAGE_NAME = "protein"
-    IMPL_NAME = "expression_ptr"
+    IMPL_NAME = "M-value_trimming_expression_PTR"
     _RESOLVED_CONFIG_CLASS = MvalueTrimmingExpressionPTRConfigProtocol
 
     CHILD_IMPLEMENTATIONS: list[type[BaseImplementation]] = [

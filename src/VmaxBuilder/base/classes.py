@@ -348,6 +348,12 @@ class BaseImplementation(Generic[ConfigType], ABC):
         Returns:
             Scaffold: Updated scaffold.
         """
+        # self.logger.info(
+        #     f"ENTER run: {self.IMPL_NAME} "
+        #     f"id={id(self)} "
+        #     f"children={len(self.child_implementations)}",
+        #     print_level=1,
+        # )
         if not self.child_implementations:
             # before_run diagnostics
             self.logger.info(
@@ -381,6 +387,11 @@ class BaseImplementation(Generic[ConfigType], ABC):
 
         else:
             for child_impl in self.child_implementations:
+                # self.logger.info(
+                #     f"{self.IMPL_NAME} -> "
+                #     "{child_impl.IMPL_NAME} (child_id={id(child_impl)})",
+                #     print_level=1,
+                # )
                 scaffold = child_impl.run(scaffold)
 
         return scaffold
@@ -466,7 +477,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
         """
         FALLBACK_LOCATION = "outputs"
         if not input_spec.validator:
-            self.logger.warning(
+            self.logger.info(
                 f"No validator specified for input '{input_spec.name}'. "
                 "Skipping validation for this input."
             )
@@ -596,9 +607,12 @@ class BaseImplementation(Generic[ConfigType], ABC):
         self, new_scaffold_objects: dict[str, dict[str, Any]]
     ) -> dict[str, Any]:
         stage_name = f"{self.STAGE_NAME}_stage"
-
         for key, value in list(new_scaffold_objects.items()):
-            if isinstance(value, dict) and stage_name in value:
+            if not value:
+                continue
+
+                # ensure we dont do some strange updates with empty dicts
+            elif isinstance(value, dict) and stage_name in value:
                 continue
             elif key == "outputs":
                 continue

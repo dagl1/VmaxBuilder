@@ -349,66 +349,183 @@ class Scaffold:
 
     def get_scaffold_location(self, key: str) -> str | None:
         """
-        searches the scaffold for the given key in the following order:
+        Search the scaffold recursively for the given key.
+
+        Sections are searched in this order:
         1. inputs
         2. outputs
         3. extras
         4. artifacts
         5. metadata
         6. diagnostics
-        Does NOT search in loading info
+
+        Does NOT search loading info.
+
+        Returns:
+            The top-level scaffold section containing the key, or None.
         """
-        sections = ["inputs", "outputs", "extras", "artifacts", "metadata", "diagnostics"]
+
+        sections = [
+            "inputs",
+            "outputs",
+            "extras",
+            "artifacts",
+            "metadata",
+            "diagnostics",
+        ]
+
+        def contains_key(value: Any) -> bool:
+            if not isinstance(value, dict):
+                return False
+
+            if key in value:
+                return True
+
+            return any(contains_key(child) for child in value.values())
+
         for section in sections:
-            if key in getattr(self, section):
+            if contains_key(getattr(self, section)):
                 return section
 
         return None
 
     def get_scaffold_value(
-        self, key: str, assumed_return_type: type | None = None
+        self,
+        key: str,
+        assumed_return_type: type | None = None,
     ) -> Any | None:
         """
-        searches the scaffold for the given key in the following order:
+        Search the scaffold recursively for a key.
+
+        Sections are searched in this order:
         1. inputs
         2. outputs
         3. extras
         4. artifacts
         5. metadata
         6. diagnostics
-        Does NOT search in loading info
+
+        Does NOT search loading info.
         """
-        location = self.get_scaffold_location(key)
-        if location is not None:
-            value = getattr(self, location)[key]
+
+        sections = [
+            "inputs",
+            "outputs",
+            "extras",
+            "artifacts",
+            "metadata",
+            "diagnostics",
+        ]
+
+        def find_value(value: Any) -> tuple[bool, Any]:
+            if not isinstance(value, dict):
+                return False, None
+
+            if key in value:
+                return True, value[key]
+
+            for child in value.values():
+                found, result = find_value(child)
+                if found:
+                    return True, result
+
+            return False, None
+
+        for section in sections:
+            found, value = find_value(getattr(self, section))
+
+            if not found:
+                continue
+
             if assumed_return_type is None:
                 return value
-            else:
-                if isinstance(value, assumed_return_type):
-                    return value
-                else:
-                    backup_logger.warning(
-                        f"Value for key '{key}' in scaffold is not of type "
-                        f"{assumed_return_type.__name__}. "
-                        f"Returning value as is. Actual type: {type(value).__name__}"
-                    )
-        else:
-            return None
 
-    def update_scaffold(self, new_scaffold_objects) -> None:
-        """
-        Updates the scaffold with the given key-value pair in the specified section.
-        If the section does not exist, it will be created.
-        """
+            if isinstance(value, assumed_return_type):
+                return value
+
+            backup_logger.warning(
+                f"Value for key '{key}' in scaffold is not of type "
+                f"{assumed_return_type.__name__}. "
+                f"Returning value as is. Actual type: {type(value).__name__}"
+            )
+            return value
+
+        return None
+
+    def update_scaffold(
+        self,
+        new_scaffold_objects: dict[str, dict[str, Any]],
+    ) -> None:
+        """Update the scaffold using deep merging to prevent overwriting nested keys."""
+
         for clsattribute, value_dict in new_scaffold_objects.items():
             if not hasattr(self, clsattribute):
                 raise ConfigurationError(
                     f"Scaffold has no attribute '{clsattribute}'. "
                     f"Valid attributes are: {', '.join(self.__dataclass_fields__.keys())}"
                 )
+
             if not isinstance(value_dict, dict):
                 raise ConfigurationError(
                     f"Value for '{clsattribute}' must be a dictionary. "
                     f"Got {type(value_dict).__name__} instead."
                 )
-            getattr(self, clsattribute).update(value_dict)
+
+            # Nothing to add.
+            if not value_dict:
+                continue
+
+            current_value = getattr(self, clsattribute)
+
+            if not isinstance(current_value, dict):
+                raise ConfigurationError(
+                    f"Scaffold attribute '{clsattribute}' must be a dictionary. "
+                    f"Got {type(current_value).__name__} instead."
+                )
+
+            self._deep_merge(current_value, value_dict)
+
+    def _deep_merge(
+        self,
+        base_dict: dict[str, Any],
+        new_dict: dict[str, Any],
+    ) -> None:
+        """Recursively merge new_dict into base_dict.
+
+        Empty dictionaries do not overwrite existing values.
+        """
+
+        for key, value in new_dict.items():
+            if isinstance(value, dict):
+                if not value:
+                    continue
+
+                if key in base_dict and isinstance(base_dict[key], dict):
+                    self._deep_merge(base_dict[key], value)
+                else:
+                    base_dict[key] = value
+            else:
+                base_dict[key] = value
+
+    def _deep_merge(
+        self,
+        base_dict: dict[str, Any],
+        new_dict: dict[str, Any],
+    ) -> None:
+        """Recursively merge new_dict into base_dict.
+
+        Empty dictionaries do not overwrite existing values.
+        """
+
+        for key, value in new_dict.items():
+            if isinstance(value, dict) and not value:
+                continue
+
+            if (
+                key in base_dict
+                and isinstance(base_dict[key], dict)
+                and isinstance(value, dict)
+            ):
+                self._deep_merge(base_dict[key], value)
+            else:
+                base_dict[key] = value

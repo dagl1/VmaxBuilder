@@ -17,7 +17,7 @@ from VmaxBuilder.typing_stubs.protein.ptr.implementation import (
 class SimplePTRMultiplicationImplementation(RealImplementation[PTRInputConfigProtocol]):
     BASE_STAGE_CONFIG = ProteinStageConfig
     STAGE_NAME = "protein"
-    IMPL_NAME = "simple_ptr_imputation"
+    IMPL_NAME = "simple_ptr_multiplication"
 
     IMPLEMENTATION_CONFIG_CLASS = PTRInputConfig
     CHILD_IMPLEMENTATIONS: list[type[BaseImplementation]] = []
