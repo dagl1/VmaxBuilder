@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pandas as pd
-from cobra import Model
 
 from VmaxBuilder.base.classes import BaseImplementation, DiagnosticOutputSpec
 from VmaxBuilder.base.configs import InputSpec, OutputSpec, Scaffold

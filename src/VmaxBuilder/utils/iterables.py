@@ -41,11 +41,6 @@ class SortedSet(Set, Generic[T]):
     def __repr__(self) -> str:
         return f"SortedSet({self._sorted_list})"
 
-    # Door overerving van collections.abc.Set krijg je union (|),
-    # intersection (&), en difference (-) er GRATIS bij,
-    # maar ze leveren standaard een reguliere set op.
-    # Overschrijf ze zo voor behoud van het SortedSet type:
-
     def union(self, other: Iterable[T]) -> "SortedSet[T]":
         if isinstance(other, SortedSet):
             return SortedSet(self._set.union(other._set))

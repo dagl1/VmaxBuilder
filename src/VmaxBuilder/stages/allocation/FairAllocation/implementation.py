@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
-from this import s
 from typing import Any, TypedDict, cast
 
 import numpy as np
@@ -36,7 +35,6 @@ from VmaxBuilder.stages.allocation.FairAllocation.config import FairAllocationCo
 from VmaxBuilder.typing_stubs.allocation.FairALlocation.implementation import (
     FairAllocationConfigProtocol,
 )
-from VmaxBuilder.utils.custom_logging import CustomLogger
 
 
 @dataclass
@@ -1058,6 +1056,8 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
 if __name__ == "__main__":
     import json
     from pathlib import Path
+
+    from VmaxBuilder.utils.custom_logging import CustomLogger
 
     base_dir = r"/home/p70088775/git/VmaxBuilder/data/run_example_output/DCM_magnet_run/"
 
