@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from this import s
 from typing import Any, TypedDict, cast
 
+import numpy as np
 import pandas as pd
 
 # noinspection PyUnresolvedReferences
@@ -20,6 +22,9 @@ from pyomo.environ import (
     value,
 )
 from pyomo.opt import SolverFactory
+
+# progress bar
+from tqdm import tqdm
 
 from VmaxBuilder.base.classes import (
     BaseImplementationDiagnostics,
@@ -44,6 +49,24 @@ class IFPDefinition:
         return hash((self.name, self.genes))
 
 
+def convert_IFP_to_IFPDefinition(
+    IFP_mapping: dict[str, Any],
+    allowed_genes: set[str],
+) -> dict[str, IFPDefinition]:
+    IFP_definitions: dict[str, IFPDefinition] = {}
+    for _, gpr_data in IFP_mapping.items():
+        IFPs = gpr_data.get("IFP_objects")
+        if IFPs is None:
+            continue
+        for IFP in IFPs:
+            IFP_name = IFP.get("IFP")
+            genes = tuple(IFP.get("genes_in_IFP", []))
+            genes = tuple(gene for gene in genes if gene in allowed_genes)
+            if IFP_name is not None and genes:
+                IFP_definitions[IFP_name] = IFPDefinition(name=IFP_name, genes=genes)
+    return IFP_definitions
+
+
 class IFPTrimmingOutput(TypedDict):
     IFP: str
     n_genes_before_trimming: int
@@ -61,11 +84,6 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
     DIAGNOSTICS: list[type[BaseImplementationDiagnostics]] = []
     INPUTS: list[InputSpec] = [
         InputSpec(
-            name="IFP_mapping",
-            in_scaffold=True,
-            data_type=dict,
-        ),
-        InputSpec(
             name="protein_abundance_df",
             in_scaffold=True,
             data_type=dict,
@@ -77,12 +95,17 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             data_type=dict,
         ),
         InputSpec(
-            name="gene_to_IFP_mapping",
+            name="adjusted_IFP_mapping",
             in_scaffold=True,
             data_type=dict,
         ),
         InputSpec(
-            name="reaction_to_IFP_mapping",
+            name="adjusted_gene_to_IFP_mapping",
+            in_scaffold=True,
+            data_type=dict,
+        ),
+        InputSpec(
+            name="adjusted_reaction_to_IFP_mapping",
             in_scaffold=True,
             data_type=dict,
         ),
@@ -164,10 +187,19 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             IFP_mapping,
             trimmable_genes,
         )
+        if self.full_config.protein.trim_enable and trimming_output:
+            trimming_diagnostics = self.prepare_trimming_diagnostics(trimming_output)
+            trimming_diagnostic_output = DiagnosticOutputSpec(
+                data=trimming_diagnostics,
+                save_file_name="trimming_diagnostics",
+                extensions=".json",
+                data_type=dict,
+            )
 
         metadata = self.create_metadata(
             elapsed_time=time_elapsed,
         )
+
         base_connected_component_diagnostic = DiagnosticOutputSpec(
             data=base_connected_component_diagnostics,
             save_file_name="connected_component_diagnostics",
@@ -190,25 +222,148 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             "diagnostics": {"allocation": [base_connected_component_diagnostic]},
             "metadata": metadata,
         }
+        if self.full_config.protein.trim_enable and trimming_output is not None:
+            new_scaffold_objects["diagnostics"]["trimming"] = [trimming_diagnostic_output]
         return new_scaffold_objects
 
-    def convert_IFP_to_IFPDefinition(
+    def prepare_trimming_diagnostics(
         self,
-        IFP_mapping: dict[str, Any],
-        allowed_genes: set[str],
-    ) -> dict[str, IFPDefinition]:
-        IFP_definitions: dict[str, IFPDefinition] = {}
-        for _, gpr_data in IFP_mapping.items():
-            IFPs = gpr_data.get("IFP_objects")
-            if IFPs is None:
-                continue
-            for IFP in IFPs:
-                IFP_name = IFP.get("IFP")
-                genes = tuple(IFP.get("genes_in_IFP", []))
-                genes = tuple(gene for gene in genes if gene in allowed_genes)
-                if IFP_name is not None and genes:
-                    IFP_definitions[IFP_name] = IFPDefinition(name=IFP_name, genes=genes)
-        return IFP_definitions
+        trimming_output: dict[str, IFPTrimmingOutput],
+    ) -> dict[str, Any]:
+        """
+        Prepare summary diagnostics for IFP trimming.
+
+        The diagnostics distinguish between:
+        - IFPs trimmed in at least one sample
+        - IFPs not trimmed in any sample
+        - Number of IFPs trimmed per sample
+        - Number of samples in which each IFP was trimmed
+        - Number of times each gene was trimmed across all IFP/sample combinations
+        """
+
+        # sample -> set of IFPs trimmed in that sample
+        IFPs_per_sample: dict[str, set[str]] = {}
+
+        # IFP -> set of samples in which it was trimmed
+        samples_per_IFP: dict[str, set[str]] = {}
+
+        # gene -> number of times it was trimmed
+        # A trimming event = one gene being removed from one IFP in one sample.
+        trimmed_gene_count: dict[str, int] = {}
+
+        for IFP, IFP_data in trimming_output.items():
+            genes_trimmed_per_sample = IFP_data["genes_trimmed_per_sample"]
+
+            for sample, genes in genes_trimmed_per_sample.items():
+                if not genes:
+                    continue
+
+                IFPs_per_sample.setdefault(sample, set()).add(IFP)
+                samples_per_IFP.setdefault(IFP, set()).add(sample)
+
+                for gene in genes:
+                    trimmed_gene_count[gene] = trimmed_gene_count.get(gene, 0) + 1
+        # Include samples that appear in the trimming output but had no
+        # trimming, so they correctly contribute a value of zero.
+        all_samples = set()
+
+        for IFP_data in trimming_output.values():
+            all_samples.update(IFP_data["genes_trimmed_per_sample"].keys())
+
+        IFP_counts_per_sample = np.array(
+            [len(IFPs_per_sample.get(sample, set())) for sample in all_samples],
+            dtype=float,
+        )
+
+        if len(IFP_counts_per_sample) > 0:
+            per_sample_IFP_diagnostics = {
+                "min_amount_of_IFPs_per_sample": int(np.min(IFP_counts_per_sample)),
+                "max_amount_of_IFPs_per_sample": int(np.max(IFP_counts_per_sample)),
+                "median_amount_of_IFPs_per_sample": float(np.median(IFP_counts_per_sample)),
+                "mean_amount_of_IFPs_per_sample": float(np.mean(IFP_counts_per_sample)),
+                "std_amount_of_IFPs_per_sample": float(np.std(IFP_counts_per_sample)),
+                "IQR": {
+                    "10th_percentile": float(np.percentile(IFP_counts_per_sample, 10)),
+                    "25th_percentile": float(np.percentile(IFP_counts_per_sample, 25)),
+                    "50th_percentile": float(np.percentile(IFP_counts_per_sample, 50)),
+                    "75th_percentile": float(np.percentile(IFP_counts_per_sample, 75)),
+                    "90th_percentile": float(np.percentile(IFP_counts_per_sample, 90)),
+                },
+            }
+        else:
+            per_sample_IFP_diagnostics = {
+                "min_amount_of_IFPs_per_sample": 0,
+                "max_amount_of_IFPs_per_sample": 0,
+                "median_amount_of_IFPs_per_sample": 0.0,
+                "mean_amount_of_IFPs_per_sample": 0.0,
+                "std_amount_of_IFPs_per_sample": 0.0,
+                "IQR": {
+                    "10th_percentile": 0.0,
+                    "25th_percentile": 0.0,
+                    "50th_percentile": 0.0,
+                    "75th_percentile": 0.0,
+                    "90th_percentile": 0.0,
+                },
+            }
+
+        samples_counts_per_IFP = np.array(
+            [len(samples) for samples in samples_per_IFP.values()],
+            dtype=float,
+        )
+
+        if len(samples_counts_per_IFP) > 0:
+            per_IFP_diagnostics = {
+                "min_amount_of_samples_per_IFP": int(np.min(samples_counts_per_IFP)),
+                "max_amount_of_samples_per_IFP": int(np.max(samples_counts_per_IFP)),
+                "median_amount_of_samples_per_IFP": float(np.median(samples_counts_per_IFP)),
+                "mean_amount_of_samples_per_IFP": float(np.mean(samples_counts_per_IFP)),
+                "std_amount_of_samples_per_IFP": float(np.std(samples_counts_per_IFP)),
+                "IQR": {
+                    "10th_percentile": float(np.percentile(samples_counts_per_IFP, 10)),
+                    "25th_percentile": float(np.percentile(samples_counts_per_IFP, 25)),
+                    "50th_percentile": float(np.percentile(samples_counts_per_IFP, 50)),
+                    "75th_percentile": float(np.percentile(samples_counts_per_IFP, 75)),
+                    "90th_percentile": float(np.percentile(samples_counts_per_IFP, 90)),
+                },
+            }
+        else:
+            per_IFP_diagnostics = {
+                "min_amount_of_samples_per_IFP": 0,
+                "max_amount_of_samples_per_IFP": 0,
+                "median_amount_of_samples_per_IFP": 0.0,
+                "mean_amount_of_samples_per_IFP": 0.0,
+                "std_amount_of_samples_per_IFP": 0.0,
+                "IQR": {
+                    "10th_percentile": 0.0,
+                    "25th_percentile": 0.0,
+                    "50th_percentile": 0.0,
+                    "75th_percentile": 0.0,
+                    "90th_percentile": 0.0,
+                },
+            }
+
+        total_number_of_IFPs = len(trimming_output)
+        number_of_trimmed_IFPs = len(samples_per_IFP)
+        number_of_non_trimmed_IFPs = total_number_of_IFPs - number_of_trimmed_IFPs
+
+        trimmed_IFP_diagnostics = {
+            "total_number_of_IFPs": total_number_of_IFPs,
+            "number_of_trimmed_IFPs": number_of_trimmed_IFPs,
+            "number_of_non_trimmed_IFPs": number_of_non_trimmed_IFPs,
+            "per_gene_count": dict(
+                sorted(
+                    trimmed_gene_count.items(),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )
+            ),
+        }
+
+        return {
+            "per_sample_IFP_diagnostics": per_sample_IFP_diagnostics,
+            "per_IFP_diagnostics": per_IFP_diagnostics,
+            "trimmed_IFP_diagnostics": trimmed_IFP_diagnostics,
+        }
 
     def run_IFP_allocation(
         self,
@@ -226,13 +381,13 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
         (
             _,
             base_connected_IFPs,
-            base_non_connected_IFPs,
+            _base_non_connected_IFPs,
             base_connected_component_diagnostics,
         ) = self.prepare_IFPs(
             IFP_mapping,
             [],
         )
-        IFP_definitions = self.convert_IFP_to_IFPDefinition(
+        IFP_definitions = convert_IFP_to_IFPDefinition(
             IFP_mapping, set(protein_abundance_df.index)
         )
         connected_IFP_definitions = {
@@ -249,6 +404,10 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
         ):
             if trimmable_genes is None:
                 raise ValueError("Trimming is enabled, but no trimmable_genes were provided.")
+            self.logger.warning(
+                "Trimming is enabled. This may result in some IFPs being trimmed "
+                "and not included in the final allocation."
+            )
             (IFPs_per_sample, trimming_output) = self.trim_IFPs(
                 protein_abundance_df,
                 IFP_mapping,
@@ -263,7 +422,11 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
         # todo: allow different solvers
 
         per_sample_IFP_abundances: dict[str, dict[str, float]] = {}
-        for _sample in protein_abundance_df.columns:
+
+        for _sample in tqdm(
+            protein_abundance_df.columns,
+            desc="Allocating IFP abundances per sample",
+        ):
             (
                 sample_specific_IFP_mapping,
                 sample_specific_connected_IFPs,
@@ -932,7 +1095,7 @@ if __name__ == "__main__":
         f"Base non-connected IFPs: len={len(base_non_connected_IFPs)}",
     )
 
-    IFP_definitions = allocator.convert_IFP_to_IFPDefinition(
+    IFP_definitions = convert_IFP_to_IFPDefinition(
         IFP_mapping, set(protein_abundance_df.index)
     )
     connected_IFP_definitions = {

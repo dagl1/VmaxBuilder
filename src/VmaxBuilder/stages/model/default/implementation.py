@@ -10,6 +10,7 @@ from VmaxBuilder.base.classes import BaseImplementation, DiagnosticOutputSpec
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.database_retrieval.identifier_translation import IdentifierTranslationService
 from VmaxBuilder.stages.model.default.config import ModelConfig
+
 # from VmaxBuilder.stages.model.default.diagnostics import ModelDiagnostics
 from VmaxBuilder.stages.model.default.preprocessing import (
     _build_transcript_artifacts_for_model,
@@ -61,7 +62,7 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultModelConf
     IMPLEMENTATION_CONFIG_CLASS = ModelConfig
     _RESOLVED_CONFIG_CLASS = DefaultModelConfigProtocol
     STAGE_NAME = "model"
-    IMPL_NAME = "dummy_cobra"
+    IMPL_NAME = "default_irreversible_model"
     INPUTS: list[InputSpec] = [
         InputSpec(
             name="cobra_model",
@@ -95,7 +96,7 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultModelConf
         OutputSpec(
             "irreversible_cobra_model",
             data_type=Model,
-            scaffold_location="outputs",
+            scaffold_location="artifacts",
             saver_args={
                 "is_cobra_model": True,
             },
@@ -222,10 +223,8 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultModelConf
             self._build_model
         )(scaffold)
 
-        outputs = {
-            "irreversible_cobra_model": irreversible_model,
-        }
         artifacts = {
+            "irreversible_cobra_model": irreversible_model,
             "rev2irrev": rev2irrev,
         }
         diagnostics = self.create_model_base_diagnostics(irreversible_model)
@@ -264,7 +263,7 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultModelConf
             diagnostics.update(transcript_diagnostics)
 
         return {
-            "outputs": outputs,
+            "outputs": {},
             "artifacts": artifacts,
             "metadata": metadata,
             "diagnostics": diagnostics,

@@ -120,6 +120,65 @@ def simplify_gpr_rule(gpr_rule: str) -> list[str]:
     return [" and ".join(IFP) for IFP in simplify_gpr_rule_cached(gpr_rule)]
 
 
+def build_gene_to_IFP_mapping(
+    IFP_mapping: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, list[str]]]:
+    gene_to_IFP_mapping: dict[str, dict[str, list[str]]] = {}
+    for gpr_rule, _IFP_mapping in IFP_mapping.items():
+        for IFP_payload in _IFP_mapping.get("IFP_objects", []):
+            IFP = IFP_payload.get("IFP")
+            genes_in_IFP = IFP_payload.get("genes_in_IFP", [])
+            for gene in genes_in_IFP:
+                gene_to_IFP_mapping[gene] = {
+                    "IFPs": gene_to_IFP_mapping.get(gene, {}).get("IFPs", []) + [IFP],
+                    "reactions_with_gene": gene_to_IFP_mapping.get(gene, {}).get(
+                        "reactions_with_IFP", []
+                    ),
+                    "gpr_rules_with_gene": gene_to_IFP_mapping.get(gene, {}).get(
+                        "gpr_rules_with_gene", []
+                    )
+                    + [gpr_rule],
+                }
+
+    # sort gene_to_IFP_mapping keys too
+    gene_to_IFP_mapping = dict(sorted(gene_to_IFP_mapping.items()))
+
+    for _, mapping in gene_to_IFP_mapping.items():
+        mapping["IFPs"] = sorted(set(mapping["IFPs"]))
+        mapping["reactions_with_gene"] = sorted(set(mapping["reactions_with_gene"]))
+        mapping["gpr_rules_with_gene"] = sorted(set(mapping["gpr_rules_with_gene"]))
+
+    return gene_to_IFP_mapping
+
+
+def build_reaction_to_IFP_mapping(
+    IFP_mapping: dict[str, dict[str, Any]],
+    cobra_model: Model,
+) -> dict[str, dict[str, list[str]]]:
+    reaction_to_IFP_mapping: dict[str, dict[str, list[str]]] = {}
+
+    for gpr_rule, _IFP_mapping in IFP_mapping.items():
+        for IFP_payload in _IFP_mapping.get("IFP_objects", []):
+            IFP = IFP_payload.get("IFP")
+            reactions_with_IFP = IFP_payload.get("reactions_with_IFP", [])
+            for reaction in reactions_with_IFP:
+                reaction_to_IFP_mapping[reaction] = {
+                    "IFPs": reaction_to_IFP_mapping.get(reaction, {}).get("IFPs", []) + [IFP],
+                    "gpr_rule": reaction_to_IFP_mapping.get(reaction, {}).get("gpr_rules", [])
+                    + [gpr_rule],
+                    "genes": list(
+                        gene.id for gene in cobra_model.reactions.get_by_id(reaction).genes
+                    ),
+                }
+
+    reaction_to_IFP_mapping = dict(sorted(reaction_to_IFP_mapping.items()))
+    for _, mapping in reaction_to_IFP_mapping.items():
+        mapping["IFPs"] = sorted(set(mapping["IFPs"]))
+        mapping["genes"] = sorted(set(mapping["genes"]))
+
+    return reaction_to_IFP_mapping
+
+
 def get_unique_genes_from_IFP_mapping(
     IFP_mapping: dict[str, dict[str, Any]],
 ) -> set[str]:
@@ -146,7 +205,6 @@ def build_IFP_mapping_from_gpr_rules(
         dict[str, dict[str, Any]]: Per-rule payload with simplified IFPs and counts.
     """
 
-    # todo: change IFP mapping to be: rule -> {IFPs, reactions, genes}
     IFP_mapping: dict[str, dict[str, Any]] = {}
     for gpr_rule in sorted(gpr_rules):
         simplified_gene_IFPs = simplify_gpr_rule(gpr_rule)
@@ -173,7 +231,126 @@ def build_IFP_mapping_from_gpr_rules(
             "genes_in_GPR_rule": genes,
         }
 
+    # ensure everything is sorted (for deterministic output)
+    IFP_mapping = dict(sorted(IFP_mapping.items()))
+    for _gpr_rule, gpr_data in IFP_mapping.items():
+        gpr_data["IFP_objects"] = sorted(gpr_data["IFP_objects"], key=lambda x: x["IFP"])
+        gpr_data["reactions_with_GPR_rule"] = sorted(gpr_data["reactions_with_GPR_rule"])
+        gpr_data["genes_in_GPR_rule"] = sorted(gpr_data["genes_in_GPR_rule"])
+        for ifp_payload in gpr_data["IFP_objects"]:
+            ifp_payload["genes_in_IFP"] = sorted(ifp_payload["genes_in_IFP"])
+
     return IFP_mapping
+
+
+def _remove_gene_from_GPR_tree(
+    node: _GPRNode,
+    gene_to_remove: str,
+) -> _GPRNode | None:
+    """Remove a gene from a parsed GPR AST.
+
+    Returning None means that this branch contains no remaining genes.
+    """
+    if isinstance(node, str):
+        return None if node == gene_to_remove else node
+
+    operator, left, right = node
+
+    new_left = _remove_gene_from_GPR_tree(
+        left,
+        gene_to_remove,
+    )
+    new_right = _remove_gene_from_GPR_tree(
+        right,
+        gene_to_remove,
+    )
+
+    if operator == "AND":
+        # A and <nothing> -> A
+        if new_left is None:
+            return new_right
+
+        # <nothing> and B -> B
+        if new_right is None:
+            return new_left
+
+        return ("and", new_left, new_right)
+
+    if operator == "OR":
+        # A or <nothing> -> A
+        if new_left is None:
+            return new_right
+
+        # <nothing> or B -> B
+        if new_right is None:
+            return new_left
+
+        return ("or", new_left, new_right)
+
+    raise ValueError(f"Unsupported GPR operator: {operator}")
+
+
+def _serialise_GPR_tree(
+    node: _GPRNode,
+    parent_operator: str | None = None,
+) -> str:
+    """Convert a GPR AST back into a valid GPR expression."""
+    if isinstance(node, str):
+        return node
+
+    operator, left, right = node
+
+    left_string = _serialise_GPR_tree(
+        left,
+        operator,
+    )
+    right_string = _serialise_GPR_tree(
+        right,
+        operator,
+    )
+
+    expression = f"{left_string} {operator} {right_string}"
+
+    # Parentheses are required when the child operator has
+    # lower precedence than its parent.
+    if parent_operator == "and" and operator == "or":
+        return f"({expression})"
+
+    return expression
+
+
+def remove_gene_from_GPR_rule(
+    gpr_rule: str,
+    gene_to_remove: str,
+) -> str:
+    """Remove a gene from a GPR rule while preserving Boolean semantics.
+
+    Examples:
+        A and B                  -> B
+        A and B                  -> A       (remove B)
+        A or B                   -> A       (remove B)
+        (A and B) or C           -> A or C  (remove B)
+        A and (B or C)           -> A and C (remove B)
+
+    Returns an empty string if removing the gene removes the entire rule.
+    """
+    normalised_rule = _normalise_gpr_rule(gpr_rule)
+    token_stream = _tokenise_gpr_rule(normalised_rule)
+
+    parsed_tree, cursor = _parse_or_expression(_TokenCursor(tokens=token_stream))
+
+    if cursor.peek() is not None:
+        raise ValueError(f"Unexpected trailing token in GPR rule: '{cursor.peek()}'.")
+
+    simplified_tree = _remove_gene_from_GPR_tree(
+        parsed_tree,
+        gene_to_remove,
+    )
+
+    if simplified_tree is None:
+        return ""
+
+    return _serialise_GPR_tree(simplified_tree)
 
 
 def build_gene_to_transcripts_mapping(
@@ -229,6 +406,9 @@ def get_unique_gpr_rules(cobra_model: Model) -> dict[str, list[str]]:
         rule = reaction.gene_reaction_rule.strip()
         if rule:
             gpr_rules.setdefault(rule, []).append(reaction.id)
+
+    # sort them
+    gpr_rules = {rule: sorted(reactions) for rule, reactions in gpr_rules.items()}
 
     return gpr_rules
 
@@ -588,3 +768,42 @@ def _deduplicate_IFPs(gene_IFPs: Sequence[tuple[str, ...]]) -> tuple[tuple[str, 
             deduplicated_IFPs.append(canonical_IFP)
             seen_IFPs.add(canonical_IFP)
     return tuple(deduplicated_IFPs)
+
+
+if __name__ == "__main__":
+    # Example usage
+    gpr_rule = "(geneA and geneB) or (geneC and geneD)"
+    gpr_rule_noB = remove_gene_from_GPR_rule(gpr_rule, "geneB")
+    simplified_IFPs = simplify_gpr_rule(gpr_rule)
+    simplified_IFPs_noB = simplify_gpr_rule(gpr_rule_noB)
+    print("Original GPR rule:", gpr_rule)
+    print("Simplified IFPs:", simplified_IFPs)
+    print("GPR rule after removing geneB:", gpr_rule_noB)
+    print("Simplified IFPs after removing geneB:", simplified_IFPs_noB)
+
+    gpr_rule_2 = "geneA and geneB or geneC"
+    simplified_IFPs_2 = simplify_gpr_rule(gpr_rule_2)
+    gpr_rule_2_noB = remove_gene_from_GPR_rule(gpr_rule_2, "geneB")
+    simplified_IFPs_2_noB = simplify_gpr_rule(gpr_rule_2_noB)
+    print("Original GPR rule 2:", gpr_rule_2)
+    print("Simplified IFPs 2:", simplified_IFPs_2)
+    print("GPR rule 2 after removing geneB:", gpr_rule_2_noB)
+    print("Simplified IFPs 2 after removing geneB:", simplified_IFPs_2_noB)
+
+    gpr_rule_3 = "geneA and (geneB or geneC and (geneD or geneB or geneE))"
+    simplified_IFPs_3 = simplify_gpr_rule(gpr_rule_3)
+    gpr_rule_3_noB = remove_gene_from_GPR_rule(gpr_rule_3, "geneB")
+    simplified_IFPs_3_noB = simplify_gpr_rule(gpr_rule_3_noB)
+    print("Original GPR rule 3:", gpr_rule_3)
+    print("Simplified IFPs 3:", simplified_IFPs_3)
+    print("GPR rule 3 after removing geneB:", gpr_rule_3_noB)
+    print("Simplified IFPs 3 after removing geneB:", simplified_IFPs_3_noB)
+
+    gpr_rule_4 = "(geneA or geneB) and (geneC or geneD) and (geneE or geneF)"
+    simplified_IFPs_4 = simplify_gpr_rule(gpr_rule_4)
+    gpr_rule_4_noB = remove_gene_from_GPR_rule(gpr_rule_4, "geneB")
+    simplified_IFPs_4_noB = simplify_gpr_rule(gpr_rule_4_noB)
+    print("Original GPR rule 4:", gpr_rule_4)
+    print("Simplified IFPs 4:", simplified_IFPs_4)
+    print("GPR rule 4 after removing geneB:", gpr_rule_4_noB)
+    print("Simplified IFPs 4 after removing geneB:", simplified_IFPs_4_noB)

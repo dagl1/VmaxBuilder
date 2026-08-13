@@ -25,7 +25,7 @@ class MValueTrimmingImplementation(BaseImplementation[MValueTrimmingConfig]):
 
     BASE_STAGE_CONFIG = ProteinStageConfig
     STAGE_NAME = "protein"
-    IMPL_NAME = "expression_ptr"
+    IMPL_NAME = "M-value_trimming"
     IMPLEMENTATION_CONFIG_CLASS = MValueTrimmingConfig
 
     INPUTS: list[InputSpec] = [
@@ -75,14 +75,12 @@ class MValueTrimmingImplementation(BaseImplementation[MValueTrimmingConfig]):
             pd.DataFrame, scaffold.get_scaffold_value("processed_expression_df")
         )
 
-        sample_groups = cast(
-            dict[str, list[str]] | None, scaffold.get_scaffold_value("sample_groups")
-        )
+        trim_separate_sample_groups = self.full_config.protein.trim_separate_sample_groups
 
         elapsed_time, (trimmable_genes, non_trimmable_genes, gene_stats) = (
             self.get_time_decorator(self._get_trimmable_genes)(
                 processed_expression_df,
-                sample_groups=sample_groups,
+                sample_groups=trim_separate_sample_groups,
             )
         )
 
@@ -141,6 +139,8 @@ class MValueTrimmingImplementation(BaseImplementation[MValueTrimmingConfig]):
             non_trimmable_genes = cast(
                 SortedSet[str], SortedSet(expression_df.index) - trimmable_genes
             )
+            # todo: ensure that when sample groups are used, the diagnostic plots are
+            # also adjusted
         else:
             trimmable_genes, non_trimmable_genes, _gene_stats = self._assess_trimmability(
                 expression_df

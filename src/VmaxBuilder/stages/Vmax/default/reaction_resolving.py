@@ -6,6 +6,7 @@ from typing import Any, TypedDict, cast
 import pandas as pd
 from cobra.core.model import Model
 from cobra.io.json import load_json_model
+from tqdm import tqdm
 
 from VmaxBuilder.base.classes import (
     BaseImplementationDiagnostics,
@@ -29,12 +30,12 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
     INPUTS: list[InputSpec] = [
         # inputs are IFP sample abundance, trimming output, per_reaction_per_gene_Kcats
         InputSpec(
-            name="irreversible_cobra_model",
+            name="adjusted_irreversible_cobra_model",
             in_scaffold=True,
             data_type=Model,
         ),
         InputSpec(
-            name="IFP_sample_abundance_df",
+            name="IFP_abundance_df",
             in_scaffold=True,
             data_type=pd.DataFrame,
         ),
@@ -44,17 +45,17 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             data_type=dict,
         ),
         InputSpec(
-            name="reaction_to_IFP_mapping",
+            name="adjusted_reaction_to_IFP_mapping",
+            in_scaffold=True,
+            data_type=dict,
+        ),
+        InputSpec(
+            name="adjusted_gene_to_IFP_mapping",
             in_scaffold=True,
             data_type=dict,
         ),
         InputSpec(
             name="per_reaction_per_gene_Kcats",
-            in_scaffold=True,
-            data_type=dict,
-        ),
-        InputSpec(
-            name="gene_to_IFP_mapping",
             in_scaffold=True,
             data_type=dict,
         ),
@@ -95,13 +96,9 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         return metadata
 
     def generate_outputs(self, scaffold: Scaffold):
-        IFP_sample_abundance_df = cast(
-            pd.DataFrame, scaffold.get_scaffold_value("IFP_sample_abundance_df")
-        )
+        IFP_abundance_df = cast(pd.DataFrame, scaffold.get_scaffold_value("IFP_abundance_df"))
         # cast to numeric
-        IFP_sample_abundance_df = IFP_sample_abundance_df.apply(
-            pd.to_numeric, errors="coerce"
-        )
+        IFP_abundance_df = IFP_abundance_df.apply(pd.to_numeric, errors="coerce")
         per_reaction_per_gene_Kcats = cast(
             dict, scaffold.get_scaffold_value("per_reaction_per_gene_Kcats")
         )
@@ -113,7 +110,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         gene_to_IFP_mapping = cast(dict, scaffold.get_scaffold_value("gene_to_IFP_mapping"))
 
         _reaction_capacity_df = self.resolve_reaction_capacity(
-            IFP_sample_abundance_df,
+            IFP_abundance_df,
             per_reaction_per_gene_Kcats,
             trimming_output,
             reaction_to_IFP_mapping,
@@ -155,10 +152,10 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
 
     def resolve_reaction_capacity(
         self,
-        IFP_sample_abundance_df: pd.DataFrame,
+        IFP_abundance_df: pd.DataFrame,
         Kcats_per_reaction_per_gene: dict[str, dict[str, float]],
         trimming_output: dict,
-        reaction_to_IFP_mapping: dict[str, list[str]],
+        reaction_to_IFP_mapping: dict[str, dict[str, list[str]]],
         gene_to_IFP_mapping: dict[str, dict[str, list[str]]],
         cobra_model: Model,
     ) -> pd.DataFrame:
@@ -170,7 +167,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             for IFP in gene_info["IFPs"]:
                 IFP_to_genes[IFP].append(gene)
 
-        samples = IFP_sample_abundance_df.columns.tolist()
+        samples = IFP_abundance_df.columns.tolist()
         reactions = [reaction.id for reaction in cobra_model.reactions]
 
         reaction_capacity_df = pd.DataFrame(
@@ -183,22 +180,30 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             self.full_config.protein.trim_enabled
             and not self.full_config.Vmax.method_trim_genes_remain_part_for_Kcat
         )
+        IFPs_not_in_df = set()
 
-        for sample in samples:
+        for sample in tqdm(
+            samples,
+            desc="Calculating reaction capacities",
+        ):
             for reaction in reactions:
-                IFPs = reaction_to_IFP_mapping.get(reaction, [])
+                IFPs_object = reaction_to_IFP_mapping.get(reaction, {})
+                if not IFPs_object:
+                    continue
+                IFPs = IFPs_object.get("IFPs", [])
                 if not IFPs:
                     continue
 
                 kcats_of_genes_in_reaction = Kcats_per_reaction_per_gene.get(reaction, {})
-
                 total_capacity = 0.0
 
-                for IFP in IFPs:
-                    abundance = IFP_sample_abundance_df.at[IFP, sample]
-
+                for _IFP in IFPs:
+                    if _IFP not in IFP_abundance_df.index:
+                        IFPs_not_in_df.add(_IFP)
+                        continue
+                    abundance = IFP_abundance_df.at[_IFP, sample]
                     genes = self.get_genes_for_IFP(
-                        IFP,
+                        _IFP,
                         sample,
                         trimming_output,
                         IFP_to_genes,
@@ -213,23 +218,24 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
                         ),
                         default=0.0,
                     )
-                    print("Reaction:", reaction)
-                    print("IFP:", IFP)
-                    print("Genes:", genes)
-                    print(
-                        "Reaction Kcats:",
-                        {
-                            gene: kcats_of_genes_in_reaction[gene]
-                            for gene in genes
-                            if gene in kcats_of_genes_in_reaction
-                        },
-                    )
-                    print("Abundance:", abundance)
-                    print("Max Kcat:", max_kcat)
+                    # print("Reaction:", reaction)
+                    # print("IFP:", _IFP)
+                    # print("Genes:", genes)
+                    # print(
+                    #     "Reaction Kcats:",
+                    #     {
+                    #         gene: kcats_of_genes_in_reaction[gene]
+                    #         for gene in genes
+                    #         if gene in kcats_of_genes_in_reaction
+                    #     },
+                    # )
+                    # print("Abundance:", abundance)
+                    # print("Max Kcat:", max_kcat)
 
                     total_capacity += abundance * max_kcat  # ty: ignore
 
                 reaction_capacity_df.at[reaction, sample] = total_capacity
+                print("not in df:", IFPs_not_in_df)
 
         return reaction_capacity_df
 
@@ -245,8 +251,8 @@ if __name__ == "__main__":
     IFP_mapping_path = Path(base_dir) / "outputs" / "IFP_mapping.json"
     model_path = Path(base_dir) / "outputs" / "irreversible_cobra_model.json"
     model = load_json_model(model_path)
-    IFP_sample_abundance_df_path = Path(base_dir) / "outputs" / "IFP_sample_abundance_df.csv"
-    IFP_sample_abundance_df = pd.read_csv(IFP_sample_abundance_df_path, index_col=0)
+    IFP_sample_abundance_df_path = Path(base_dir) / "outputs" / "IFP_abundance_df.csv"
+    IFP_abundance_df = pd.read_csv(IFP_sample_abundance_df_path, index_col=0)
     trimming_output_path = (
         Path(base_dir) / "artifacts" / "allocation_stage" / "trimming_output.json"
     )
@@ -284,11 +290,24 @@ if __name__ == "__main__":
     resolver.logger = CustomLogger(
         "DefaultVmaxReactionResolving",
     )
-    resolver.resolve_reaction_capacity(
-        IFP_sample_abundance_df,
+
+    class DummyFullConfig:
+        protein = type("ProteinConfig", (), {"trim_enabled": True})()
+        Vmax = type(
+            "VmaxConfig",
+            (),
+            {"method_trim_genes_remain_part_for_Kcat": False},
+        )()
+
+    resolver.full_config = DummyFullConfig()  # ty: ignore
+
+    reaction_activity_df = resolver.resolve_reaction_capacity(
+        IFP_abundance_df,
         fake_kcats_per_reaction_per_gene,
         trimming_output,
         reaction_to_IFP_mapping,
         gene_to_IFP_mapping,
         model,
     )
+    print("Reaction Activity DataFrame:")
+    print(reaction_activity_df)

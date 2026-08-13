@@ -9,14 +9,15 @@ from cobra.core.model import Model
 from VmaxBuilder.base.classes import BaseImplementation, DiagnosticOutputSpec
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.GPR.gpr_preprocessing import (
+    build_gene_to_IFP_mapping,
     build_gene_to_transcripts_mapping,
     build_IFP_mapping_from_gpr_rules,
+    build_reaction_to_IFP_mapping,
     clear_simplification_cache,
     expand_gene_IFP_to_transcript_IFPs,
     get_simplification_cache_info,
     get_unique_genes_from_IFP_mapping,
     get_unique_gpr_rules,
-    simplify_gpr_rule,
 )
 
 
@@ -34,7 +35,7 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
         OutputSpec(
             name="IFP_mapping",
             data_type=dict,
-            scaffold_location="outputs",
+            scaffold_location="artifacts",
             save_file_name="IFP_mapping",
             extension=".json",
             validator=None,
@@ -113,17 +114,18 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
         missing_genes_from_IFP_mapping = model_genes - get_unique_genes_from_IFP_mapping(
             IFP_mapping
         )
-        self.logger.error(
+        self.logger.warning(
             f"Missing genes from model: {missing_genes_from_model}. "
-            f"Missing genes from IFP mapping: {missing_genes_from_IFP_mapping}."
+            f"Missing genes from IFP mapping: {missing_genes_from_IFP_mapping}. "
+            f"These are likely genes without any reactions associated "
         )
 
         (elapsed_time_2, gene_to_IFP_mapping) = self.get_time_decorator(
-            self.build_gene_to_IFP_mapping
+            build_gene_to_IFP_mapping
         )(IFP_mapping)
         (elapsed_time_3, reaction_to_IFP_mapping) = self.get_time_decorator(
-            self.build_reaction_to_IFP_mapping
-        )(IFP_mapping)
+            build_reaction_to_IFP_mapping
+        )(IFP_mapping, cobra_model)
 
         artifacts_payload = {}
         metadata_payload = {}
@@ -153,6 +155,7 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
         metadata = {**transcript_metadata_payload, **metadata_payload}
 
         artifacts = {
+            "IFP_mapping": IFP_mapping,
             "gene_to_IFP_mapping": gene_to_IFP_mapping,
             "reaction_to_IFP_mapping": reaction_to_IFP_mapping,
             **artifacts_payload,
@@ -165,9 +168,7 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
         self.logger.debug(f"Generated IFP mapping for {len(IFP_mapping)} GPR rules.")
 
         return {
-            "outputs": {
-                "IFP_mapping": IFP_mapping,
-            },
+            "outputs": {},
             "artifacts": artifacts,
             "metadata": metadata,
             "diagnostics": diagnostics,
@@ -187,10 +188,6 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
 
         total_reactions = len(all_reactions)
 
-        # ---------------------------------------------------------
-        # Gene counts per GPR rule
-        # ---------------------------------------------------------
-
         # IMPORTANT:
         # This assumes the GPR rule is whitespace-tokenized.
         # If your GPR rules contain "and"/"or", replace this with
@@ -202,10 +199,6 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
             dtype=float,
         )
 
-        # ---------------------------------------------------------
-        # Reaction counts per GPR rule
-        # ---------------------------------------------------------
-
         reactions_per_rule = {
             gpr_rule: len(set(reactions)) for gpr_rule, reactions in gpr_rules.items()
         }
@@ -214,10 +207,6 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
             list(reactions_per_rule.values()),
             dtype=float,
         )
-
-        # ---------------------------------------------------------
-        # Summary helper
-        # ---------------------------------------------------------
 
         def summarize(values: np.ndarray) -> dict[str, float]:
             q25, median, q75 = np.percentile(
@@ -235,26 +224,12 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
                 "iqr": float(q75 - q25),
             }
 
-        # ---------------------------------------------------------
-        # How many GPR rules are used by N reactions?
-        # ---------------------------------------------------------
-
         rules_by_reaction_count = Counter(reactions_per_rule.values())
-
-        # ---------------------------------------------------------
-        # Unique vs shared rules
-        # ---------------------------------------------------------
-
         single_reaction_rules = sum(count == 1 for count in reactions_per_rule.values())
-
         shared_rules = sum(count > 1 for count in reactions_per_rule.values())
 
         # Fraction of reactions belonging to shared rules
         shared_reactions = sum(count for count in reactions_per_rule.values() if count > 1)
-
-        # ---------------------------------------------------------
-        # Most shared rules
-        # ---------------------------------------------------------
 
         most_shared_gpr_rules = [
             {
@@ -269,12 +244,7 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
             )[:20]
         ]
 
-        # ---------------------------------------------------------
-        # Concentration of reactions among shared rules
-        # ---------------------------------------------------------
-
         sorted_reaction_counts = np.sort(reaction_counts)[::-1]
-
         cumulative_fraction = np.cumsum(sorted_reaction_counts) / np.sum(
             sorted_reaction_counts
         )
@@ -348,61 +318,6 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
             },
         }
         return metadata_payload
-
-    def build_gene_to_IFP_mapping(
-        self,
-        IFP_mapping: dict[str, dict[str, Any]],
-    ) -> dict[str, dict[str, list[str]]]:
-        gene_to_IFP_mapping: dict[str, dict[str, list[str]]] = {}
-        for gpr_rule, _IFP_mapping in IFP_mapping.items():
-            for IFP_payload in _IFP_mapping.get("IFP_objects", []):
-                IFP = IFP_payload.get("IFP")
-                genes_in_IFP = IFP_payload.get("genes_in_IFP", [])
-                for gene in genes_in_IFP:
-                    gene_to_IFP_mapping[gene] = {
-                        "IFPs": gene_to_IFP_mapping.get(gene, {}).get("IFPs", []) + [IFP],
-                        "reactions_with_gene": gene_to_IFP_mapping.get(gene, {}).get(
-                            "reactions_with_IFP", []
-                        ),
-                        "gpr_rules_with_gene": gene_to_IFP_mapping.get(gene, {}).get(
-                            "gpr_rules_with_gene", []
-                        )
-                        + [gpr_rule],
-                    }
-
-        for _, mapping in gene_to_IFP_mapping.items():
-            mapping["IFPs"] = sorted(set(mapping["IFPs"]))
-            mapping["reactions_with_gene"] = sorted(set(mapping["reactions_with_gene"]))
-            mapping["gpr_rules_with_gene"] = sorted(set(mapping["gpr_rules_with_gene"]))
-
-        return gene_to_IFP_mapping
-
-    def build_reaction_to_IFP_mapping(
-        self,
-        IFP_mapping: dict[str, dict[str, Any]],
-    ):
-        reaction_to_IFP_mapping: dict[str, dict[str, list[str]]] = {}
-        for gpr_rule, _IFP_mapping in IFP_mapping.items():
-            for IFP_payload in _IFP_mapping.get("IFP_objects", []):
-                IFP = IFP_payload.get("IFP")
-                reactions_with_IFP = IFP_payload.get("reactions_with_IFP", [])
-                for reaction in reactions_with_IFP:
-                    reaction_to_IFP_mapping[reaction] = {
-                        "IFPs": reaction_to_IFP_mapping.get(reaction, {}).get("IFPs", [])
-                        + [IFP],
-                        "gpr_rules": reaction_to_IFP_mapping.get(reaction, {}).get(
-                            "gpr_rules", []
-                        )
-                        + [gpr_rule],
-                        "genes": reaction_to_IFP_mapping.get(reaction, {}).get("genes", []),
-                    }
-
-        for _, mapping in reaction_to_IFP_mapping.items():
-            mapping["IFPs"] = sorted(set(mapping["IFPs"]))
-            mapping["gpr_rules"] = sorted(set(mapping["gpr_rules"]))
-            mapping["genes"] = sorted(set(mapping["genes"]))
-
-        return reaction_to_IFP_mapping
 
     def _convert_gene_IFP_to_transcript_IFP(
         self,
@@ -526,21 +441,6 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
             diagnostics_payload,
         )
 
-    def _simplify_gpr_rule(self, gpr_rule: str) -> list[str]:
-        """Generated: validation needed.
-
-        Description:
-            Simplify one GPR rule into DNF-style `and` IFPs.
-
-        Args:
-            gpr_rule (str): Raw GPR rule.
-
-        Returns:
-            list[str]: Simplified IFPs.
-        """
-
-        return simplify_gpr_rule(gpr_rule)
-
     @staticmethod
     def clear_simplification_cache() -> None:
         """Generated: validation needed.
@@ -603,11 +503,15 @@ if __name__ == "__main__":
             ptr_path,
         ],
     )
+    allocation_stage_loading_info = StageLoadingInfo(
+        stage_name="allocation",
+    )
 
     # Protein inputs (set whichever mode needs).
     stage_loading_info = StageLoading(
         model_loading_info=model_stage_loading_info,
         protein_loading_info=protein_stage_loading_info,
+        allocation_loading_info=allocation_stage_loading_info,
     )
 
     run_config = RunConfig(
