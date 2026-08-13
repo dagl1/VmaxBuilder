@@ -4,11 +4,13 @@ many different datatypes.
 """
 
 import warnings
-from collections.abc import Sequence
+from collections.abc import Sequence, Set
 from pathlib import Path
 from typing import Any, Iterable
 
 from cobra.core.model import Model
+
+from VmaxBuilder.utils.iterables import SortedSet
 
 try:
     import tomllib
@@ -87,7 +89,7 @@ TYPE_INFO = {
         ("json", "jsonl", "txt", "pkl"),
     ),
     "list": TypeInfo(
-        (list, tuple, set),
+        (list, tuple, set, SortedSet, Set),
         ("json", "jsonl", "txt", "pkl"),
     ),
     "string": TypeInfo(

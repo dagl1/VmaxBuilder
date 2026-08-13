@@ -1,13 +1,11 @@
-from typing import Any, Generic, TypeVar
+from collections.abc import Set
+from typing import Generic, Iterable, Optional, TypeVar
 
 T = TypeVar("T")
 
 
-class SortedSet(set, Generic[T]):
-    def __init__(
-        self,
-        iterable=None,
-    ):
+class SortedSet(Set, Generic[T]):
+    def __init__(self, iterable: Optional[Iterable[T]] = None):
         self._set = set()
         if iterable is not None:
             self._set.update(iterable)
@@ -27,28 +25,30 @@ class SortedSet(set, Generic[T]):
     def sort(self, key=None, reverse=False):
         self._sorted_list.sort(key=key, reverse=reverse)
 
-    # def __class_getitem__(cls, item: Any):
-    #     return cls
-
-    def __contains__(self, item):
+    def __contains__(self, item: object) -> bool:
         return item in self._set
 
     def __iter__(self):
         return iter(self._sorted_list)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._set)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"SortedSet({self._sorted_list})"
 
-    def __eq__(self, other):
-        if isinstance(other, SortedSet):
-            return self._set == other._set
-        return False
+    # Door overerving van collections.abc.Set krijg je union (|),
+    # intersection (&), en difference (-) er GRATIS bij,
+    # maar ze leveren standaard een reguliere set op.
+    # Overschrijf ze zo voor behoud van het SortedSet type:
 
-    def __ne__(self, other):
-        return not self.__eq__(other)
+    def union(self, other: Iterable[T]) -> "SortedSet[T]":
+        if isinstance(other, SortedSet):
+            return SortedSet(self._set.union(other._set))
+        return SortedSet(self._set.union(other))
+
+    def __or__(self, other: Iterable[T]) -> "SortedSet[T]":
+        return self.union(other)
 
 
 def make_json_serializable(obj):
