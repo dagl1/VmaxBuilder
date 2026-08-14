@@ -1,5 +1,9 @@
 from VmaxBuilder.base.classes import BaseStageDiagnostics
 
+# todo: create some comprehensive: characterise list of reactions (such as those
+# turned GPRless)
+# todo: also create comprehensive genes - reactions (many to many) mappign and analysis
+
 
 class ProteinStageDiagnostics(BaseStageDiagnostics):
     def after_run(self, scaffold):

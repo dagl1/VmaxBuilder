@@ -2,9 +2,10 @@ from copy import deepcopy
 from typing import Any, cast
 
 from cobra.core.model import Model
+from cobra.core.reaction import Reaction
 from cobra.manipulation.delete import remove_genes
 
-from VmaxBuilder.base.classes import RealImplementation
+from VmaxBuilder.base.classes import DiagnosticOutputSpec, RealImplementation
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.GPR.gpr_preprocessing import (
     build_gene_to_IFP_mapping,
@@ -49,7 +50,7 @@ class MissingGeneRemoval(RealImplementation[FullConfig]):
             name="adjusted_irreversible_cobra_model",
             data_type=Model,
             scaffold_location="outputs",
-            save_file_name="irreversible_cobra_model",
+            save_file_name="adjusted_irreversible_cobra_model",
             extension=".json",
             validator=None,
         ),
@@ -57,7 +58,7 @@ class MissingGeneRemoval(RealImplementation[FullConfig]):
             name="adjusted_IFP_mapping",
             data_type=dict,
             scaffold_location="outputs",
-            save_file_name="IFP_mapping",
+            save_file_name="adjusted_IFP_mapping",
             extension=".json",
             validator=None,
         ),
@@ -65,7 +66,7 @@ class MissingGeneRemoval(RealImplementation[FullConfig]):
             name="adjusted_gene_to_IFP_mapping",
             data_type=dict,
             scaffold_location="artifacts",
-            save_file_name="gene_to_IFP_mapping",
+            save_file_name="adjusted_gene_to_IFP_mapping",
             extension=".json",
             validator=None,
         ),
@@ -73,7 +74,7 @@ class MissingGeneRemoval(RealImplementation[FullConfig]):
             name="adjusted_reaction_to_IFP_mapping",
             data_type=dict,
             scaffold_location="artifacts",
-            save_file_name="reaction_to_IFP_mapping",
+            save_file_name="adjusted_reaction_to_IFP_mapping",
             extension=".json",
             validator=None,
         ),
@@ -98,10 +99,23 @@ class MissingGeneRemoval(RealImplementation[FullConfig]):
         else:
             missing_gene_policy = ""
 
-        if missing_genes and missing_gene_policy == "set_GPRless":
-            (elapsed_time, adjusted_irreversible_cobra_model) = self.get_time_decorator(
-                self.set_GPRless_genes_in_model
-            )(irreversible_cobra_model, missing_genes)
+        adjusted_irreversible_cobra_model = irreversible_cobra_model
+        adjusted_IFP_mapping = IFP_mapping
+        adjusted_reaction_to_IFP_mapping = reaction_to_IFP_mapping
+        adjusted_gene_to_IFP_mapping = gene_to_IFP_mapping
+        time_taken = 0.0
+        if missing_genes and missing_gene_policy == "GPRless":
+            (
+                elapsed_time,
+                (
+                    adjusted_irreversible_cobra_model,
+                    removed_genes,
+                    affected_reactions,
+                    affected_reactions_without_genes_left,
+                ),
+            ) = self.get_time_decorator(self.set_GPRless_genes_in_model)(
+                irreversible_cobra_model, missing_genes
+            )
             unique_GPR_rules = get_unique_gpr_rules(adjusted_irreversible_cobra_model)
             (
                 adjusted_IFP_mapping,
@@ -112,12 +126,18 @@ class MissingGeneRemoval(RealImplementation[FullConfig]):
                 unique_GPR_rules, adjusted_irreversible_cobra_model
             )
             time_taken = elapsed_time + total_elapsed_time
-        else:
-            adjusted_irreversible_cobra_model = irreversible_cobra_model
-            adjusted_IFP_mapping = IFP_mapping
-            adjusted_reaction_to_IFP_mapping = reaction_to_IFP_mapping
-            adjusted_gene_to_IFP_mapping = gene_to_IFP_mapping
-            time_taken = 0.0
+            removed_genes_diagnostics = DiagnosticOutputSpec(
+                {
+                    "removed_genes": list(removed_genes),
+                    "affected_reactions": list(affected_reactions),
+                    "affected_reactions_without_genes_left": list(
+                        affected_reactions_without_genes_left
+                    ),
+                },
+                save_file_name="missing_gene_removal_diagnostics",
+                extensions=".json",
+                data_type=dict,
+            )
 
         metadata = self.create_metadata(elapsed_time=time_taken)
 
@@ -131,7 +151,11 @@ class MissingGeneRemoval(RealImplementation[FullConfig]):
                 "adjusted_reaction_to_IFP_mapping": adjusted_reaction_to_IFP_mapping,
             },
             "metadata": metadata,
-            "diagnostics": {},
+            "diagnostics": {
+                "missing_gene_removal": [removed_genes_diagnostics]
+                if removed_genes_diagnostics
+                else []
+            },
         }
 
         return new_scaffold_objects
@@ -140,7 +164,7 @@ class MissingGeneRemoval(RealImplementation[FullConfig]):
         self,
         cobra_model: Model,
         genes_to_set_GPRless: list[str],
-    ) -> Model:
+    ) -> tuple[Model, list[str], list[str], list[str]]:
         """
         Sets the genes in the model that are in the list of genes to set to GPRless.
         This means that the genes provided to this function are removed from any GPR rule
@@ -157,20 +181,29 @@ class MissingGeneRemoval(RealImplementation[FullConfig]):
         for gene_id in genes_to_set_GPRless:
             if gene_id in cobra_model.genes:
                 gene = cobra_model.genes.get_by_id(gene_id)
-                reactions_affected.update(gene.reactions)
+                reactions = cast(set[Reaction], set(gene.reactions))
+                reactions_affected.update(reactions)
                 # we also need to adjust the gpr rules of the reactions affected by this gene
                 for reaction in gene.reactions:
                     gpr_rule = reaction.gene_reaction_rule
                     new_gpr_rule = remove_gene_from_GPR_rule(gpr_rule, gene_id)
                     reaction.gene_reaction_rule = new_gpr_rule
 
-        self.logger.info(
+        reactions_without_genes = [
+            reaction for reaction in reactions_affected if not reaction.genes
+        ]
+        reactions_affected = [reaction.id for reaction in reactions_affected]
+        reactions_without_genes = [reaction.id for reaction in reactions_without_genes]
+
+        self.logger.attention(
             f"Setting {len(genes_to_set_GPRless)} genes to GPRless, "
             f"which affects {len(reactions_affected)} reactions: \n"
-            f"Affected reactions: {[reaction.id for reaction in reactions_affected]}",
+            f"Of these, {len(reactions_without_genes)} reactions have no genes "
+            "left after missing gene removal. See diagnostics/protein/missing_gene_removal"
+            " for a list of these reactions."
         )
         remove_genes(cobra_model, genes_to_set_GPRless, remove_reactions=False)
-        return cobra_model
+        return cobra_model, genes_to_set_GPRless, reactions_affected, reactions_without_genes
 
     def _remove_missing_genes_from_IFP(
         self,

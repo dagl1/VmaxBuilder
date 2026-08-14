@@ -342,10 +342,6 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
             missing_gene_policy=self.full_config.protein.missing_gene_policy,
         )
         if missing_genes:
-            self.logger.warning(
-                f"{len(missing_genes)} genes from the model are missing "
-                "in the expression data. "
-            )
             missing_genes_spec = DiagnosticOutputSpec(
                 data=missing_genes,
                 save_file_name="missing_genes",
@@ -423,9 +419,9 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
             self.logger.warning(
                 f"{len(missing_genes)} genes from the model are missing "
                 "in the expression data. "
-                f"These genes will be ignored in the analysis. "
-                f"Missing genes: {missing_genes}. "
-                f"Ignored genes will be set to 'GPRless', deleting their contribution from "
+                f"These genes will be ignored in the analysis. \n"
+                f"Ignored genes will be set to 'GPRless', "
+                "will delete their contribution from "
                 "any reaction they are associated with.",
                 print_level=2,
             )
