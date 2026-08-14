@@ -183,6 +183,20 @@ class Orchestrator:
                 )
         return return_dict
 
+    def create_metadata(self) -> dict[str, Any]:
+        metadata = {
+            "orchestrator": {
+                "implementation": type(self).__name__,
+                "date_created": pd.Timestamp.now().isoformat(),
+                "params": self.return_non_default_configs(),
+                "paths": {
+                    "user_submitted_paths": self.return_user_submitted_paths(),
+                    "discovered_paths": self.return_discovered_paths(),
+                },
+            }
+        }
+        return metadata
+
     def return_non_default_configs(self) -> dict[str, dict[str, Any]]:
         non_default_configs = {}
 
@@ -671,4 +685,5 @@ if __name__ == "__main__":
     # )
     # # orchestrator.config.run.lazy_validate = True
     # # orchestrator.config.model.make_copy = True
+    orchestrator.logger.attention("Starting orchestrator run...")
     orchestrator.run()
