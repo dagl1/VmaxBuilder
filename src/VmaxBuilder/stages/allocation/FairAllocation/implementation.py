@@ -224,145 +224,6 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             new_scaffold_objects["diagnostics"]["trimming"] = [trimming_diagnostic_output]
         return new_scaffold_objects
 
-    def prepare_trimming_diagnostics(
-        self,
-        trimming_output: dict[str, IFPTrimmingOutput],
-    ) -> dict[str, Any]:
-        """
-        Prepare summary diagnostics for IFP trimming.
-
-        The diagnostics distinguish between:
-        - IFPs trimmed in at least one sample
-        - IFPs not trimmed in any sample
-        - Number of IFPs trimmed per sample
-        - Number of samples in which each IFP was trimmed
-        - Number of times each gene was trimmed across all IFP/sample combinations
-        """
-
-        # sample -> set of IFPs trimmed in that sample
-        IFPs_per_sample: dict[str, set[str]] = {}
-
-        # IFP -> set of samples in which it was trimmed
-        samples_per_IFP: dict[str, set[str]] = {}
-
-        # gene -> number of times it was trimmed
-        # A trimming event = one gene being removed from one IFP in one sample.
-        trimmed_gene_count: dict[str, int] = {}
-
-        for IFP, IFP_data in trimming_output.items():
-            genes_trimmed_per_sample = IFP_data["genes_trimmed_per_sample"]
-
-            for sample, genes in genes_trimmed_per_sample.items():
-                if not genes:
-                    continue
-
-                IFPs_per_sample.setdefault(sample, set()).add(IFP)
-                samples_per_IFP.setdefault(IFP, set()).add(sample)
-
-                for gene in genes:
-                    trimmed_gene_count[gene] = trimmed_gene_count.get(gene, 0) + 1
-        # Include samples that appear in the trimming output but had no
-        # trimming, so they correctly contribute a value of zero.
-        all_samples = set()
-
-        for IFP_data in trimming_output.values():
-            all_samples.update(IFP_data["genes_trimmed_per_sample"].keys())
-
-        IFP_counts_per_sample = np.array(
-            [len(IFPs_per_sample.get(sample, set())) for sample in all_samples],
-            dtype=float,
-        )
-
-        if len(IFP_counts_per_sample) > 0:
-            per_sample_IFP_diagnostics = {
-                "min_amount_of_IFPs_per_sample": int(np.min(IFP_counts_per_sample)),
-                "max_amount_of_IFPs_per_sample": int(np.max(IFP_counts_per_sample)),
-                "median_amount_of_IFPs_per_sample": float(np.median(IFP_counts_per_sample)),
-                "mean_amount_of_IFPs_per_sample": float(np.mean(IFP_counts_per_sample)),
-                "std_amount_of_IFPs_per_sample": float(np.std(IFP_counts_per_sample)),
-                "IQR": {
-                    "10th_percentile": float(np.percentile(IFP_counts_per_sample, 10)),
-                    "25th_percentile": float(np.percentile(IFP_counts_per_sample, 25)),
-                    "50th_percentile": float(np.percentile(IFP_counts_per_sample, 50)),
-                    "75th_percentile": float(np.percentile(IFP_counts_per_sample, 75)),
-                    "90th_percentile": float(np.percentile(IFP_counts_per_sample, 90)),
-                },
-            }
-        else:
-            per_sample_IFP_diagnostics = {
-                "min_amount_of_IFPs_per_sample": 0,
-                "max_amount_of_IFPs_per_sample": 0,
-                "median_amount_of_IFPs_per_sample": 0.0,
-                "mean_amount_of_IFPs_per_sample": 0.0,
-                "std_amount_of_IFPs_per_sample": 0.0,
-                "IQR": {
-                    "10th_percentile": 0.0,
-                    "25th_percentile": 0.0,
-                    "50th_percentile": 0.0,
-                    "75th_percentile": 0.0,
-                    "90th_percentile": 0.0,
-                },
-            }
-
-        samples_counts_per_IFP = np.array(
-            [len(samples) for samples in samples_per_IFP.values()],
-            dtype=float,
-        )
-
-        if len(samples_counts_per_IFP) > 0:
-            per_IFP_diagnostics = {
-                "min_amount_of_samples_per_IFP": int(np.min(samples_counts_per_IFP)),
-                "max_amount_of_samples_per_IFP": int(np.max(samples_counts_per_IFP)),
-                "median_amount_of_samples_per_IFP": float(np.median(samples_counts_per_IFP)),
-                "mean_amount_of_samples_per_IFP": float(np.mean(samples_counts_per_IFP)),
-                "std_amount_of_samples_per_IFP": float(np.std(samples_counts_per_IFP)),
-                "IQR": {
-                    "10th_percentile": float(np.percentile(samples_counts_per_IFP, 10)),
-                    "25th_percentile": float(np.percentile(samples_counts_per_IFP, 25)),
-                    "50th_percentile": float(np.percentile(samples_counts_per_IFP, 50)),
-                    "75th_percentile": float(np.percentile(samples_counts_per_IFP, 75)),
-                    "90th_percentile": float(np.percentile(samples_counts_per_IFP, 90)),
-                },
-            }
-        else:
-            per_IFP_diagnostics = {
-                "min_amount_of_samples_per_IFP": 0,
-                "max_amount_of_samples_per_IFP": 0,
-                "median_amount_of_samples_per_IFP": 0.0,
-                "mean_amount_of_samples_per_IFP": 0.0,
-                "std_amount_of_samples_per_IFP": 0.0,
-                "IQR": {
-                    "10th_percentile": 0.0,
-                    "25th_percentile": 0.0,
-                    "50th_percentile": 0.0,
-                    "75th_percentile": 0.0,
-                    "90th_percentile": 0.0,
-                },
-            }
-
-        total_number_of_IFPs = len(trimming_output)
-        number_of_trimmed_IFPs = len(samples_per_IFP)
-        number_of_non_trimmed_IFPs = total_number_of_IFPs - number_of_trimmed_IFPs
-
-        trimmed_IFP_diagnostics = {
-            "total_number_of_IFPs": total_number_of_IFPs,
-            "number_of_trimmed_IFPs": number_of_trimmed_IFPs,
-            "number_of_non_trimmed_IFPs": number_of_non_trimmed_IFPs,
-            "per_gene_count": dict(
-                sorted(
-                    trimmed_gene_count.items(),
-                    key=lambda item: item[1],
-                    reverse=True,
-                )
-            ),
-        }
-
-        return {
-            "per_sample_IFP_diagnostics": per_sample_IFP_diagnostics,
-            "per_IFP_diagnostics": per_IFP_diagnostics,
-            "trimmed_IFP_diagnostics": trimmed_IFP_diagnostics,
-        }
-
     def run_IFP_allocation(
         self,
         protein_abundance_df: pd.DataFrame,
@@ -459,6 +320,15 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             )
             per_sample_IFP_abundances[_sample] = _sample_IFP_abundances
 
+        # sort the keys of per_sample_IFP_abundances by sample names and
+        # sort the keys of each sample's IFP abundances by IFP names such that each IFP
+        # is sorted
+
+        per_sample_IFP_abundances = {
+            sample: dict(sorted(IFP_abundances.items()))
+            for sample, IFP_abundances in sorted(per_sample_IFP_abundances.items())
+        }
+
         return (
             base_connected_IFPs,
             base_connected_component_diagnostics,
@@ -484,7 +354,7 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             pd.to_numeric, errors="coerce"
         ).astype(float)
 
-        for sample in protein_abundance_df.columns: # ty: ignore
+        for sample in protein_abundance_df.columns:  # ty: ignore
             trimmed = False
             sample_values = protein_abundance_df[sample].to_numpy(dtype=float)
             protein_abundances: dict[str, float] = dict(
@@ -1051,6 +921,145 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
         sample_IFP_abundances.update(per_IFP_abundances)
 
         return sample_IFP_abundances
+
+    def prepare_trimming_diagnostics(
+        self,
+        trimming_output: dict[str, IFPTrimmingOutput],
+    ) -> dict[str, Any]:
+        """
+        Prepare summary diagnostics for IFP trimming.
+
+        The diagnostics distinguish between:
+        - IFPs trimmed in at least one sample
+        - IFPs not trimmed in any sample
+        - Number of IFPs trimmed per sample
+        - Number of samples in which each IFP was trimmed
+        - Number of times each gene was trimmed across all IFP/sample combinations
+        """
+
+        # sample -> set of IFPs trimmed in that sample
+        IFPs_per_sample: dict[str, set[str]] = {}
+
+        # IFP -> set of samples in which it was trimmed
+        samples_per_IFP: dict[str, set[str]] = {}
+
+        # gene -> number of times it was trimmed
+        # A trimming event = one gene being removed from one IFP in one sample.
+        trimmed_gene_count: dict[str, int] = {}
+
+        for IFP, IFP_data in trimming_output.items():
+            genes_trimmed_per_sample = IFP_data["genes_trimmed_per_sample"]
+
+            for sample, genes in genes_trimmed_per_sample.items():
+                if not genes:
+                    continue
+
+                IFPs_per_sample.setdefault(sample, set()).add(IFP)
+                samples_per_IFP.setdefault(IFP, set()).add(sample)
+
+                for gene in genes:
+                    trimmed_gene_count[gene] = trimmed_gene_count.get(gene, 0) + 1
+        # Include samples that appear in the trimming output but had no
+        # trimming, so they correctly contribute a value of zero.
+        all_samples = set()
+
+        for IFP_data in trimming_output.values():
+            all_samples.update(IFP_data["genes_trimmed_per_sample"].keys())
+
+        IFP_counts_per_sample = np.array(
+            [len(IFPs_per_sample.get(sample, set())) for sample in all_samples],
+            dtype=float,
+        )
+
+        if len(IFP_counts_per_sample) > 0:
+            per_sample_IFP_diagnostics = {
+                "min_amount_of_IFPs_per_sample": int(np.min(IFP_counts_per_sample)),
+                "max_amount_of_IFPs_per_sample": int(np.max(IFP_counts_per_sample)),
+                "median_amount_of_IFPs_per_sample": float(np.median(IFP_counts_per_sample)),
+                "mean_amount_of_IFPs_per_sample": float(np.mean(IFP_counts_per_sample)),
+                "std_amount_of_IFPs_per_sample": float(np.std(IFP_counts_per_sample)),
+                "IQR": {
+                    "10th_percentile": float(np.percentile(IFP_counts_per_sample, 10)),
+                    "25th_percentile": float(np.percentile(IFP_counts_per_sample, 25)),
+                    "50th_percentile": float(np.percentile(IFP_counts_per_sample, 50)),
+                    "75th_percentile": float(np.percentile(IFP_counts_per_sample, 75)),
+                    "90th_percentile": float(np.percentile(IFP_counts_per_sample, 90)),
+                },
+            }
+        else:
+            per_sample_IFP_diagnostics = {
+                "min_amount_of_IFPs_per_sample": 0,
+                "max_amount_of_IFPs_per_sample": 0,
+                "median_amount_of_IFPs_per_sample": 0.0,
+                "mean_amount_of_IFPs_per_sample": 0.0,
+                "std_amount_of_IFPs_per_sample": 0.0,
+                "IQR": {
+                    "10th_percentile": 0.0,
+                    "25th_percentile": 0.0,
+                    "50th_percentile": 0.0,
+                    "75th_percentile": 0.0,
+                    "90th_percentile": 0.0,
+                },
+            }
+
+        samples_counts_per_IFP = np.array(
+            [len(samples) for samples in samples_per_IFP.values()],
+            dtype=float,
+        )
+
+        if len(samples_counts_per_IFP) > 0:
+            per_IFP_diagnostics = {
+                "min_amount_of_samples_per_IFP": int(np.min(samples_counts_per_IFP)),
+                "max_amount_of_samples_per_IFP": int(np.max(samples_counts_per_IFP)),
+                "median_amount_of_samples_per_IFP": float(np.median(samples_counts_per_IFP)),
+                "mean_amount_of_samples_per_IFP": float(np.mean(samples_counts_per_IFP)),
+                "std_amount_of_samples_per_IFP": float(np.std(samples_counts_per_IFP)),
+                "IQR": {
+                    "10th_percentile": float(np.percentile(samples_counts_per_IFP, 10)),
+                    "25th_percentile": float(np.percentile(samples_counts_per_IFP, 25)),
+                    "50th_percentile": float(np.percentile(samples_counts_per_IFP, 50)),
+                    "75th_percentile": float(np.percentile(samples_counts_per_IFP, 75)),
+                    "90th_percentile": float(np.percentile(samples_counts_per_IFP, 90)),
+                },
+            }
+        else:
+            per_IFP_diagnostics = {
+                "min_amount_of_samples_per_IFP": 0,
+                "max_amount_of_samples_per_IFP": 0,
+                "median_amount_of_samples_per_IFP": 0.0,
+                "mean_amount_of_samples_per_IFP": 0.0,
+                "std_amount_of_samples_per_IFP": 0.0,
+                "IQR": {
+                    "10th_percentile": 0.0,
+                    "25th_percentile": 0.0,
+                    "50th_percentile": 0.0,
+                    "75th_percentile": 0.0,
+                    "90th_percentile": 0.0,
+                },
+            }
+
+        total_number_of_IFPs = len(trimming_output)
+        number_of_trimmed_IFPs = len(samples_per_IFP)
+        number_of_non_trimmed_IFPs = total_number_of_IFPs - number_of_trimmed_IFPs
+
+        trimmed_IFP_diagnostics = {
+            "total_number_of_IFPs": total_number_of_IFPs,
+            "number_of_trimmed_IFPs": number_of_trimmed_IFPs,
+            "number_of_non_trimmed_IFPs": number_of_non_trimmed_IFPs,
+            "per_gene_count": dict(
+                sorted(
+                    trimmed_gene_count.items(),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )
+            ),
+        }
+
+        return {
+            "per_sample_IFP_diagnostics": per_sample_IFP_diagnostics,
+            "per_IFP_diagnostics": per_IFP_diagnostics,
+            "trimmed_IFP_diagnostics": trimmed_IFP_diagnostics,
+        }
 
 
 if __name__ == "__main__":

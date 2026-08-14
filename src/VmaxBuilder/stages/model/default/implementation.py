@@ -128,6 +128,13 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultModelConf
         elapsed_time: float,
         **kwargs,
     ) -> dict[str, Any]:
+        model = cast(Model, kwargs.get("cobra_model"))
+        model_name = "Model 'name' not found"
+        if hasattr(model, "name"):
+            model_name = model.name
+        if model_name == "Null" or model_name is None or model_name == "":
+            if hasattr(model, "id"):
+                model_name = model.id
         metadata = {
             "model": {
                 "implementation": type(self).__name__,
@@ -135,6 +142,7 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultModelConf
                 "status": "irreversible_model_created",
                 "date_created": pd.Timestamp.now().isoformat(),
                 "params": self.get_implementation_config_params(),
+                "model_name": model_name,
             }
         }
         return metadata
@@ -211,24 +219,25 @@ class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultModelConf
         }
         return transcript_diagnostics
 
-    def _build_model(self, scaffold: Scaffold):
-        cobra_model = cast(Model, scaffold.get_scaffold_value("cobra_model"))
+    def _build_model(self, cobra_model: Model) -> tuple[Model, list[list[int]]]:
         irreversible_model, rev2irrev = create_irreversible_model(
             cobra_model, logger=self.logger
         )
         return irreversible_model, rev2irrev
 
     def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
+        cobra_model = cast(Model, scaffold.get_scaffold_value("cobra_model"))
+
         model_elapsed_time, (irreversible_model, rev2irrev) = self.get_time_decorator(
             self._build_model
-        )(scaffold)
+        )(cobra_model=cobra_model)
 
         artifacts = {
             "irreversible_cobra_model": irreversible_model,
             "rev2irrev": rev2irrev,
         }
         diagnostics = self.create_model_base_diagnostics(irreversible_model)
-        metadata = self.create_metadata(model_elapsed_time)
+        metadata = self.create_metadata(model_elapsed_time, cobra_model=cobra_model)
 
         if self.full_config.run.run_target_transcript_gene_level.lower() == "transcript":
             # todo: add ability to use already existing gene_transcript_mapping if

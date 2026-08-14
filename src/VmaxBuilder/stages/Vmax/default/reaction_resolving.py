@@ -104,10 +104,14 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         )
         trimming_output = cast(dict, scaffold.get_scaffold_value("trimming_output"))
         reaction_to_IFP_mapping = cast(
-            dict, scaffold.get_scaffold_value("reaction_to_IFP_mapping")
+            dict, scaffold.get_scaffold_value("adjusted_reaction_to_IFP_mapping")
         )
-        cobra_model = cast(Model, scaffold.get_scaffold_value("irreversible_cobra_model"))
-        gene_to_IFP_mapping = cast(dict, scaffold.get_scaffold_value("gene_to_IFP_mapping"))
+        cobra_model = cast(
+            Model, scaffold.get_scaffold_value("adjusted_irreversible_cobra_model")
+        )
+        gene_to_IFP_mapping = cast(
+            dict, scaffold.get_scaffold_value("adjusted_gene_to_IFP_mapping")
+        )
 
         _reaction_capacity_df = self.resolve_reaction_capacity(
             IFP_abundance_df,
@@ -235,21 +239,24 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
                     total_capacity += abundance * max_kcat  # ty: ignore
 
                 reaction_capacity_df.at[reaction, sample] = total_capacity
-                print("not in df:", IFPs_not_in_df)
+
+        print("not in df:", IFPs_not_in_df)
+        print("not in df count:", len(IFPs_not_in_df))
 
         return reaction_capacity_df
 
 
 if __name__ == "__main__":
     import json
+    import random
     from pathlib import Path
 
     from VmaxBuilder.utils.custom_logging import CustomLogger
 
-    base_dir = r"/home/p70088775/git/VmaxBuilder/data/run_example_output/DCM_magnet_run/"
+    base_dir = r"/home/p70088775/git/VmaxBuilder/data/run_example_output/NCI_60_human_run/"
 
     IFP_mapping_path = Path(base_dir) / "outputs" / "IFP_mapping.json"
-    model_path = Path(base_dir) / "outputs" / "irreversible_cobra_model.json"
+    model_path = Path(base_dir) / "outputs" / "adjusted_irreversible_cobra_model.json"
     model = load_json_model(model_path)
     IFP_sample_abundance_df_path = Path(base_dir) / "outputs" / "IFP_abundance_df.csv"
     IFP_abundance_df = pd.read_csv(IFP_sample_abundance_df_path, index_col=0)
@@ -257,10 +264,13 @@ if __name__ == "__main__":
         Path(base_dir) / "artifacts" / "allocation_stage" / "trimming_output.json"
     )
     reaction_to_IFP_mapping_path = (
-        Path(base_dir) / "artifacts" / "model_stage" / "reaction_to_IFP_mapping.json"
+        Path(base_dir)
+        / "artifacts"
+        / "protein_stage"
+        / "adjusted_reaction_to_IFP_mapping.json"
     )
     gene_to_IFP_mapping_path = (
-        Path(base_dir) / "artifacts" / "model_stage" / "gene_to_IFP_mapping.json"
+        Path(base_dir) / "artifacts" / "protein_stage" / "adjusted_gene_to_IFP_mapping.json"
     )
 
     with open(trimming_output_path, "r") as f:
@@ -275,10 +285,8 @@ if __name__ == "__main__":
     # create fake kcats_per_reaction_per_gene dictionary
     # for each reaction, get the genes in the reaction,
     # and assign a random kcat value to each gene
-    import random
 
     random.seed(42)
-
     fake_kcats_per_reaction_per_gene = {}
     for reaction in model.reactions:
         genes_in_reaction = [gene.id for gene in reaction.genes]
@@ -311,3 +319,10 @@ if __name__ == "__main__":
     )
     print("Reaction Activity DataFrame:")
     print(reaction_activity_df)
+    print("number_of_reactions:", len(reaction_activity_df))
+    print("reactions_in_model:", len(model.reactions))
+    print("number_of_samples:", len(reaction_activity_df.columns))
+    model_reaction_ids = set([reaction.id for reaction in model.reactions])
+    reaction_activity_ids = set(reaction_activity_df.index)
+    missing_reactions = model_reaction_ids - reaction_activity_ids
+    print("missing_reactions:", missing_reactions)
