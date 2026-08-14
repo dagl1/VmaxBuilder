@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 from dataclasses import fields, is_dataclass
 from pathlib import Path
@@ -136,10 +137,20 @@ class Orchestrator:
 
         return implementation
 
+    def _save_metadata(self, metadata: dict[str, Any]):
+        metadata_path = self.config.run.paths.metadata_dir / "orchestrator_metadata.json"
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        self.logger.info(f"Metadata saved to {metadata_path}")
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f, indent=4)
+
     def run(self):
         self._discover_user_submitted_paths()
         self.config.run.paths._create_dirs()
         self.logger.info("Starting orchestrator run...")
+        metadata = self.create_metadata()
+        self._save_metadata(metadata)
+
         if not self.config.run.lazy_load:
             self.load_inputs()
             if not self.config.run.lazy_validate:
