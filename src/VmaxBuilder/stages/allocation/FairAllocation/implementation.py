@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from this import s
 from typing import Any, TypedDict, cast
 
 import numpy as np
@@ -97,16 +98,6 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             in_scaffold=True,
             data_type=dict,
         ),
-        InputSpec(
-            name="adjusted_gene_to_IFP_mapping",
-            in_scaffold=True,
-            data_type=dict,
-        ),
-        InputSpec(
-            name="adjusted_reaction_to_IFP_mapping",
-            in_scaffold=True,
-            data_type=dict,
-        ),
     ]
     OUTPUTS: list[OutputSpec] = [
         OutputSpec(
@@ -166,7 +157,7 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
         protein_abundance_df = cast(
             pd.DataFrame, scaffold.get_scaffold_value("protein_abundance_df")
         )
-        IFP_mapping = cast(dict, scaffold.get_scaffold_value("IFP_mapping"))
+        IFP_mapping = cast(dict, scaffold.get_scaffold_value("adjusted_IFP_mapping"))
         trimmable_genes = scaffold.get_scaffold_value("trimmable_genes")
         if trimmable_genes is not None:
             trimmable_genes = cast(set[str], set(trimmable_genes))
@@ -487,9 +478,9 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             return adjusted_IFP_mapping
 
         self._adjust_IFP_mapping(sample_specific_IFPs, adjusted_IFP_mapping)
-        # we remove any duplicate IFPs that may have been created by trimming,
-        # keeping only the first occurrence
-        self._remove_duplicate_IFPs(adjusted_IFP_mapping)
+        # # we remove any duplicate IFPs that may have been created by trimming,
+        # # keeping only the first occurrence
+        # self._remove_duplicate_IFPs(adjusted_IFP_mapping)
 
         # ensure that if we have trimmed genes, that there are differences between
         # the IFP_mapping and the adjusted_IFP_mapping
@@ -913,8 +904,7 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
         # in sample_IFP_abundances.
         per_IFP_abundances = {
             IFP: float(value(quadratic_model.x[IFP]))  # ty: ignore
-            for IFP in sample_IFP_abundances
-            if IFP in quadratic_model.IFPs  # ty: ignore
+            for IFP in quadratic_model.IFPs  # ty: ignore
         }
 
         # Replace the original/sample-specific values with the QP allocation.
@@ -1068,14 +1058,14 @@ if __name__ == "__main__":
 
     from VmaxBuilder.utils.custom_logging import CustomLogger
 
-    base_dir = r"/home/p70088775/git/VmaxBuilder/data/run_example_output/DCM_magnet_run/"
+    base_dir = r"/home/p70088775/git/VmaxBuilder/data/run_example_output/NCI_60_human_run/"
 
     protein_abundance_path = Path(base_dir) / "outputs" / "protein_abundance_df.csv"
     protein_abundance_df = pd.read_csv(
         protein_abundance_path,
         index_col=0,
     )
-    IFP_mapping_path = Path(base_dir) / "outputs" / "IFP_mapping.json"
+    IFP_mapping_path = Path(base_dir) / "outputs" / "adjusted_IFP_mapping.json"
     with open(IFP_mapping_path, "r") as f:
         IFP_mapping = json.load(f)
 
@@ -1114,18 +1104,19 @@ if __name__ == "__main__":
         if IFP_name in IFP_definitions
     }
     IFPs_per_sample = {}
-    (IFPs_per_sample, trimming_output) = allocator.trim_IFPs(
-        protein_abundance_df,
-        IFP_mapping,
-        7,
-        trimmable_genes,
-    )
+    # (IFPs_per_sample, trimming_output) = allocator.trim_IFPs(
+    #     protein_abundance_df,
+    #     IFP_mapping,
+    #     7,
+    #     trimmable_genes,
+    # )
 
     solver_factory = SolverFactory("gurobi")
     quadratic_model = allocator.prepare_quadratic_problem_model(
         list(connected_IFP_definitions.values()), list(protein_abundance_df.index)
     )
 
+    sample_IFP_abundances_per_sample = {}
     for _sample in protein_abundance_df.columns:
         (
             sample_specific_IFP_mapping,
@@ -1143,10 +1134,10 @@ if __name__ == "__main__":
             _sample,
         )
         ten_IFPs = list(sample_IFP_abundances.items())[:10]
-        print(
-            f"Sample: {_sample}, First 10 IFP Abundances: {ten_IFPs}, "
-            f"values: {list(sample_IFP_abundances.values())[:10]}"
-        )
+        # print(
+        #     f"Sample: {_sample}, First 10 IFP Abundances: {ten_IFPs}, "
+        #     f"values: {list(sample_IFP_abundances.values())[:10]}"
+        # )
         allocator.adjust_quadratic_model_for_sample_specific(
             quadratic_model,
             [
@@ -1163,7 +1154,13 @@ if __name__ == "__main__":
             sample_IFP_abundances, quadratic_model, solver_result=results
         )
         last_ten_IFPs = list(sample_IFP_abundances.items())[-10:]
-        print(
-            f"Sample: {_sample}, Last 10 IFP Abundances: {last_ten_IFPs}, "
-            f"values: {list(sample_IFP_abundances.values())[-10:]}"
-        )
+        sample_IFP_abundances_per_sample[_sample] = sample_IFP_abundances
+    IFP_sample_abundance_df = pd.DataFrame.from_dict(
+        sample_IFP_abundances_per_sample,
+        orient="index",
+    ).transpose()
+    # save  it
+    IFP_sample_abundance_df.to_csv(
+        Path(base_dir) / "outputs" / "TEST_IFP_sample_abundance_df.csv",
+        index=True,
+    )

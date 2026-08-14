@@ -255,14 +255,7 @@ if __name__ == "__main__":
 
     base_dir = r"/home/p70088775/git/VmaxBuilder/data/run_example_output/NCI_60_human_run/"
 
-    IFP_mapping_path = Path(base_dir) / "outputs" / "IFP_mapping.json"
-    model_path = Path(base_dir) / "outputs" / "adjusted_irreversible_cobra_model.json"
-    model = load_json_model(model_path)
-    IFP_sample_abundance_df_path = Path(base_dir) / "outputs" / "IFP_abundance_df.csv"
-    IFP_abundance_df = pd.read_csv(IFP_sample_abundance_df_path, index_col=0)
-    trimming_output_path = (
-        Path(base_dir) / "artifacts" / "allocation_stage" / "trimming_output.json"
-    )
+    IFP_mapping_path = Path(base_dir) / "outputs" / "adjusted_IFP_mapping.json"
     reaction_to_IFP_mapping_path = (
         Path(base_dir)
         / "artifacts"
@@ -272,6 +265,13 @@ if __name__ == "__main__":
     gene_to_IFP_mapping_path = (
         Path(base_dir) / "artifacts" / "protein_stage" / "adjusted_gene_to_IFP_mapping.json"
     )
+    model_path = Path(base_dir) / "outputs" / "adjusted_irreversible_cobra_model.json"
+    trimming_output_path = (
+        Path(base_dir) / "artifacts" / "allocation_stage" / "trimming_output.json"
+    )
+
+    IFP_sample_abundance_df_path = Path(base_dir) / "outputs" / "IFP_abundance_df.csv"
+    IFP_abundance_df = pd.read_csv(IFP_sample_abundance_df_path, index_col=0)
 
     with open(trimming_output_path, "r") as f:
         trimming_output = json.load(f)
@@ -282,10 +282,9 @@ if __name__ == "__main__":
     with open(gene_to_IFP_mapping_path, "r") as f:
         gene_to_IFP_mapping = json.load(f)
 
-    # create fake kcats_per_reaction_per_gene dictionary
-    # for each reaction, get the genes in the reaction,
-    # and assign a random kcat value to each gene
+    model = load_json_model(model_path)
 
+    # fake kcats_per_reaction_per_gene dictionary
     random.seed(42)
     fake_kcats_per_reaction_per_gene = {}
     for reaction in model.reactions:
