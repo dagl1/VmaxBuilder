@@ -8,7 +8,7 @@ from VmaxBuilder.stages.protein.expressionPTR.implementation import (
     ExpressionPTRImplementation,
 )
 from VmaxBuilder.stages.protein.protein import ProteinStageConfig
-from VmaxBuilder.Trimming.Mvalue.trimming_implementation import (
+from VmaxBuilder.trimming.Mvalue.trimming_implementation import (
     MValueTrimmingImplementation,
 )
 from VmaxBuilder.typing_stubs.protein.MvalueTrimmingExpressionPTR.implementation import (

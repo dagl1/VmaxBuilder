@@ -7,7 +7,7 @@ import pandas as pd
 from VmaxBuilder.base.classes import BaseImplementation, DiagnosticOutputSpec
 from VmaxBuilder.base.configs import InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.stages.protein.protein import ProteinStageConfig
-from VmaxBuilder.Trimming.Mvalue.trimming_config import MValueTrimmingConfig
+from VmaxBuilder.trimming.Mvalue.trimming_config import MValueTrimmingConfig
 from VmaxBuilder.utils.iterables import SortedSet
 
 
