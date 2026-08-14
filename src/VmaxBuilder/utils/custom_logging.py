@@ -35,6 +35,7 @@ from logging import (
     Filter,
     Formatter,
     Logger,
+    LogRecord,
     StreamHandler,
     addLevelName,
     getLogger,
@@ -174,6 +175,18 @@ def _attention_gradient(text: str) -> str:
     return "".join(result) + "\033[0m"
 
 
+class ParentDirectoryFormatter(Formatter):
+    def format(self, record: LogRecord) -> str:
+        raw_path = getattr(record, "custom_pathname", record.pathname)
+        path_obj = Path(raw_path)
+        if len(path_obj.parts) > 1:
+            record.parent_filename = f"{path_obj.parent.name}/{path_obj.name}"
+        else:
+            record.parent_filename = path_obj.name
+
+        return super().format(record)
+
+
 class CustomLogger:
     VALID_LEVEL = 25
     ATTENTION_LEVEL = 18
@@ -241,9 +254,11 @@ class CustomLogger:
         log_file_path = log_files_location_path / log_filename
 
         file_handler = FileHandler(log_file_path, mode="w")
-        file_handler.setFormatter(
-            Formatter("%(asctime)s - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)")
+        file_log_format = (
+            "%(asctime)s - %(levelname)s - %(message)s "
+            "(%(parent_filename)s:%(custom_lineno)d)"
         )
+        file_handler.setFormatter(ParentDirectoryFormatter(file_log_format))
         self.logger.addHandler(file_handler)
         self.log_file_path = log_file_path
         self.auto_parse = auto_parse
@@ -321,22 +336,7 @@ class CustomLogger:
 
         return wrapper
 
-    def process_stack(self, stack_: list) -> tuple[str, int]:
-        """Generated: validation needed.
-
-        Description:
-            Walk the call stack and return filename and line number of the first
-            frame outside this module.
-
-        Args:
-            stack_ (list): Frame list from :func:`inspect.stack`.
-
-        Returns:
-            tuple[str, int]: Caller filename (basename) and line number.
-
-        Raises:
-            ValueError: When no caller frame outside this module is found.
-        """
+    def process_stack(self, stack_: list) -> tuple[Path, int]:
         caller_frame = None
         for frame in stack_:
             name = __name__.replace(".", "\\")
@@ -347,11 +347,11 @@ class CustomLogger:
 
         if caller_frame is None:
             raise ValueError("No caller frame found")
+
         lineno = caller_frame.lineno
-        filename = caller_frame.filename
-        filename = filename.split("/")[-1]
-        filename = filename.split("\\")[-1]
-        return filename, lineno
+        # Keep the absolute/full path using pathlib
+        full_path = Path(caller_frame.filename)
+        return full_path, lineno
 
     @fix_non_ascii_messages_decorator
     def debug(self, message, print_level=4, *args, **kwargs):
@@ -361,7 +361,7 @@ class CustomLogger:
             message,
             extra={
                 "print_level": print_level,
-                "custom_filename": filename,
+                "custom_pathname": filename,
                 "custom_lineno": lineno,
             },
         )
@@ -374,7 +374,7 @@ class CustomLogger:
             message,
             extra={
                 "print_level": print_level,
-                "custom_filename": filename,
+                "custom_pathname": filename,
                 "custom_lineno": lineno,
             },
         )
@@ -387,7 +387,7 @@ class CustomLogger:
             message,
             extra={
                 "print_level": print_level,
-                "custom_filename": filename,
+                "custom_pathname": filename,
                 "custom_lineno": lineno,
             },
         )
@@ -400,7 +400,7 @@ class CustomLogger:
             message,
             extra={
                 "print_level": print_level,
-                "custom_filename": filename,
+                "custom_pathname": filename,
                 "custom_lineno": lineno,
             },
         )
@@ -413,7 +413,7 @@ class CustomLogger:
             message,
             extra={
                 "print_level": print_level,
-                "custom_filename": filename,
+                "custom_pathname": filename,
                 "custom_lineno": lineno,
             },
         )
@@ -439,7 +439,7 @@ class CustomLogger:
         if self.logger.isEnabledFor(CustomLogger.STARTING_LEVEL):
             stack_ = stack()
             filename, lineno = self.process_stack(stack_)
-            extra_new = {"custom_filename": filename, "print_level": print_level}
+            extra_new = {"custom_pathname": filename, "print_level": print_level}
             # merge with new from args if it exists
             extra_new.update(kwargs.get("extra", {}))
 
@@ -461,7 +461,7 @@ class CustomLogger:
                 args,
                 extra={
                     "custom_lineno": lineno,
-                    "custom_filename": filename,
+                    "custom_pathname": filename,
                     "print_level": print_level,
                 },
             )
@@ -477,7 +477,7 @@ class CustomLogger:
                 args,
                 extra={
                     "custom_lineno": lineno,
-                    "custom_filename": filename,
+                    "custom_pathname": filename,
                     "print_level": print_level,
                 },
             )
@@ -493,7 +493,7 @@ class CustomLogger:
                 args,
                 extra={
                     "custom_lineno": lineno,
-                    "custom_filename": filename,
+                    "custom_pathname": filename,
                     "print_level": print_level,
                 },
             )
@@ -571,7 +571,7 @@ class CustomFormatter(Formatter):
     ATTENTION_LEVEL = 18
     STARTING_LEVEL = 21
     FINISHED_LEVEL = 22
-    # taken from https://stackoverflow.com/questions/384076/how-can-i-color-python-logging-output
+
     cyan = "\x1b[36;20m"
     dark_blue = "\x1b[34;20m"
     white = "\x1b[66;20m"
@@ -582,34 +582,53 @@ class CustomFormatter(Formatter):
     bold_red = "\x1b[31;1m"
     green = "\x1b[32;20m"
     reset = "\x1b[0m"
-    format = "%(asctime).19s - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)"
+
+    # Kept as %(filename)s because we overwrite record.filename dynamically inside format()
+    format_str = "%(asctime).19s - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)"
+
     FORMATS = {
-        STARTING_LEVEL: cyan + format + reset,
-        FINISHED_LEVEL: dark_blue + format + reset,
-        VALID_LEVEL: green + format + reset,
-        DEBUG: grey_orange + format + reset,
-        INFO: white + format + reset,
-        WARNING: yellow + format + reset,
-        ERROR: red + format + reset,
-        CRITICAL: bold_red + format + reset,
+        STARTING_LEVEL: cyan + format_str + reset,
+        FINISHED_LEVEL: dark_blue + format_str + reset,
+        VALID_LEVEL: green + format_str + reset,
+        DEBUG: grey_orange + format_str + reset,
+        INFO: white + format_str + reset,
+        WARNING: yellow + format_str + reset,
+        ERROR: red + format_str + reset,
+        CRITICAL: bold_red + format_str + reset,
     }
 
     def format(self, record):
+        # 1. Apply your custom wrappers overrides if they exist
         if hasattr(record, "custom_lineno"):
             record.lineno = record.custom_lineno
         if hasattr(record, "custom_filename"):
             record.filename = record.custom_filename
+        if hasattr(record, "custom_pathname"):
+            record.pathname = record.custom_pathname
 
+        # 2. Pathlib extraction: Convert filename to 'parent/filename'
+        # Uses custom_pathname if available, falls back to standard record.pathname
+        raw_path = getattr(record, "custom_pathname", record.pathname)
+        if raw_path:
+            path_obj = Path(raw_path)
+            if len(path_obj.parts) > 1:
+                # Modifies record.filename directly so Formatter formats pick it up
+                record.filename = f"{path_obj.parent.name}/{path_obj.name}"
+            else:
+                record.filename = path_obj.name
+
+        # 3. Handle your Attention Level gradient logic
         if record.levelno == self.ATTENTION_LEVEL:
             message = record.getMessage()
             gradient_message = _attention_gradient(message)
-            # Build the rest of the log line normally.
+
             prefix = Formatter("%(asctime).19s - %(levelname)s - ").format(record)
             suffix = Formatter(" (%(filename)s:%(lineno)d)").format(record)
 
             return f"{prefix}{gradient_message}{suffix}"
 
-        log_fmt = self.FORMATS.get(record.levelno)
+        # 4. Standard color formatting block
+        log_fmt = self.FORMATS.get(record.levelno, self.white + self.format_str + self.reset)
         formatter = Formatter(log_fmt)
         return formatter.format(record)
 

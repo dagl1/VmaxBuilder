@@ -1,4 +1,5 @@
 from collections.abc import Set
+from pathlib import PosixPath
 from typing import Generic, Iterable, Optional, TypeVar
 
 T = TypeVar("T")
@@ -57,5 +58,7 @@ def make_json_serializable(obj):
         return {key: make_json_serializable(value) for key, value in obj.items()}
     elif isinstance(obj, (list, tuple)):
         return [make_json_serializable(value) for value in obj]
+    elif isinstance(obj, PosixPath):
+        return str(obj)
     else:
         return obj

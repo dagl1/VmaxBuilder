@@ -34,6 +34,7 @@ from VmaxBuilder.stages.protein.MvalueTrimmingExpressionPTR.implementation impor
 )
 from VmaxBuilder.stages.protein.protein import ProteinStage
 from VmaxBuilder.utils.custom_logging import CustomLogger, custom_asdict
+from VmaxBuilder.utils.iterables import make_json_serializable
 
 run_config_type_hints = get_type_hints(RunConfig)
 PrintLevelType = run_config_type_hints.get("print_level", str)
@@ -142,7 +143,7 @@ class Orchestrator:
         metadata_path.parent.mkdir(parents=True, exist_ok=True)
         self.logger.info(f"Metadata saved to {metadata_path}")
         with open(metadata_path, "w") as f:
-            json.dump(metadata, f, indent=4)
+            json.dump(make_json_serializable(metadata), f, indent=4)
 
     def run(self):
         self._discover_user_submitted_paths()
@@ -195,14 +196,24 @@ class Orchestrator:
         return return_dict
 
     def create_metadata(self) -> dict[str, Any]:
+        discovered_paths = self.return_discovered_paths()
+        discovered_paths_serializable = {
+            key: {input_name: discovered_input.to_dict()}
+            for key, value in discovered_paths.items()
+            for input_name, discovered_input in value.items()
+        }
+
         metadata = {
             "orchestrator": {
                 "implementation": type(self).__name__,
                 "date_created": pd.Timestamp.now().isoformat(),
                 "params": self.return_non_default_configs(),
                 "paths": {
-                    "user_submitted_paths": self.return_user_submitted_paths(),
-                    "discovered_paths": self.return_discovered_paths(),
+                    "user_submitted_paths": [
+                        path_info.to_dict()
+                        for path_info in self.return_user_submitted_paths()
+                    ],
+                    "discovered_paths": discovered_paths_serializable,
                 },
             }
         }

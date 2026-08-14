@@ -213,7 +213,7 @@ class RunConfig:
 @dataclass
 class PathInfo:
     stage_name: str
-    directories: list[Path] = field(default_factory=list)
+    directories: list[Path] | Path = field(default_factory=list)
     file_paths: dict[str, Path] = field(default_factory=dict)
 
     def __repr__(self):
@@ -222,6 +222,16 @@ class PathInfo:
             f"directories={self.directories},"
             f"file_paths={self.file_paths})"
         )
+
+    # make json serializable
+    def to_dict(self):
+        return {
+            "stage_name": self.stage_name,
+            "directories": [str(d) for d in self.directories]
+            if isinstance(self.directories, list)
+            else str(self.directories),
+            "file_paths": {k: str(v) for k, v in self.file_paths.items()},
+        }
 
 
 @dataclass
@@ -237,6 +247,24 @@ class DiscoveredInput:
     ]
 
     warning: str | None = None
+
+    def __repr__(self):
+        return (
+            f"DiscoveredInput(input_name={self.input_name}, "
+            f"file_path={self.file_path}, "
+            f"exists={self.exists}, "
+            f"source={self.source}, "
+            f"warning={self.warning})"
+        )
+
+    def to_dict(self):
+        return {
+            "input_name": self.input_name,
+            "file_path": str(self.file_path) if self.file_path else None,
+            "exists": self.exists,
+            "source": self.source,
+            "warning": self.warning,
+        }
 
 
 @dataclass(slots=True)
