@@ -117,7 +117,18 @@ def simplify_gpr_rule(gpr_rule: str) -> list[str]:
         list[str]: Simplified IFP strings.
     """
 
-    return [" and ".join(IFP) for IFP in simplify_gpr_rule_cached(gpr_rule)]
+    return [" and ".join(sorted(IFP)) for IFP in simplify_gpr_rule_cached(gpr_rule)]
+
+
+def get_unique_genes_from_IFP_mapping(
+    IFP_mapping: dict[str, dict[str, Any]],
+) -> set[str]:
+    return set(
+        gene
+        for _, gpr_data in IFP_mapping.items()
+        for ifp in gpr_data.get("IFP_objects", [])
+        for gene in ifp.get("genes_in_IFP", [])
+    )
 
 
 def build_gene_to_IFP_mapping(
@@ -131,9 +142,7 @@ def build_gene_to_IFP_mapping(
             for gene in genes_in_IFP:
                 gene_to_IFP_mapping[gene] = {
                     "IFPs": gene_to_IFP_mapping.get(gene, {}).get("IFPs", []) + [IFP],
-                    "reactions_with_gene": gene_to_IFP_mapping.get(gene, {}).get(
-                        "reactions_with_IFP", []
-                    ),
+                    "reactions_with_gene": IFP_payload["reactions_with_IFP"],
                     "gpr_rules_with_gene": gene_to_IFP_mapping.get(gene, {}).get(
                         "gpr_rules_with_gene", []
                     )
@@ -177,17 +186,6 @@ def build_reaction_to_IFP_mapping(
         mapping["genes"] = sorted(set(mapping["genes"]))
 
     return reaction_to_IFP_mapping
-
-
-def get_unique_genes_from_IFP_mapping(
-    IFP_mapping: dict[str, dict[str, Any]],
-) -> set[str]:
-    return set(
-        gene
-        for _, gpr_data in IFP_mapping.items()
-        for ifp in gpr_data.get("IFP_objects", [])
-        for gene in ifp.get("genes_in_IFP", [])
-    )
 
 
 def build_IFP_mapping_from_gpr_rules(
@@ -772,7 +770,7 @@ def _deduplicate_IFPs(gene_IFPs: Sequence[tuple[str, ...]]) -> tuple[tuple[str, 
 
 if __name__ == "__main__":
     # Example usage
-    gpr_rule = "(geneA and geneB) or (geneC and geneD)"
+    gpr_rule = "(geneB and geneA) or (geneC and geneD)"
     gpr_rule_noB = remove_gene_from_GPR_rule(gpr_rule, "geneB")
     simplified_IFPs = simplify_gpr_rule(gpr_rule)
     simplified_IFPs_noB = simplify_gpr_rule(gpr_rule_noB)

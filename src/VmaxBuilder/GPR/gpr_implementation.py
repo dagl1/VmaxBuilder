@@ -116,7 +116,7 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
         )
         self.logger.warning(
             f"Missing genes from model: {missing_genes_from_model}. "
-            f"Missing genes from IFP mapping: {missing_genes_from_IFP_mapping}. "
+            f"Missing genes from IFP mapping: {missing_genes_from_IFP_mapping}. \n"
             f"These are likely genes without any reactions associated "
         )
 
