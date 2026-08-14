@@ -14,6 +14,7 @@ Created by Jelle Bonthuis on 2025-03-24
 """
 
 import atexit
+import colorsys
 import cProfile
 import io
 import pstats
@@ -148,8 +149,34 @@ def parse_log_file(log_path: str | Path) -> pd.DataFrame:  # noqa: C901
     return df
 
 
+def _attention_gradient(text: str) -> str:
+    if not text:
+        return text
+
+    result = []
+
+    for i, char in enumerate(text):
+        # One complete revolution around the colour wheel.
+        hue = i / max(len(text) - 1, 1)
+
+        # Slightly high saturation, reasonably bright.
+        saturation = 0.85
+        value = 1.0
+
+        r, g, b = colorsys.hsv_to_rgb(hue, saturation, value)
+
+        r = int(r * 255)
+        g = int(g * 255)
+        b = int(b * 255)
+
+        result.append(f"\033[38;2;{r};{g};{b}m{char}")
+
+    return "".join(result) + "\033[0m"
+
+
 class CustomLogger:
     VALID_LEVEL = 25
+    ATTENTION_LEVEL = 18
     HIGH_DETAIL_LEVEL = 24
     LOW_DETAIL_LEVEL = 23
     FINISHED_LEVEL = 22
@@ -196,11 +223,13 @@ class CustomLogger:
         addLevelName(CustomLogger.VALID_LEVEL, "VALID")
         addLevelName(CustomLogger.FINISHED_LEVEL, "FINISHED")
         addLevelName(CustomLogger.STARTING_LEVEL, "STARTING")
+        addLevelName(CustomLogger.ATTENTION_LEVEL, "ATTENTION")
         # Keep runtime compatibility for code using `custom_logger.logger.starting(...)`.
         logger_with_custom_levels = cast(Any, self.logger)
         logger_with_custom_levels.valid = self.valid
         logger_with_custom_levels.starting = self.starting
         logger_with_custom_levels.finished = self.finished
+        logger_with_custom_levels.attention = self.attention
         # todo add extra ones that could be used
         console_handler = StreamHandler()
         console_handler.setLevel(DEBUG)
@@ -422,6 +451,22 @@ class CustomLogger:
             )
 
     @fix_non_ascii_messages_decorator
+    def attention(self, message, print_level=1, *args, **kwargs):
+        if self.logger.isEnabledFor(CustomLogger.ATTENTION_LEVEL):
+            stack_ = stack()
+            filename, lineno = self.process_stack(stack_)
+            self.logger._log(
+                CustomLogger.ATTENTION_LEVEL,
+                message,
+                args,
+                extra={
+                    "custom_lineno": lineno,
+                    "custom_filename": filename,
+                    "print_level": print_level,
+                },
+            )
+
+    @fix_non_ascii_messages_decorator
     def finished(self, message, print_level=3, *args, **kwargs):
         if self.logger.isEnabledFor(CustomLogger.FINISHED_LEVEL):
             stack_ = stack()
@@ -523,6 +568,7 @@ def progressBar(
 
 class CustomFormatter(Formatter):
     VALID_LEVEL = 25
+    ATTENTION_LEVEL = 18
     STARTING_LEVEL = 21
     FINISHED_LEVEL = 22
     # taken from https://stackoverflow.com/questions/384076/how-can-i-color-python-logging-output
@@ -553,6 +599,16 @@ class CustomFormatter(Formatter):
             record.lineno = record.custom_lineno
         if hasattr(record, "custom_filename"):
             record.filename = record.custom_filename
+
+        if record.levelno == self.ATTENTION_LEVEL:
+            message = record.getMessage()
+            gradient_message = _attention_gradient(message)
+            # Build the rest of the log line normally.
+            prefix = Formatter("%(asctime).19s - %(levelname)s - ").format(record)
+            suffix = Formatter(" (%(filename)s:%(lineno)d)").format(record)
+
+            return f"{prefix}{gradient_message}{suffix}"
+
         log_fmt = self.FORMATS.get(record.levelno)
         formatter = Formatter(log_fmt)
         return formatter.format(record)
@@ -879,3 +935,12 @@ def custom_asdict(obj, verbose=True):
 @profile_time
 def time_checker(func, *args, **kwargs):
     return func(*args, **kwargs)
+
+
+if __name__ == "__main__":
+    logger = CustomLogger("test_logger", "logs")
+    logger.set_print_level(3)
+    # logger.info("This is an info message", print_level=3)
+    # logger.starting("This is a starting message", print_level=3)
+    # logger.finished("This is a finished message", print_level=3)
+    logger.attention("This is an attention message", print_level=1)

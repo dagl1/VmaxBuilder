@@ -6,6 +6,139 @@ from cobra import Model, Reaction
 
 from VmaxBuilder.base.configs import FullConfig
 
+CONSERVATIVE_ENERGY_CONSUMING_REACTION_FORMULAS_DICT = {
+    "ATP": [
+        ["ADP", "Pi", "H+"],
+        ["AMP", "PPi", "H+"],
+        ["AMP", "Pi", "H+"],
+        ["ADP", "PPi", "H+"],
+        ["ADP", "H+", "IMP"],
+        ["AMP", "H+", "IMP"],
+        ["PPi", "cAMP"],
+        ["ADP"],
+        ["AMP"],
+        ["Pi"],
+        ["PPi"],
+    ],
+    "ADP": [
+        ["AMP", "Pi", "H+"],
+        ["AMP", "PPi", "H+"],
+        ["AMP", "H+", "IMP"],
+        ["AMP"],
+        ["Pi"],
+        ["PPi"],
+    ],
+    "GTP": [
+        ["GDP", "Pi", "H+"],
+        ["GMP", "PPi", "H+"],
+        ["GMP", "Pi", "H+"],
+        ["GDP", "PPi", "H+"],
+        ["GDP", "H+", "IMP"],
+        ["GMP", "H+", "IMP"],
+        ["PPi", "cGMP"],
+        ["GDP"],
+        ["GMP"],
+        ["Pi"],
+        ["PPi"],
+    ],
+    "GDP": [
+        ["GMP", "Pi", "H+"],
+        ["GMP", "PPi", "H+"],
+        ["GMP", "H+", "IMP"],
+        ["GMP"],
+        ["Pi"],
+        ["PPi"],
+    ],
+    "UTP": [
+        ["UDP", "Pi", "H+"],
+        ["UMP", "PPi", "H+"],
+        ["UMP", "Pi", "H+"],
+        ["UDP", "PPi", "H+"],
+        ["UDP", "H+", "IMP"],
+        ["UMP", "H+", "IMP"],
+        ["PPi", "cUMP"],
+        ["UDP"],
+        ["UMP"],
+        ["Pi"],
+        ["PPi"],
+    ],
+    "UDP": [
+        ["UMP", "Pi", "H+"],
+        ["UMP", "PPi", "H+"],
+        ["UMP", "H+", "IMP"],
+        ["UMP"],
+        ["Pi"],
+        ["PPi"],
+    ],
+    "CTP": [
+        ["CDP", "Pi", "H+"],
+        ["CMP", "PPi", "H+"],
+        ["CMP", "Pi", "H+"],
+        ["CDP", "PPi", "H+"],
+        ["CDP", "H+", "IMP"],
+        ["CMP", "H+", "IMP"],
+        ["PPi", "cCMP"],
+        ["CDP"],
+        ["CMP"],
+        ["Pi"],
+        ["PPi"],
+    ],
+    "CDP": [
+        ["CMP", "Pi", "H+"],
+        ["CMP", "PPi", "H+"],
+        ["CMP", "H+", "IMP"],
+        ["CMP"],
+        ["Pi"],
+        ["PPi"],
+    ],
+    "AMP": [
+        ["Adenosine", "Pi"],
+        ["Adenosine", "H+"],
+        ["Adenosine", "PPi"],
+        ["Pi"],
+        ["H+", "IMP"],
+        ["PPi"],
+    ],
+    "PPi": [["Pi"], ["H+", "IMP"]],
+    "Acetyl-CoA": [["CoA", "Acetate"]],  # Acetyl-CoA hydrolysis
+    "Succinyl-CoA": [["CoA", "Succinate"]],  # Succinyl-CoA hydrolysis
+    "UDP-Glucose": [["UDP", "Glucose"]],  # UDP-glucose as a sugar donor
+    "PAP": [["AMP", "Pi"]],  # PAP → AMP + Pi
+    "PAPS": [["PAP", "SO4"]],
+    "ITP": [
+        ["IMP", "Pi", "H+"],
+        ["Inosine", "Pi", "H+"],
+        ["IMP", "PPi", "H+"],
+        ["Inosine", "PPi", "H+"],
+        ["IMP", "H+"],
+        ["Inosine", "H+"],
+        ["IMP", "Pi"],
+        ["Inosine", "Pi"],
+        ["IMP", "PPi"],
+        ["Inosine", "PPi"],
+        ["IMP"],
+        ["Inosine"],
+        ["Pi"],
+        ["PPi"],
+    ],
+    "IDP": [
+        ["IMP", "Pi", "H+"],
+        ["Inosine", "Pi", "H+"],
+        ["IMP", "PPi", "H+"],
+        ["Inosine", "PPi", "H+"],
+        ["IMP", "H+"],
+        ["Inosine", "H+"],
+        ["IMP", "Pi"],
+        ["Inosine", "Pi"],
+        ["IMP", "PPi"],
+        ["Inosine", "PPi"],
+        ["IMP"],
+        ["Inosine"],
+        ["Pi"],
+        ["PPi"],
+    ],
+}
+
 
 def _metabolite_has_same_identifiers(met1: Any, met2: Any) -> bool:
     """Generated: validation needed.
@@ -130,6 +263,33 @@ def _metabolite_has_same_charge(
     met_1_charge = int(met1.charge) if met1.charge is not None else None
     met_2_charge = int(met2.charge) if met2.charge is not None else None
     return met_1_charge == met_2_charge
+
+
+def match_metabolite_with_model_metabolites(
+    metabolite_without_compartment: str,
+    compartment: str,
+    model_metabolites: list[cobra.Metabolite],
+) -> cobra.Metabolite | None:
+    for model_metabolite in model_metabolites:
+        model_metabolite_id = model_metabolite.id
+        model_metabolite_compartment = model_metabolite.compartment
+        if model_metabolite_id.endswith(f"[{model_metabolite_compartment}]"):
+            model_metabolite_id = model_metabolite_id[
+                : -len(f"[{model_metabolite_compartment}]")
+            ]
+        elif model_metabolite_id.endswith(f"_{model_metabolite_compartment}"):
+            model_metabolite_id = model_metabolite_id[
+                : -len(f"_{model_metabolite_compartment}")
+            ]
+        elif model_metabolite_id.endswith(model_metabolite_compartment):  # ty:ignore
+            model_metabolite_id = model_metabolite_id[
+                : -len(model_metabolite_compartment)
+            ]  # ty:ignore
+        if (
+            metabolite_without_compartment == model_metabolite_id
+            and compartment == model_metabolite_compartment
+        ):
+            return model_metabolite
 
 
 def extract_compartment(old_id: Any) -> str:
@@ -281,149 +441,23 @@ def _deduplicate_preserve_order(values: list[str]) -> list[str]:
     return list(dict.fromkeys(values))
 
 
-def find_energy_carrier_reactions(
+def _validate_cobra_model_or_reactions(
     cobra_model: Model | None = None, reactions: list[Reaction] | None = None
-) -> tuple[list[Reaction], list[Reaction], list[Reaction], list[Reaction]]:
+) -> list[Reaction]:
     if cobra_model is None and reactions is None:
         raise ValueError("Either cobra_model or reactions must be provided.")
     elif cobra_model is not None:
-        reactions = cobra_model.reactions
+        return cobra_model.reactions
     elif reactions is not None:
-        reactions = reactions
+        return reactions
     else:
         raise ValueError("Unexpected state: both cobra_model and reactions are None.")
-    conservative_energy_consuming_reaction_formulas_dict = {
-        "ATP": [
-            ["ADP", "Pi", "H+"],
-            ["AMP", "PPi", "H+"],
-            ["AMP", "Pi", "H+"],
-            ["ADP", "PPi", "H+"],
-            ["ADP", "H+", "IMP"],
-            ["AMP", "H+", "IMP"],
-            ["PPi", "cAMP"],
-            ["ADP"],
-            ["AMP"],
-            ["Pi"],
-            ["PPi"],
-        ],
-        "ADP": [
-            ["AMP", "Pi", "H+"],
-            ["AMP", "PPi", "H+"],
-            ["AMP", "H+", "IMP"],
-            ["AMP"],
-            ["Pi"],
-            ["PPi"],
-        ],
-        "GTP": [
-            ["GDP", "Pi", "H+"],
-            ["GMP", "PPi", "H+"],
-            ["GMP", "Pi", "H+"],
-            ["GDP", "PPi", "H+"],
-            ["GDP", "H+", "IMP"],
-            ["GMP", "H+", "IMP"],
-            ["PPi", "cGMP"],
-            ["GDP"],
-            ["GMP"],
-            ["Pi"],
-            ["PPi"],
-        ],
-        "GDP": [
-            ["GMP", "Pi", "H+"],
-            ["GMP", "PPi", "H+"],
-            ["GMP", "H+", "IMP"],
-            ["GMP"],
-            ["Pi"],
-            ["PPi"],
-        ],
-        "UTP": [
-            ["UDP", "Pi", "H+"],
-            ["UMP", "PPi", "H+"],
-            ["UMP", "Pi", "H+"],
-            ["UDP", "PPi", "H+"],
-            ["UDP", "H+", "IMP"],
-            ["UMP", "H+", "IMP"],
-            ["PPi", "cUMP"],
-            ["UDP"],
-            ["UMP"],
-            ["Pi"],
-            ["PPi"],
-        ],
-        "UDP": [
-            ["UMP", "Pi", "H+"],
-            ["UMP", "PPi", "H+"],
-            ["UMP", "H+", "IMP"],
-            ["UMP"],
-            ["Pi"],
-            ["PPi"],
-        ],
-        "CTP": [
-            ["CDP", "Pi", "H+"],
-            ["CMP", "PPi", "H+"],
-            ["CMP", "Pi", "H+"],
-            ["CDP", "PPi", "H+"],
-            ["CDP", "H+", "IMP"],
-            ["CMP", "H+", "IMP"],
-            ["PPi", "cCMP"],
-            ["CDP"],
-            ["CMP"],
-            ["Pi"],
-            ["PPi"],
-        ],
-        "CDP": [
-            ["CMP", "Pi", "H+"],
-            ["CMP", "PPi", "H+"],
-            ["CMP", "H+", "IMP"],
-            ["CMP"],
-            ["Pi"],
-            ["PPi"],
-        ],
-        "AMP": [
-            ["Adenosine", "Pi"],
-            ["Adenosine", "H+"],
-            ["Adenosine", "PPi"],
-            ["Pi"],
-            ["H+", "IMP"],
-            ["PPi"],
-        ],
-        "PPi": [["Pi"], ["H+", "IMP"]],
-        "Acetyl-CoA": [["CoA", "Acetate"]],  # Acetyl-CoA hydrolysis
-        "Succinyl-CoA": [["CoA", "Succinate"]],  # Succinyl-CoA hydrolysis
-        "UDP-Glucose": [["UDP", "Glucose"]],  # UDP-glucose as a sugar donor
-        "PAP": [["AMP", "Pi"]],  # PAP → AMP + Pi
-        "PAPS": [["PAP", "SO4"]],
-        "ITP": [
-            ["IMP", "Pi", "H+"],
-            ["Inosine", "Pi", "H+"],
-            ["IMP", "PPi", "H+"],
-            ["Inosine", "PPi", "H+"],
-            ["IMP", "H+"],
-            ["Inosine", "H+"],
-            ["IMP", "Pi"],
-            ["Inosine", "Pi"],
-            ["IMP", "PPi"],
-            ["Inosine", "PPi"],
-            ["IMP"],
-            ["Inosine"],
-            ["Pi"],
-            ["PPi"],
-        ],
-        "IDP": [
-            ["IMP", "Pi", "H+"],
-            ["Inosine", "Pi", "H+"],
-            ["IMP", "PPi", "H+"],
-            ["Inosine", "PPi", "H+"],
-            ["IMP", "H+"],
-            ["Inosine", "H+"],
-            ["IMP", "Pi"],
-            ["Inosine", "Pi"],
-            ["IMP", "PPi"],
-            ["Inosine", "PPi"],
-            ["IMP"],
-            ["Inosine"],
-            ["Pi"],
-            ["PPi"],
-        ],
-    }
+
+
+def find_energy_carrier_reactions(
+    cobra_model: Model | None = None, reactions: list[Reaction] | None = None
+) -> tuple[list[Reaction], list[Reaction], list[Reaction], list[Reaction]]:
+    reactions = _validate_cobra_model_or_reactions(cobra_model, reactions)
 
     energy_carrier_containing_reactions = []
     found_with_conservative = []
@@ -434,17 +468,17 @@ def find_energy_carrier_reactions(
         converted_reactants = [met.name for met in reactants]
         converted_products = [met.name for met in products]
         found_in_conservative = False
-        for key in conservative_energy_consuming_reaction_formulas_dict.keys():
+        for key in CONSERVATIVE_ENERGY_CONSUMING_REACTION_FORMULAS_DICT.keys():
             if found_in_conservative:
                 break
             if key in converted_reactants:
-                for formula in conservative_energy_consuming_reaction_formulas_dict[key]:
+                for formula in CONSERVATIVE_ENERGY_CONSUMING_REACTION_FORMULAS_DICT[key]:
                     if all([met in converted_products for met in formula]):
                         found_with_conservative.append(reaction)
                         found_in_conservative = True
                         break
             elif key in converted_products:
-                for formula in conservative_energy_consuming_reaction_formulas_dict[key]:
+                for formula in CONSERVATIVE_ENERGY_CONSUMING_REACTION_FORMULAS_DICT[key]:
                     if all([met in converted_reactants for met in formula]):
                         found_with_conservative.append(reaction)
                         found_in_conservative = True
@@ -461,6 +495,7 @@ def find_energy_carrier_reactions(
         not_found_but_containing_energy_carriers,
         energy_carrier_containing_reactions,
     )
+
 
 def _get_reaction_compartments(reaction: Reaction) -> set[str]:
     """Generated: validation needed.
@@ -480,6 +515,7 @@ def _get_reaction_compartments(reaction: Reaction) -> set[str]:
         if metabolite.compartment is not None
     }
 
+
 def get_transport_reactions(
     reactions: list[Reaction],
 ) -> tuple[list[Reaction], list[Reaction]]:
@@ -487,16 +523,19 @@ def get_transport_reactions(
     # active is based on energy carrier reactions
     active_transport_reactions = []
     passive_transport_reactions = []
-    (energy_carrier_containing_reactions,
+    (
+        energy_carrier_containing_reactions,
         _,
         _,
         _,
     ) = find_energy_carrier_reactions(reactions=reactions)
 
-    energy_carrier_containing_reactions_ids = {reaction.id for reaction in energy_carrier_containing_reactions}
+    energy_carrier_containing_reactions_ids = {
+        reaction.id for reaction in energy_carrier_containing_reactions
+    }
 
     for reaction in reactions:
-        compartments = _get_reaction_compartments(reaction)
+        _compartments = _get_reaction_compartments(reaction)
         if len(reaction.compartments) > 1:
             if reaction.id not in energy_carrier_containing_reactions_ids:
                 passive_transport_reactions.append(reaction)
