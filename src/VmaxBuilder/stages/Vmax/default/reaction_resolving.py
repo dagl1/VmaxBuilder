@@ -171,6 +171,8 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             for IFP in gene_info["IFPs"]:
                 IFP_to_genes[IFP].append(gene)
 
+        # comment part is too long for this thing but nothing else really like for real i
+        # mean  it really
         samples = IFP_abundance_df.columns.tolist()
         reactions = [reaction.id for reaction in cobra_model.reactions]
 
@@ -182,7 +184,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
 
         use_trimmed_genes_for_kcat = (
             self.full_config.protein.trim_enabled
-            and not self.full_config.Vmax.method_trim_genes_remain_part_for_Kcat
+            and not self.full_config.Vmax.trim_genes_remain_part_for_Kcat
         )
         IFPs_not_in_df = set()
 
@@ -303,7 +305,7 @@ if __name__ == "__main__":
         Vmax = type(
             "VmaxConfig",
             (),
-            {"method_trim_genes_remain_part_for_Kcat": False},
+            {"trim_genes_remain_part_for_Kcat": False},
         )()
 
     resolver.full_config = DummyFullConfig()  # ty: ignore
