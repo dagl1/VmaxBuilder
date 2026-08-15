@@ -20,6 +20,7 @@ from VmaxBuilder.stages.protein.protein import ProteinStageConfig
 from VmaxBuilder.typing_stubs.protein.expression.implementation import (
     ExpressionConfigProtocol,
 )
+from VmaxBuilder.utils.transformations import transform_dataframe
 
 
 # todo: take this and model's and put somewhere else
@@ -235,6 +236,13 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
 
         source_level = self.full_config.protein.expression_level.lower()
         target_level = self.full_config.run.run_target_transcript_gene_level.lower()
+        transformation_state = (
+            self.full_config.protein.expression_transformation_state.lower()
+        )
+        # if pre transformed type is not linear, we need to transform it to linear first
+        if transformation_state != "linear":
+            expression_df = transform_dataframe(expression_df, transformation_state)
+
         if source_level == "transcript" or target_level == "transcript":
             raise NotImplementedError(
                 "Transcript-level expression conversion is not yet implemented."

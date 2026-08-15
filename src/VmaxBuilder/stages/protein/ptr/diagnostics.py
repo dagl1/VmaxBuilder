@@ -466,7 +466,7 @@ def _apply_Y_transformation(
         PTR_df[data_cols] = PTR_df[data_cols].apply(
             lambda series: pd.Series(np.log10(series), index=series.index)
         )
-    elif Y_transformation == "log":
+    elif Y_transformation == "log" or Y_transformation == "ln":
         PTR_df[data_cols] = PTR_df[data_cols].infer_objects(copy=False).astype(float)
         PTR_df[data_cols] = PTR_df[data_cols].apply(
             lambda series: pd.Series(np.log(series), index=series.index)
