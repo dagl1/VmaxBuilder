@@ -1,6 +1,6 @@
 import json
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, cast, no_type_check
 
 import numpy as np
@@ -15,6 +15,22 @@ from VmaxBuilder.utils.extra_utils import (
 
 
 @dataclass
+class GeneMainSubstratePrediction:
+    gene_id: str
+    main_substrate: str
+    main_substrate_prediction_value: float
+    metabolites_considered: dict[str, float]
+
+
+@dataclass
+class ReactionMainSubstratePrediction:
+    reaction_id: str
+    gene_main_substrate_predictions: dict[str, GeneMainSubstratePrediction]
+    genes_considered: set[str]
+    substrates_considered: set[str]
+
+
+@dataclass
 class GeneSubstratePrediction:
     gene_id: str
     substrate_id: str
@@ -26,6 +42,7 @@ class GeneSubstratePrediction:
     prediction_mean: float
     prediction_sd: float
     missing_smiles: bool
+    imputed: bool
     smiles_longer_than_218: bool
 
     def _validate_string_types(self):
@@ -82,6 +99,8 @@ class GeneSubstratePrediction:
                 "smiles_longer_than_218 must be a bool, "
                 "got {type(self.smiles_longer_than_218).__name__}"
             )
+        if not isinstance(self.imputed, bool):
+            raise TypeError(f"imputed must be a bool, got {type(self.imputed).__name__}")
 
     def __post_init__(self):
         self._validate_string_types()

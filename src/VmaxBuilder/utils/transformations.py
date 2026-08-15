@@ -50,8 +50,10 @@ def _apply_forward_transformation(
         return pd.Series(10**series, index=series.index)
     if pretransformed_type == "log2":
         return pd.Series(2**series, index=series.index)
-    if pretransformed_type == "ln":
+    if pretransformed_type == "ln" or pretransformed_type == "log":
         return pd.Series(np.exp(series), index=series.index)
+    if pretransformed_type == "sqrt":
+        return pd.Series(series**2, index=series.index)
     return series
 
 
@@ -73,8 +75,10 @@ def _apply_target_transformation(series: pd.Series, target_transformation: str) 
         return pd.Series(np.log10(series), index=series.index)
     if target_transformation == "log2":
         return pd.Series(np.log2(series), index=series.index)
-    if target_transformation == "ln":
+    if target_transformation == "ln" or target_transformation == "log":
         return pd.Series(np.log(series), index=series.index)
+    if target_transformation == "sqrt":
+        return pd.Series(np.sqrt(series), index=series.index)
     return series
 
 
