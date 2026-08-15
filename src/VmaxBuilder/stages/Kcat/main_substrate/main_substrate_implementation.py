@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, cast, no_type_check
 
+import numpy as np
 import pandas as pd
 from cobra import Model
 
@@ -12,7 +13,9 @@ from VmaxBuilder.base.classes import (
 )
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.stages.Kcat.Kcat_utils import (
+    GeneMainSubstratePrediction,
     GeneSubstratePrediction,
+    ReactionMainSubstratePrediction,
     _build_metabolite_lookup,
     _validate_gene_substrate_predictions,
 )
@@ -25,6 +28,22 @@ from VmaxBuilder.utils.extra_utils import (
     match_metabolite_with_model_metabolites,
     remove_compartment,
 )
+
+INVERSE_TRANSFORMATIONS_TO_LOG10 = {
+    "linear": lambda x: np.log10(x),
+    "log10": lambda x: x,
+    "ln": lambda x: np.log10(np.e) * x,
+    "log": lambda x: np.log10(np.e) * x,
+    "log2": lambda x: np.log10(2) * x,
+}
+
+
+IMPUTE_STATISTIC = {
+    "mean": lambda values: pd.Series(values).mean(),
+    "median": lambda values: pd.Series(values).median(),
+    "max": lambda values: pd.Series(values).max(),
+    "min": lambda values: pd.Series(values).min(),
+}
 
 
 class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol]):
@@ -70,26 +89,164 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
         super().__init__(full_config)
         # Additional initialization if needed
 
-    def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
-        # Load inputs
-        adjusted_irreversible_cobra_model: Model = cast(
-            Model, scaffold.get_scaffold_value("adjusted_irreverisble_cobra_model")
-        )
-        gene_substrate_predictions: pd.DataFrame = cast(
-            pd.DataFrame, scaffold.get_scaffold_value("gene_substrate_predictions")
-        )
+    def aggregate_main_substrate_predictions(
+        self,
+        adjusted_irreversible_cobra_model: Model,
+        gene_substrate_predictions: pd.DataFrame,
+        ignore_missing_predictions: bool = True,
+    ) -> tuple[
+        dict[str, ReactionMainSubstratePrediction],
+        dict[str, ReactionMainSubstratePrediction],
+        dict[str, dict[str, GeneSubstratePrediction]],
+        dict[str, dict[str, GeneSubstratePrediction]],
+    ]:
+        """
+        Aggregate main substrate predictions for each gene associated with each reaction.
+
+        For every reaction, the genes associated with the reaction are inspected.
+        For each gene, the substrate with the highest prediction value is selected
+        from the available gene-substrate predictions.
+
+        If ``ignore_missing_predictions`` is True, predictions marked as having
+        missing SMILES or overly long SMILES are ignored.
+
+        Returns:
+            Mapping from reaction ID to ReactionMainSubstratePrediction.
+        """
 
         _gene_substrate_prediction_dict = self.deconstruct_gene_substrate_predictions(
             gene_substrate_predictions,
             cobra_model=adjusted_irreversible_cobra_model,
         )
 
+        gene_substrate_prediction_dict = self._convert_predictions_to_log10_scale(
+            _gene_substrate_prediction_dict
+        )
+
+        main_substrate_per_gene_per_reaction = (
+            self.obtain_main_substrate_per_gene_per_reaction(
+                gene_substrate_prediction_dict,
+                adjusted_irreversible_cobra_model,
+                ignore_missing_predictions=True,
+            )
+        )
+
+        imputed_gene_substrate_prediction_dict = self.impute_missing_predictions(
+            gene_substrate_prediction_dict,
+            missing_prediction_strategy=self.full_config.Kcat.missing_prediction_strategy,
+            missing_prediction_statistic=self.full_config.Kcat.missing_prediction_statistic,
+        )
+
+        imputed_main_substrate_per_gene_per_reaction = (
+            self.obtain_main_substrate_per_gene_per_reaction(
+                imputed_gene_substrate_prediction_dict,
+                adjusted_irreversible_cobra_model,
+                ignore_missing_predictions=False,
+            )
+        )
+
+        imputed_main_substrate_per_gene_per_reaction = (
+            self._convert_predictions_to_linear_scale(
+                imputed_main_substrate_per_gene_per_reaction
+            )
+        )
+
+        return (
+            main_substrate_per_gene_per_reaction,
+            imputed_main_substrate_per_gene_per_reaction,
+            gene_substrate_prediction_dict,
+            imputed_gene_substrate_prediction_dict,
+        )
+
+    def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
+        # Load inputs
+        adjusted_irreversible_cobra_model: Model = cast(
+            Model, scaffold.get_scaffold_value("adjusted_irreversible_cobra_model")
+        )
+        gene_substrate_predictions: pd.DataFrame = cast(
+            pd.DataFrame, scaffold.get_scaffold_value("gene_substrate_predictions")
+        )
+
+        (
+            elapsed_time,
+            (
+                main_substrate_per_gene_per_reaction,
+                imputed_main_substrate_per_gene_per_reaction,
+                gene_substrate_prediction_dict,
+                imputed_gene_substrate_prediction_dict,
+            ),
+        ) = self.get_time_decorator(self.aggregate_main_substrate_predictions)(
+            adjusted_irreversible_cobra_model=adjusted_irreversible_cobra_model,
+            gene_substrate_predictions=gene_substrate_predictions,
+            ignore_missing_predictions=True,
+        )
+        metadata = self.create_metadata(elapsed_time=elapsed_time)
+
         return {
-            "outputs": {},
-            "artifacts": {},
-            "diagnostics": {},
-            "metadata": {},
+            "outputs": {
+                "imputed_per_gene_per_"
+                "reaction_main_substrate_"
+                "predictions": imputed_main_substrate_per_gene_per_reaction
+            },
+            "artifacts": {
+                "before_imputation_per_gene_per_"
+                "reaction_main_substrate_predictions": main_substrate_per_gene_per_reaction,
+                "before_imputation_gene_"
+                "substrate_predictions": gene_substrate_prediction_dict,
+                "imputed_gene_substrate_predictions": imputed_gene_substrate_prediction_dict,
+            },
+            "diagnostics": {},  # todo: implement diagnostics for main substrate aggregation
+            "metadata": metadata,
         }
+
+    def _convert_predictions_to_log10_scale(
+        self, gene_substrate_prediction_dict: dict[str, dict[str, GeneSubstratePrediction]]
+    ) -> dict[str, dict[str, GeneSubstratePrediction]]:
+        """
+        Convert prediction values to log10 scale if specified in the configuration.
+        """
+
+        if (
+            self.full_config.Kcat.prediction_transformation_state == "log10"
+            or self.full_config.Kcat.prediction_transformation_state == "none"
+        ):
+            return gene_substrate_prediction_dict
+        elif (
+            self.full_config.Kcat.prediction_transformation_state
+            not in INVERSE_TRANSFORMATIONS_TO_LOG10
+        ):
+            raise ValueError(
+                f"Unknown prediction transformation state: "
+                f"{self.full_config.Kcat.prediction_transformation_state!r}. "
+                "Expected one of: "
+                f"{list(INVERSE_TRANSFORMATIONS_TO_LOG10.keys())}"
+            )
+        for _gene_id, substrate_predictions in gene_substrate_prediction_dict.items():
+            for _substrate_id, prediction in substrate_predictions.items():
+                prediction.prediction_value = INVERSE_TRANSFORMATIONS_TO_LOG10[
+                    self.full_config.Kcat.prediction_transformation_state
+                ](prediction.prediction_value)
+        return gene_substrate_prediction_dict
+
+    def _convert_predictions_to_linear_scale(
+        self, reaction_predictions: dict[str, ReactionMainSubstratePrediction]
+    ):
+        """
+        Convert reaction predictions from log10 to linear scale.
+        """
+        for _reaction_id, reaction_prediction in reaction_predictions.items():
+            for (
+                _gene_id,
+                gene_prediction,
+            ) in reaction_prediction.gene_main_substrate_predictions.items():
+                gene_prediction.main_substrate_prediction_value = (
+                    10**gene_prediction.main_substrate_prediction_value
+                )
+                for substrate_id in gene_prediction.metabolites_considered:
+                    gene_prediction.metabolites_considered[substrate_id] = (
+                        10 ** gene_prediction.metabolites_considered[substrate_id]
+                    )
+        return reaction_predictions
 
     # required because ty does not infer the type of the df properly,
     @no_type_check
@@ -143,6 +300,7 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                 prediction_mean=row.mean,
                 prediction_sd=row.sd,
                 missing_smiles=row.missing,
+                imputed=False,  # Initially, predictions are not imputed
                 smiles_longer_than_218=row.smiles_longer_than_218,
             )
 
@@ -155,23 +313,186 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
         gene_substrate_prediction_dict: dict[str, dict[str, GeneSubstratePrediction]],
         adjusted_irreverisble_cobra_model: Model,
         ignore_missing_predictions: bool = True,
-    ):
-        _main_substrate_per_gene_per_reaction: dict[
+    ) -> dict[str, ReactionMainSubstratePrediction]:
+        """
+        Determine the main substrate for each gene associated with each reaction.
+
+        For every reaction, the genes associated with the reaction are inspected.
+        For each gene, the substrate with the highest prediction value is selected
+        from the available gene-substrate predictions.
+
+        If ``ignore_missing_predictions`` is True, predictions marked as having
+        missing SMILES or overly long SMILES are ignored.
+
+        Returns:
+            Mapping from reaction ID to ReactionMainSubstratePrediction.
+        """
+
+        reaction_predictions: dict[str, ReactionMainSubstratePrediction] = {}
+
+        # Cache the valid predictions per gene so that the same gene does not
+        # need to be filtered repeatedly across reactions.
+        gene_prediction_cache: dict[str, dict[str, GeneSubstratePrediction]] = {}
+
+        for reaction in adjusted_irreverisble_cobra_model.reactions:
+            reaction_id = reaction.id
+
+            gene_main_substrate_predictions: dict[str, GeneMainSubstratePrediction] = {}
+
+            genes_considered: set[str] = set()
+            substrates_considered: set[str] = set()
+
+            for gene in reaction.genes:
+                gene_id = gene.id
+
+                gene_predictions = gene_substrate_prediction_dict.get(gene_id)
+                if not gene_predictions:
+                    continue
+
+                # Filter/cache predictions for this gene.
+                if gene_id not in gene_prediction_cache:
+                    if ignore_missing_predictions:
+                        gene_prediction_cache[gene_id] = {
+                            substrate_id: prediction
+                            for substrate_id, prediction in gene_predictions.items()
+                            if not prediction.missing_smiles
+                            and not prediction.smiles_longer_than_218
+                        }
+                    else:
+                        gene_prediction_cache[gene_id] = gene_predictions
+
+                valid_predictions = gene_prediction_cache[gene_id]
+
+                if not valid_predictions:
+                    continue
+
+                genes_considered.add(gene_id)
+
+                # Find the substrate with the highest prediction.
+                main_prediction = max(
+                    valid_predictions.values(),
+                    key=lambda prediction: prediction.prediction_value,
+                )
+
+                gene_main_substrate_predictions[gene_id] = GeneMainSubstratePrediction(
+                    gene_id=gene_id,
+                    main_substrate=main_prediction.substrate_id,
+                    main_substrate_prediction_value=(main_prediction.prediction_value),
+                    metabolites_considered={
+                        prediction.substrate_id: prediction.prediction_value
+                        for prediction in valid_predictions.values()
+                    },
+                )
+
+                substrates_considered.update(valid_predictions.keys())
+
+            reaction_predictions[reaction_id] = ReactionMainSubstratePrediction(
+                reaction_id=reaction_id,
+                gene_main_substrate_predictions=gene_main_substrate_predictions,
+                genes_considered=genes_considered,
+                substrates_considered=substrates_considered,
+            )
+
+        return reaction_predictions
+
+    def impute_missing_predictions(
+        self,
+        gene_substrate_prediction_dict: dict[str, dict[str, GeneSubstratePrediction]],
+        missing_prediction_strategy: str,
+        missing_prediction_statistic: str,
+    ) -> dict[str, dict[str, GeneSubstratePrediction]]:
+        """
+        Impute predictions for substrates with missing SMILES.
+
+        Imputation is performed either across all valid predictions or separately
+        per compartment.
+        """
+        if missing_prediction_strategy not in {"all", "per_compartment"}:
+            raise ValueError(
+                f"Unknown missing prediction strategy: "
+                f"{missing_prediction_strategy!r}. "
+                "Expected 'all' or 'per_compartment'."
+            )
+
+        statistic = IMPUTE_STATISTIC[missing_prediction_statistic]
+
+        # Collect valid prediction values for the required imputation categories.
+        values_per_category: dict[str, list[float]] = {}
+
+        if missing_prediction_strategy == "all":
+            values_per_category["all"] = []
+
+        for gene_predictions in gene_substrate_prediction_dict.values():
+            for prediction in gene_predictions.values():
+                if prediction.missing_smiles:
+                    continue
+
+                category = (
+                    "all" if missing_prediction_strategy == "all" else prediction.compartment
+                )
+
+                values_per_category.setdefault(category, []).append(
+                    prediction.prediction_value
+                )
+
+        # Calculate the imputation value once per category.
+        imputation_values = {
+            category: statistic(values)
+            for category, values in values_per_category.items()
+            if values
+        }
+
+        imputed_gene_substrate_prediction_dict: dict[
             str, dict[str, GeneSubstratePrediction]
         ] = {}
-        for gene_id, _substrate_predictions in gene_substrate_prediction_dict.items():
-            _associated_reactions = [
-                rxn.id
-                for rxn in adjusted_irreverisble_cobra_model.reactions
-                if gene_id in [g.id for g in rxn.genes]
-            ]
+
+        for gene_id, substrate_predictions in gene_substrate_prediction_dict.items():
+            imputed_gene_predictions = {}
+
+            for substrate_id, prediction in substrate_predictions.items():
+                if not prediction.missing_smiles:
+                    imputed_gene_predictions[substrate_id] = prediction
+                    continue
+
+                category = (
+                    "all" if missing_prediction_strategy == "all" else prediction.compartment
+                )
+
+                if category not in imputation_values:
+                    # No valid values exist from which to impute this prediction.
+                    # Keep the original prediction unchanged.
+                    imputed_gene_predictions[substrate_id] = prediction
+                    continue
+
+                imputed_value = imputation_values[category]
+
+                imputed_gene_predictions[substrate_id] = GeneSubstratePrediction(
+                    gene_id=prediction.gene_id,
+                    substrate_id=prediction.substrate_id,
+                    compartment=prediction.compartment,
+                    prediction_value=imputed_value,
+                    prediction_min=prediction.prediction_min,
+                    prediction_max=prediction.prediction_max,
+                    prediction_median=prediction.prediction_median,
+                    prediction_mean=prediction.prediction_mean,
+                    prediction_sd=prediction.prediction_sd,
+                    missing_smiles=True,
+                    imputed=True,
+                    smiles_longer_than_218=prediction.smiles_longer_than_218,
+                )
+
+            imputed_gene_substrate_prediction_dict[gene_id] = imputed_gene_predictions
+
+        return imputed_gene_substrate_prediction_dict
 
     def create_metadata(self, elapsed_time: float, **kwargs) -> dict[str, Any]:
         metadata = {
-            "allocation": {
+            "Kcat": {
                 "implementation": type(self).__name__,
                 "elapsed_time_seconds": elapsed_time,
-                "status": "All sample abundance allocated",
+                "status": (
+                    "All Kcat predictions imputed and aggregated to dominant (main) substrate"
+                ),
                 "date_created": pd.Timestamp.now().isoformat(),
                 "params": self.get_implementation_config_params(),
             }
@@ -180,8 +501,8 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
 
 
 if __name__ == "__main__":
-    import json
     from pathlib import Path
+    from pprint import pprint
 
     from cobra.io import load_json_model
 
@@ -212,6 +533,7 @@ if __name__ == "__main__":
             "KcatConfig",
             (),
             {
+                "prediction_transformation_state": "log10",
                 "main_substrate_selection_statistic": "max",
                 "missing_prediction_strategy": "all",  # alternative is "per_compartment"
                 "missing_prediction_statistic": "median",
@@ -224,4 +546,70 @@ if __name__ == "__main__":
             main_substrate_predictions_df, model
         )
     )
-    print(substrate_predictions_dict)
+    substrate_predictions_dict = (
+        main_substrate_aggregegator._convert_predictions_to_log10_scale(
+            substrate_predictions_dict
+        )
+    )
+
+    main_substrate_per_gene_per_reaction = (
+        main_substrate_aggregegator.obtain_main_substrate_per_gene_per_reaction(
+            substrate_predictions_dict, model
+        )
+    )
+
+    imputed_substrate_predictions_dict = (
+        main_substrate_aggregegator.impute_missing_predictions(
+            substrate_predictions_dict,
+            missing_prediction_strategy="all",
+            missing_prediction_statistic="median",
+        )
+    )
+
+    imputed_main_substrate_per_gene_per_reaction = (
+        main_substrate_aggregegator.obtain_main_substrate_per_gene_per_reaction(
+            imputed_substrate_predictions_dict,
+            model,
+            ignore_missing_predictions=False,
+        )
+    )
+
+    # pprint(substrate_predictions_dict)
+    # pprint(main_substrate_per_gene_per_reaction)
+    # pprint(imputed_substrate_predictions_dict)
+    # pprint(imputed_main_substrate_per_gene_per_reaction)
+
+    # validate that all reactions have all genes with valid predictions after imputation
+    is_valid = True
+    for (
+        reaction_id,
+        reaction_prediction,
+    ) in imputed_main_substrate_per_gene_per_reaction.items():
+        for gene_id in reaction_prediction.genes_considered:
+            gene_predictions = imputed_substrate_predictions_dict.get(gene_id)
+            if not gene_predictions:
+                is_valid = False
+                print(f"Gene {gene_id} has no predictions after imputation.")
+                continue
+
+            main_substrate_prediction = (
+                reaction_prediction.gene_main_substrate_predictions.get(gene_id)
+            )
+            if not main_substrate_prediction:
+                is_valid = False
+                print(
+                    f"Gene {gene_id} in reaction {reaction_id} "
+                    f"has no main substrate prediction after imputation."
+                )
+                continue
+
+            main_substrate_id = main_substrate_prediction.main_substrate
+            if main_substrate_id not in gene_predictions:
+                is_valid = False
+                print(
+                    f"Main substrate {main_substrate_id} for gene {gene_id} in reaction "
+                    f"{reaction_id} is not in the predictions after imputation."
+                )
+
+    if is_valid:
+        print("All reactions have all genes with valid predictions after imputation.")
