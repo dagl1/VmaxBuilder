@@ -167,6 +167,76 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
 
         return IFP_to_genes.get(IFP, [])
 
+    def get_specific_abundance_additional_capacity(
+        self,
+        sample: str,
+        reaction: str,
+        IFP_abundance_df: pd.DataFrame,
+        trimming_output: dict,
+        IFP_to_genes: dict[str, list[str]],
+        use_trimmed_genes_for_kcat: bool,
+        kcats_of_genes_in_reaction: dict[str, GeneMainSubstratePrediction],
+        _IFP: str,
+    ) -> float:
+        abundance = float(IFP_abundance_df.at[_IFP, sample])  # ty: ignore
+        # make abundance  numeric
+        genes = self.get_genes_for_IFP(
+            _IFP,
+            sample,
+            trimming_output,
+            IFP_to_genes,
+            use_trimmed_genes_for_kcat,
+        )
+        candidate_kcats = {
+            gene: kcats_of_genes_in_reaction[
+                gene
+            ].stoichiometry_adjusted_main_substrate_prediction_value
+            for gene in genes
+            if gene in kcats_of_genes_in_reaction
+        }
+
+        max_kcat = max(
+            (value for value in candidate_kcats.values() if value is not None),
+            default=0.0,
+        )
+
+        print(
+            f"sample={sample} | "
+            f"reaction={reaction} | "
+            f"IFP={_IFP} | "
+            f"genes={genes} | "
+            f"candidate_kcats={candidate_kcats} | "
+            f"max={max_kcat}"
+        )
+        max_kcat = max(
+            (
+                prediction_value
+                for gene in genes
+                if gene in kcats_of_genes_in_reaction
+                and (
+                    prediction_value := (
+                        kcats_of_genes_in_reaction[
+                            gene
+                        ].stoichiometry_adjusted_main_substrate_prediction_value
+                    )
+                )
+                is not None
+            ),
+            default=0.0,
+        )
+        additional_capacity = abundance * max_kcat
+        if abundance < 0:
+            self.logger.warning(
+                f"Negative abundance for IFP {_IFP} in "
+                f"sample {sample}: {abundance}. Setting to 0."
+            )
+        if max_kcat < 0:
+            self.logger.warning(
+                f"Negative max Kcat for reaction {reaction}"
+                f"in sample {sample}: {max_kcat}. Setting to 0."
+            )
+        return additional_capacity
+
     def resolve_reaction_capacity(
         self,
         IFP_abundance_df: pd.DataFrame,
@@ -204,6 +274,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             if hasattr(self.full_config.Vmax, "trim_genes_remain_part_for_Kcat")
             else False
         )
+        print("use_trimmed_genes_for_kcat:", use_trimmed_genes_for_kcat)
         IFPs_not_in_df = set()
         reactions_skipped_due_to_missing_kcat = set()
 
@@ -232,40 +303,19 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
                     if _IFP not in IFP_abundance_df.index:
                         IFPs_not_in_df.add(_IFP)
                         continue
-                    abundance = IFP_abundance_df.at[_IFP, sample]
-                    genes = self.get_genes_for_IFP(
-                        _IFP,
+
+                    additional_capacity = self.get_specific_abundance_additional_capacity(
                         sample,
+                        reaction,
+                        IFP_abundance_df,
                         trimming_output,
                         IFP_to_genes,
                         use_trimmed_genes_for_kcat,
+                        kcats_of_genes_in_reaction,
+                        _IFP,
                     )
 
-                    max_kcat = max(
-                        (
-                            kcats_of_genes_in_reaction[
-                                gene
-                            ].stoichiometry_adjusted_main_substrate_prediction_value
-                            for gene in genes
-                            if gene in kcats_of_genes_in_reaction
-                        ),
-                        default=0.0,
-                    )
-                    # print("Reaction:", reaction)
-                    # print("IFP:", _IFP)
-                    # print("Genes:", genes)
-                    # print(
-                    #     "Reaction Kcats:",
-                    #     {
-                    #         gene: kcats_of_genes_in_reaction[gene]
-                    #         for gene in genes
-                    #         if gene in kcats_of_genes_in_reaction
-                    #     },
-                    # )
-                    # print("Abundance:", abundance)
-                    # print("Max Kcat:", max_kcat)
-
-                    total_capacity += abundance * max_kcat  # ty: ignore
+                    total_capacity += additional_capacity
 
                 reaction_capacity_df.at[reaction, sample] = total_capacity
 
@@ -321,6 +371,8 @@ if __name__ == "__main__":
     random.seed(42)
     fake_kcats_per_reaction_per_gene = {}
     for reaction in model.reactions:
+        stochiometries = reaction.metabolites
+        stochiometries = {met.id: coeff for met, coeff in stochiometries.items()}
         gene_objects = []
         for gene in reaction.genes:
             # choose a main substrate from the reaction's metabolites (only consider
@@ -338,6 +390,7 @@ if __name__ == "__main__":
             # create ReactionMainSubstratePrediction
             GeneMainSubstratePrediction_obj = GeneMainSubstratePrediction(
                 gene_id=gene.id,
+                reaction_id=reaction.id,
                 main_substrate=main_substrate,
                 main_substrate_compartment=main_substrate.split("_")[-1],
                 main_substrate_prediction_value=random.uniform(0.1, 10.0),
@@ -357,7 +410,11 @@ if __name__ == "__main__":
                 gene_obj.gene_id: gene_obj for gene_obj in gene_objects
             },
             genes_considered=set(gene.id for gene in reaction.genes),
-            substrates_considered=set(gene_obj.main_substrate for gene_obj in gene_objects),
+            # stochiometries are part of substrates considerd
+            substrates_considered={
+                gene_obj.main_substrate: stochiometries[gene_obj.main_substrate]  # ty: ignore
+                for gene_obj in gene_objects
+            },
         )
         fake_kcats_per_reaction_per_gene[reaction.id] = ReactionMainSubstratePrediction_obj
 
