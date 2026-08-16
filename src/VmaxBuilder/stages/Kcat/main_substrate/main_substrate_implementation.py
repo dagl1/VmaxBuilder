@@ -115,7 +115,6 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
         self,
         adjusted_irreversible_cobra_model: Model,
         gene_substrate_predictions: pd.DataFrame,
-        ignore_missing_predictions: bool = True,
     ) -> tuple[
         dict[str, ReactionMainSubstratePrediction],
         dict[str, ReactionMainSubstratePrediction],
@@ -201,7 +200,6 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
         ) = self.get_time_decorator(self.aggregate_main_substrate_predictions)(
             adjusted_irreversible_cobra_model=adjusted_irreversible_cobra_model,
             gene_substrate_predictions=gene_substrate_predictions,
-            ignore_missing_predictions=True,
         )
         metadata = self.create_metadata(elapsed_time=elapsed_time)
 
@@ -265,10 +263,22 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                 gene_prediction.main_substrate_prediction_value = (
                     10**gene_prediction.main_substrate_prediction_value
                 )
+                gene_prediction.stoichiometry_adjusted_main_substrate_prediction_value = (
+                    10**gene_prediction.stoichiometry_adjusted_main_substrate_prediction_value
+                )
                 for substrate_id in gene_prediction.metabolites_considered:
                     gene_prediction.metabolites_considered[substrate_id] = (
                         10 ** gene_prediction.metabolites_considered[substrate_id]
                     )
+                    gene_prediction.metabolites_stoichiometry_adjusted_considered[
+                        substrate_id
+                    ] = (
+                        10
+                        ** gene_prediction.metabolites_stoichiometry_adjusted_considered[
+                            substrate_id
+                        ]
+                    )
+
         return reaction_predictions
 
     # required because ty does not infer the type of the df properly,
