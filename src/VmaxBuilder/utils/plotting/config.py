@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+
 @dataclass
 class PlotConfig:
     point_size: int = 3
@@ -7,6 +8,7 @@ class PlotConfig:
     x_axis_title_size: int = 14
     x_axis_label_size: int = 12
     y_axis_title_size: int = 14
+    y_axis_label_size: int = 12
     Y_axis_unit: str = "Log10"
     Y_axis_margin: float = 0.5
     with_boxplot: bool = True

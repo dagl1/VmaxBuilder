@@ -18,8 +18,28 @@ from VmaxBuilder.utils.extra_utils import (
 class GeneMainSubstratePrediction:
     gene_id: str
     main_substrate: str
+    main_substrate_compartment: str
     main_substrate_prediction_value: float
     metabolites_considered: dict[str, float]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "gene_id": self.gene_id,
+            "main_substrate": self.main_substrate,
+            "main_substrate_compartment": self.main_substrate_compartment,
+            "main_substrate_prediction_value": self.main_substrate_prediction_value,
+            "metabolites_considered": self.metabolites_considered,
+        }
+
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> "GeneMainSubstratePrediction":
+        return GeneMainSubstratePrediction(
+            gene_id=data["gene_id"],
+            main_substrate=data["main_substrate"],
+            main_substrate_compartment=data["main_substrate_compartment"],
+            main_substrate_prediction_value=data["main_substrate_prediction_value"],
+            metabolites_considered=data["metabolites_considered"],
+        )
 
 
 @dataclass
@@ -28,6 +48,29 @@ class ReactionMainSubstratePrediction:
     gene_main_substrate_predictions: dict[str, GeneMainSubstratePrediction]
     genes_considered: set[str]
     substrates_considered: set[str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "reaction_id": self.reaction_id,
+            "gene_main_substrate_predictions": {
+                gene_id: prediction.to_dict()
+                for gene_id, prediction in self.gene_main_substrate_predictions.items()
+            },
+            "genes_considered": list(self.genes_considered),
+            "substrates_considered": list(self.substrates_considered),
+        }
+
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> "ReactionMainSubstratePrediction":
+        return ReactionMainSubstratePrediction(
+            reaction_id=data["reaction_id"],
+            gene_main_substrate_predictions={
+                gene_id: GeneMainSubstratePrediction(**prediction)
+                for gene_id, prediction in data["gene_main_substrate_predictions"].items()
+            },
+            genes_considered=set(data["genes_considered"]),
+            substrates_considered=set(data["substrates_considered"]),
+        )
 
 
 @dataclass
@@ -44,6 +87,39 @@ class GeneSubstratePrediction:
     missing_smiles: bool
     imputed: bool
     smiles_longer_than_218: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "gene_id": self.gene_id,
+            "substrate_id": self.substrate_id,
+            "compartment": self.compartment,
+            "prediction_value": self.prediction_value,
+            "prediction_min": self.prediction_min,
+            "prediction_max": self.prediction_max,
+            "prediction_median": self.prediction_median,
+            "prediction_mean": self.prediction_mean,
+            "prediction_sd": self.prediction_sd,
+            "missing_smiles": self.missing_smiles,
+            "imputed": self.imputed,
+            "smiles_longer_than_218": self.smiles_longer_than_218,
+        }
+
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> "GeneSubstratePrediction":
+        return GeneSubstratePrediction(
+            gene_id=data["gene_id"],
+            substrate_id=data["substrate_id"],
+            compartment=data["compartment"],
+            prediction_value=data["prediction_value"],
+            prediction_min=data["prediction_min"],
+            prediction_max=data["prediction_max"],
+            prediction_median=data["prediction_median"],
+            prediction_mean=data["prediction_mean"],
+            prediction_sd=data["prediction_sd"],
+            missing_smiles=data["missing_smiles"],
+            imputed=data["imputed"],
+            smiles_longer_than_218=data["smiles_longer_than_218"],
+        )
 
     def _validate_string_types(self):
         if not isinstance(self.gene_id, str):

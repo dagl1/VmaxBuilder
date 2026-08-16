@@ -52,6 +52,12 @@ class SortedSet(Set, Generic[T]):
 
 
 def make_json_serializable(obj):
+    from VmaxBuilder.stages.Kcat.Kcat_utils import (
+        GeneMainSubstratePrediction,
+        GeneSubstratePrediction,
+        ReactionMainSubstratePrediction,
+    )
+
     if isinstance(obj, (SortedSet, set)):
         return list(obj)
     elif isinstance(obj, dict):
@@ -60,5 +66,15 @@ def make_json_serializable(obj):
         return [make_json_serializable(value) for value in obj]
     elif isinstance(obj, PosixPath):
         return str(obj)
+    elif isinstance(
+        obj,
+        (
+            ReactionMainSubstratePrediction,
+            GeneMainSubstratePrediction,
+            GeneSubstratePrediction,
+        ),
+    ):
+        return obj.to_dict()
+
     else:
         return obj
