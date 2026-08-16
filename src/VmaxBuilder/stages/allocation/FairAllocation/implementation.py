@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from copy import deepcopy
 from dataclasses import dataclass
 from this import s
@@ -333,7 +334,7 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
         _protein_abundance_df: pd.DataFrame,
         genes: list[str],
         trimmable_genes: set[str],
-        trim_minimum_proteins_in_IFP: int,
+        trim_percentile: float,
         IFP_output: IFPTrimmingOutput,
         trimmed_IFPs_per_sample: dict[
             str, list[dict[str, str | list[str] | dict[str, float]]]
@@ -356,13 +357,23 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
                 key=lambda gene: protein_abundances[gene],
             )
             trimmed_genes_in_sample = []
-            while (
-                len(sorted_genes) > trim_minimum_proteins_in_IFP
-                and sorted_genes[0] in trimmable_genes
-            ):
+            while sorted_genes:
+                n_genes_in_bottom_percentile = math.floor(
+                    len(sorted_genes) * trim_percentile / 100
+                )
+
+                if n_genes_in_bottom_percentile < 1:
+                    break
+
+                lowest_gene = sorted_genes[0]
+
+                if lowest_gene not in trimmable_genes:
+                    break
+
                 trimmed_gene = sorted_genes.pop(0)
                 trimmed_genes_in_sample.append(trimmed_gene)
                 trimmed = True
+
                 IFP_output["genes_trimmed_per_sample"].setdefault(sample, []).append(
                     trimmed_gene
                 )
@@ -408,7 +419,7 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
         self,
         protein_abundance_df: pd.DataFrame,
         IFP_mapping: dict[str, Any],
-        trim_minimum_proteins_in_IFP: int,
+        trim_percentile: float,
         trimmable_genes: set[str],
     ) -> tuple[
         dict[str, list[dict[str, str | list[str] | dict[str, float]]]],
@@ -437,9 +448,15 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
                     percentage_difference_highest_trimmed_lowest_non_trimmable_per_sample={},
                     percentage_difference_highest_trimmed_highest_non_trimmable_per_sample={},
                 )
-
-                if len(genes) < trim_minimum_proteins_in_IFP:
+                # we need to change from the minimum nubmer of proteins to a percentile
+                # based approach where we trim the lowest x% of proteins in the IFP,
+                # but only if the lowest one is trimmable at all.
+                # This means that if we put 15th percentile, we would need at least
+                # 7 proteins in the IFP to trim to trim the lowest one
+                n_proteins_to_consider = math.floor(len(genes) * trim_percentile / 100)
+                if n_proteins_to_consider < 1:
                     continue
+
                 if not any(gene in trimmable_genes for gene in genes):
                     continue
 
@@ -447,7 +464,7 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
                     protein_abundance_df,
                     genes,
                     trimmable_genes,
-                    trim_minimum_proteins_in_IFP,
+                    trim_percentile,
                     IFP_output,
                     trimmed_IFPs_per_sample,
                 )

@@ -14,6 +14,10 @@ from VmaxBuilder.base.classes import (
     RealImplementation,
 )
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
+from VmaxBuilder.stages.Kcat.Kcat_utils import (
+    GeneMainSubstratePrediction,
+    ReactionMainSubstratePrediction,
+)
 from VmaxBuilder.stages.Vmax.default.config import ReactionResolvingConfig
 from VmaxBuilder.typing_stubs.Vmax.default.reaction_resolving import (
     ReactionResolvingConfigProtocol,
@@ -55,7 +59,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             data_type=dict,
         ),
         InputSpec(
-            name="per_reaction_per_gene_Kcats",
+            name="imputed_per_gene_per_reaction_main_substrate_predictions",
             in_scaffold=True,
             data_type=dict,
         ),
@@ -69,14 +73,6 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             extension=".csv",
             validator=None,
         ),
-        # OutputSpec(
-        #     name="trimming_output",
-        #     data_type=dict,
-        #     scaffold_location="artifacts",
-        #     save_file_name="trimming_output",
-        #     extension=".json",
-        #     validator=None,
-        # ),
     ]
 
     def __init__(self, full_config: FullConfig):
@@ -102,7 +98,10 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         # cast to numeric
         IFP_abundance_df = IFP_abundance_df.apply(pd.to_numeric, errors="coerce")
         per_reaction_per_gene_Kcats = cast(
-            dict, scaffold.get_scaffold_value("per_reaction_per_gene_Kcats")
+            dict[str, ReactionMainSubstratePrediction],
+            scaffold.get_scaffold_value(
+                "imputed_per_gene_per_reaction_main_substrate_predictions"
+            ),
         )
         trimming_output = cast(dict, scaffold.get_scaffold_value("trimming_output"))
         reaction_to_IFP_mapping = cast(
@@ -115,7 +114,9 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             dict, scaffold.get_scaffold_value("adjusted_gene_to_IFP_mapping")
         )
 
-        _reaction_capacity_df = self.resolve_reaction_capacity(
+        time_elapsed, _reaction_capacity_df = self.get_time_decorator(
+            self.resolve_reaction_capacity
+        )(
             IFP_abundance_df,
             per_reaction_per_gene_Kcats,
             trimming_output,
@@ -124,18 +125,28 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             cobra_model,
         )
 
+        metadata = self.create_metadata(time_elapsed)
+
         # for each reaction, get the IFPs that map to it
         # if not trimming, or if trimming but using
-        # method_trim_genes_remain_part_for_Kcat
+        # trim_genes_remain_part_for_Kcat
         # then we can just multiply each IFP's abundance by the highest Kcat among the genes
         # in the IFP in this reaction (as each reaction has different substrates). This
         # information is present in the Kcats_per_reaction_per_gene dictionary,
         #  and sum them up.
 
-        # If we do do trimming and not using method_trim_genes_remain_part_for_Kcat,
+        # If we do do trimming and not using trim_genes_remain_part_for_Kcat,
         # then we check if the IFP is in the trimming output for this sample,
         # and if so we only consider the remaining genes and calculate the highest
         # Kcat among those
+        return {
+            "outputs": {
+                "non_imputed_reaction_capacity_df": _reaction_capacity_df,
+            },
+            "diagnostics": {},
+            "artifacts": {},
+            "metadata": metadata,
+        }
 
     def get_genes_for_IFP(
         self,
@@ -159,7 +170,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
     def resolve_reaction_capacity(
         self,
         IFP_abundance_df: pd.DataFrame,
-        Kcats_per_reaction_per_gene: dict[str, dict[str, float]],
+        Kcats_per_reaction_per_gene: dict[str, ReactionMainSubstratePrediction],
         trimming_output: dict,
         reaction_to_IFP_mapping: dict[str, dict[str, list[str]]],
         gene_to_IFP_mapping: dict[str, dict[str, list[str]]],
@@ -185,16 +196,25 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         )
 
         use_trimmed_genes_for_kcat = (
-            self.full_config.protein.trim_enabled
-            and not self.full_config.Vmax.trim_genes_remain_part_for_Kcat
+            self.full_config.protein.trim_enable
+            if hasattr(self.full_config.protein, "trim_enable")
+            else False
+        ) and not (
+            self.full_config.Vmax.trim_genes_remain_part_for_Kcat
+            if hasattr(self.full_config.Vmax, "trim_genes_remain_part_for_Kcat")
+            else False
         )
         IFPs_not_in_df = set()
+        reactions_skipped_due_to_missing_kcat = set()
 
         for sample in tqdm(
             samples,
             desc="Calculating reaction capacities",
         ):
             for reaction in reactions:
+                if reaction not in Kcats_per_reaction_per_gene:
+                    reactions_skipped_due_to_missing_kcat.add(reaction)
+                    continue
                 IFPs_object = reaction_to_IFP_mapping.get(reaction, {})
                 if not IFPs_object:
                     continue
@@ -202,7 +222,10 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
                 if not IFPs:
                     continue
 
-                kcats_of_genes_in_reaction = Kcats_per_reaction_per_gene.get(reaction, {})
+                gene_objects = Kcats_per_reaction_per_gene[
+                    reaction
+                ].gene_main_substrate_predictions
+                kcats_of_genes_in_reaction = gene_objects
                 total_capacity = 0.0
 
                 for _IFP in IFPs:
@@ -220,7 +243,9 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
 
                     max_kcat = max(
                         (
-                            kcats_of_genes_in_reaction[gene]
+                            kcats_of_genes_in_reaction[
+                                gene
+                            ].stoichiometry_adjusted_main_substrate_prediction_value
                             for gene in genes
                             if gene in kcats_of_genes_in_reaction
                         ),
@@ -246,6 +271,10 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
 
         print("not in df:", IFPs_not_in_df)
         print("not in df count:", len(IFPs_not_in_df))
+        print(
+            "reactions skipped due to missing kcat count:",
+            len(reactions_skipped_due_to_missing_kcat),
+        )
 
         return reaction_capacity_df
 
@@ -292,10 +321,45 @@ if __name__ == "__main__":
     random.seed(42)
     fake_kcats_per_reaction_per_gene = {}
     for reaction in model.reactions:
-        genes_in_reaction = [gene.id for gene in reaction.genes]
-        fake_kcats_per_reaction_per_gene[reaction.id] = {
-            gene: random.uniform(0.1, 10.0) for gene in genes_in_reaction
-        }
+        gene_objects = []
+        for gene in reaction.genes:
+            # choose a main substrate from the reaction's metabolites (only consider
+            # substrates, not products)
+            eligeble_substrates = [
+                metabolite.id
+                for metabolite in reaction.metabolites
+                if reaction.metabolites[metabolite] < 0
+            ]
+            if not eligeble_substrates:
+                continue
+
+            # choose one randomly
+            main_substrate = random.choice(eligeble_substrates)
+            # create ReactionMainSubstratePrediction
+            GeneMainSubstratePrediction_obj = GeneMainSubstratePrediction(
+                gene_id=gene.id,
+                main_substrate=main_substrate,
+                main_substrate_compartment=main_substrate.split("_")[-1],
+                main_substrate_prediction_value=random.uniform(0.1, 10.0),
+                stoichiometry_adjusted_main_substrate_prediction_value=random.uniform(
+                    0.1, 10.0
+                ),
+                metabolites_considered={main_substrate: random.uniform(0.1, 10.0)},
+                metabolites_stoichiometry_adjusted_considered={
+                    main_substrate: random.uniform(0.1, 10.0)
+                },
+            )
+            gene_objects.append(GeneMainSubstratePrediction_obj)
+
+        ReactionMainSubstratePrediction_obj = ReactionMainSubstratePrediction(
+            reaction_id=reaction.id,
+            gene_main_substrate_predictions={
+                gene_obj.gene_id: gene_obj for gene_obj in gene_objects
+            },
+            genes_considered=set(gene.id for gene in reaction.genes),
+            substrates_considered=set(gene_obj.main_substrate for gene_obj in gene_objects),
+        )
+        fake_kcats_per_reaction_per_gene[reaction.id] = ReactionMainSubstratePrediction_obj
 
     resolver = object.__new__(DefaultVmaxReactionResolving)
     resolver.logger = CustomLogger(
@@ -303,7 +367,7 @@ if __name__ == "__main__":
     )
 
     class DummyFullConfig:
-        protein = type("ProteinConfig", (), {"trim_enabled": True})()
+        protein = type("ProteinConfig", (), {"trim_enable": True})()
         Vmax = type(
             "VmaxConfig",
             (),
