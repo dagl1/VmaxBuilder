@@ -706,7 +706,6 @@ if __name__ == "__main__":
     Kcat = orchestrator.set_Kcat_implementation(MainSubstrateImplementation)
     Vmax = orchestrator.set_Vmax_implementation(DefaultVmaxReactionResolving)
 
-    allocation = orchestrator.set_allocation_implementation(FairAllocationImplementation)
     protein.config.expression_sample_type_map = {idx: "heart" for idx in range(1, 1000)}
 
     protein.config.PTR_special_gene_groups = {"transport_reactions": []}
