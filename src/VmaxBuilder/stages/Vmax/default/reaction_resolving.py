@@ -68,8 +68,10 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         OutputSpec(
             name="non_imputed_reaction_capacity_df",
             data_type=pd.DataFrame,
-            scaffold_location="artifacts",
+            scaffold_location="outputs",
             save_file_name="non_imputed_reaction_capacity_df",
+            # saver args should make sure we save the index of the reactions
+            saver_args={"with_index": True},
             extension=".csv",
             validator=None,
         ),
@@ -114,7 +116,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             dict, scaffold.get_scaffold_value("adjusted_gene_to_IFP_mapping")
         )
 
-        time_elapsed, _reaction_capacity_df = self.get_time_decorator(
+        time_elapsed, reaction_capacity_df = self.get_time_decorator(
             self.resolve_reaction_capacity
         )(
             IFP_abundance_df,
@@ -141,7 +143,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         # Kcat among those
         return {
             "outputs": {
-                "non_imputed_reaction_capacity_df": _reaction_capacity_df,
+                "non_imputed_reaction_capacity_df": reaction_capacity_df,
             },
             "diagnostics": {},
             "artifacts": {},
@@ -187,27 +189,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             IFP_to_genes,
             use_trimmed_genes_for_kcat,
         )
-        candidate_kcats = {
-            gene: kcats_of_genes_in_reaction[
-                gene
-            ].stoichiometry_adjusted_main_substrate_prediction_value
-            for gene in genes
-            if gene in kcats_of_genes_in_reaction
-        }
 
-        max_kcat = max(
-            (value for value in candidate_kcats.values() if value is not None),
-            default=0.0,
-        )
-
-        print(
-            f"sample={sample} | "
-            f"reaction={reaction} | "
-            f"IFP={_IFP} | "
-            f"genes={genes} | "
-            f"candidate_kcats={candidate_kcats} | "
-            f"max={max_kcat}"
-        )
         max_kcat = max(
             (
                 prediction_value
@@ -274,7 +256,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             if hasattr(self.full_config.Vmax, "trim_genes_remain_part_for_Kcat")
             else False
         )
-        print("use_trimmed_genes_for_kcat:", use_trimmed_genes_for_kcat)
+        self.logger.attention("use_trimmed_genes_for_kcat:", use_trimmed_genes_for_kcat)
         IFPs_not_in_df = set()
         reactions_skipped_due_to_missing_kcat = set()
 
@@ -318,13 +300,6 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
                     total_capacity += additional_capacity
 
                 reaction_capacity_df.at[reaction, sample] = total_capacity
-
-        print("not in df:", IFPs_not_in_df)
-        print("not in df count:", len(IFPs_not_in_df))
-        print(
-            "reactions skipped due to missing kcat count:",
-            len(reactions_skipped_due_to_missing_kcat),
-        )
 
         return reaction_capacity_df
 

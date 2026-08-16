@@ -252,7 +252,7 @@ def save_with_tries(  # noqa: C901
     save_dir: str | Path | None = None,
     max_tries: int = 10,
     overwrite: bool = False,
-    with_index: bool = False,
+    with_index: bool = True,
     header: bool | list[str] = True,
     logger: Any | None = None,
     print_level: int | None = None,
