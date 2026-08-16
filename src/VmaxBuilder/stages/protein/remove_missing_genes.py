@@ -5,7 +5,11 @@ from cobra.core.model import Model
 from cobra.core.reaction import Reaction
 from cobra.manipulation.delete import remove_genes
 
-from VmaxBuilder.base.classes import DiagnosticOutputSpec, RealImplementation
+from VmaxBuilder.base.classes import (
+    BaseImplementationDiagnostics,
+    DiagnosticOutputSpec,
+    RealImplementation,
+)
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.GPR.gpr_preprocessing import (
     build_gene_to_IFP_mapping,
@@ -14,9 +18,11 @@ from VmaxBuilder.GPR.gpr_preprocessing import (
     get_unique_gpr_rules,
     remove_gene_from_GPR_rule,
 )
+from VmaxBuilder.stages.model.default.diagnostics import ModelDiagnostics
 
 
 class MissingGeneRemoval(RealImplementation[FullConfig]):
+    DIAGNOSTICS: list = [ModelDiagnostics]
     STAGE_NAME: str = "protein"
     IMPL_NAME: str = "missing_gene_removal"
     INPUTS: list[InputSpec] = [

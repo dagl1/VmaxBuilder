@@ -394,7 +394,8 @@ class DefaultGPRImplementation(BaseImplementation[FullConfig]):
                         {
                             "gene_IFP": gene_IFP,
                             "maximum_transcript_IFP_expansion": (
-                                config.maximum_transcript_IFP_expansion  # ty: ignore[unresolved-attribute] # noqa
+                                # ty: ignore[unresolved-attribute] # noqa
+                                config.maximum_transcript_IFP_expansion
                             ),
                             "actual_expansion_count": int(
                                 expansion_outcome["expansion_count"]
@@ -512,6 +513,7 @@ if __name__ == "__main__":
         model_loading_info=model_stage_loading_info,
         protein_loading_info=protein_stage_loading_info,
         allocation_loading_info=allocation_stage_loading_info,
+        Vmax_loading_info=allocation_stage_loading_info,
     )
 
     run_config = RunConfig(

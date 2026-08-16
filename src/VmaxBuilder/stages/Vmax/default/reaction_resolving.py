@@ -35,7 +35,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             data_type=Model,
         ),
         InputSpec(
-            name="IFP_abundance_df",
+            name="IFP_sample_abundance_df",
             in_scaffold=True,
             data_type=pd.DataFrame,
         ),
@@ -96,7 +96,9 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         return metadata
 
     def generate_outputs(self, scaffold: Scaffold):
-        IFP_abundance_df = cast(pd.DataFrame, scaffold.get_scaffold_value("IFP_abundance_df"))
+        IFP_abundance_df = cast(
+            pd.DataFrame, scaffold.get_scaffold_value("IFP_sample_abundance_df")
+        )
         # cast to numeric
         IFP_abundance_df = IFP_abundance_df.apply(pd.to_numeric, errors="coerce")
         per_reaction_per_gene_Kcats = cast(

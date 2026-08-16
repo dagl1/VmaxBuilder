@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from VmaxBuilder.base.classes import BaseImplementation, BaseStage
 from VmaxBuilder.base.configs import FullConfig, OutputSpec, Scaffold
+from VmaxBuilder.stages.model.default.diagnostics import ModelDiagnostics
 
 
 class AllocationStage(BaseStage):
