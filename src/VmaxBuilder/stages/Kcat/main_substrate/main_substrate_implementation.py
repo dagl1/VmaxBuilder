@@ -5,7 +5,7 @@ from typing import Any, cast, no_type_check
 
 import numpy as np
 import pandas as pd
-from cobra import Model
+from cobra import Metabolite, Model
 
 from VmaxBuilder.base.classes import (
     BaseImplementationDiagnostics,
@@ -57,6 +57,8 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
     DIAGNOSTICS: list[type[BaseImplementationDiagnostics]] = [
         GeneSubstratePredictionDiagnostics
     ]
+    # todo: add in possible option to ignore predictions for passive transport reactions
+    # and impute them afterwards
     INPUTS: list[InputSpec] = [
         InputSpec(
             name="adjusted_irreversible_cobra_model",
@@ -153,6 +155,7 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
 
         imputed_gene_substrate_prediction_dict = self.impute_missing_predictions(
             gene_substrate_prediction_dict,
+            reaction_main_substrate_predictions=main_substrate_per_gene_per_reaction,
             missing_prediction_strategy=self.full_config.Kcat.missing_prediction_strategy,
             missing_prediction_statistic=self.full_config.Kcat.missing_prediction_statistic,
         )
@@ -313,15 +316,18 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                 gene_id=gene_id,
                 substrate_id=metabolite_id,
                 compartment=compartment,
-                prediction_value=row.median,
-                prediction_min=row.min,
-                prediction_max=row.max,
-                prediction_median=row.median,
-                prediction_mean=row.mean,
-                prediction_sd=row.sd,
-                missing_smiles=row.missing,
+                # use the config prediction_value_column: str = "median"
+                prediction_value=getattr(row, self.full_config.Kcat.prediction_value_column),
+                prediction_min=row.min if not pd.isna(row.min) else None,
+                prediction_max=row.max if not pd.isna(row.max) else None,
+                prediction_median=row.median if not pd.isna(row.median) else None,
+                prediction_mean=row.mean if not pd.isna(row.mean) else None,
+                prediction_sd=row.sd if not pd.isna(row.sd) else None,
+                missing_smiles=row.missing if not pd.isna(row.missing) else False,
                 imputed=False,  # Initially, predictions are not imputed
-                smiles_longer_than_218=row.smiles_longer_than_218,
+                smiles_longer_than_218=row.smiles_longer_than_218
+                if not pd.isna(row.smiles_longer_than_218)
+                else False,
             )
 
             gene_substrate_prediction_dict.setdefault(gene_id, {})[metabolite_id] = prediction
@@ -361,6 +367,13 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
 
             genes_considered: set[str] = set()
             substrates_considered: set[str] = set()
+            substrate_stoichiometries: dict[Metabolite, float] = reaction.metabolites
+            # only get substrate
+            substrate_stoichiometries: dict[str, float] = {
+                met.id: stoich
+                for met, stoich in substrate_stoichiometries.items()
+                if stoich < 0
+            }
 
             for gene in reaction.genes:
                 gene_id = gene.id
@@ -369,6 +382,13 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                 if not gene_predictions:
                     continue
 
+                # we only consider subrates that are actually part of the reaction
+                gene_predictions = {
+                    substrate_id: prediction
+                    for substrate_id, prediction in gene_predictions.items()
+                    if substrate_id in substrate_stoichiometries
+                }
+
                 # Filter/cache predictions for this gene.
                 if gene_id not in gene_prediction_cache:
                     if ignore_missing_predictions:
@@ -376,22 +396,36 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                             substrate_id: prediction
                             for substrate_id, prediction in gene_predictions.items()
                             if not prediction.missing_smiles
-                            and not prediction.smiles_longer_than_218
                         }
                     else:
                         gene_prediction_cache[gene_id] = gene_predictions
 
                 valid_predictions = gene_prediction_cache[gene_id]
 
+                valid_predictions = {
+                    substrate_id: prediction
+                    for substrate_id, prediction in valid_predictions.items()
+                    if substrate_id in substrate_stoichiometries
+                }
+
                 if not valid_predictions:
                     continue
 
                 genes_considered.add(gene_id)
 
-                # Find the substrate with the highest prediction.
+                # Find the substrate with the highest stoichiometry-adjusted prediction.
+                # if we predict a kcat for gene-H20 then if we have a reaction
+                # that consumes 2 H20 we should divide the kcat in this reaction.
+                # As if we ask, how fast can this enzyme go, it will be limited
+                # by the substrate that is consumed the slowest. Thus if one has to
+                # consume 2 H20 for the reaction to go, then the kcat for water will
+                # be halved.
                 main_prediction = max(
                     valid_predictions.values(),
-                    key=lambda prediction: prediction.prediction_value,
+                    key=lambda prediction: (
+                        prediction.prediction_value
+                        / abs(substrate_stoichiometries[prediction.substrate_id])
+                    ),
                 )
 
                 gene_main_substrate_predictions[gene_id] = GeneMainSubstratePrediction(
@@ -399,8 +433,19 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                     main_substrate=main_prediction.substrate_id,
                     main_substrate_compartment=main_prediction.compartment,
                     main_substrate_prediction_value=(main_prediction.prediction_value),
+                    stoichiometry_adjusted_main_substrate_prediction_value=(
+                        main_prediction.prediction_value
+                        / abs(substrate_stoichiometries[main_prediction.substrate_id])
+                    ),
                     metabolites_considered={
                         prediction.substrate_id: prediction.prediction_value
+                        for prediction in valid_predictions.values()
+                    },
+                    metabolites_stoichiometry_adjusted_considered={
+                        prediction.substrate_id: (
+                            prediction.prediction_value
+                            / abs(substrate_stoichiometries[prediction.substrate_id])
+                        )
                         for prediction in valid_predictions.values()
                     },
                 )
@@ -416,9 +461,46 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
 
         return reaction_predictions
 
+    def _get_imputation_values(
+        self,
+        reaction_main_substrate_predictions: dict[str, ReactionMainSubstratePrediction],
+        missing_prediction_strategy: str,
+        missing_prediction_statistic: str,
+    ) -> dict[str, float]:
+        statistic = IMPUTE_STATISTIC[missing_prediction_statistic]
+        main_substrate_values_per_category: dict[str, list[float]] = {}
+
+        if missing_prediction_strategy == "all":
+            main_substrate_values_per_category["all"] = []
+        elif missing_prediction_strategy == "per_compartment":
+            main_substrate_values_per_category = {}
+
+        for _reaction_id, reaction_prediction in reaction_main_substrate_predictions.items():
+            for (
+                main_substrate_prediction
+            ) in reaction_prediction.gene_main_substrate_predictions.values():
+                category = (
+                    "all"
+                    if missing_prediction_strategy == "all"
+                    else main_substrate_prediction.main_substrate_compartment
+                )
+
+                main_substrate_values_per_category.setdefault(category, []).append(
+                    main_substrate_prediction.main_substrate_prediction_value
+                )
+
+        # Calculate the imputation value once per category.
+        imputation_values = {
+            category: statistic(values)
+            for category, values in main_substrate_values_per_category.items()
+            if values
+        }
+        return imputation_values
+
     def impute_missing_predictions(
         self,
         gene_substrate_prediction_dict: dict[str, dict[str, GeneSubstratePrediction]],
+        reaction_main_substrate_predictions: dict[str, ReactionMainSubstratePrediction],
         missing_prediction_strategy: str,
         missing_prediction_statistic: str,
     ) -> dict[str, dict[str, GeneSubstratePrediction]]:
@@ -435,34 +517,13 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                 "Expected 'all' or 'per_compartment'."
             )
 
-        statistic = IMPUTE_STATISTIC[missing_prediction_statistic]
+        imputation_values = self._get_imputation_values(
+            reaction_main_substrate_predictions,
+            missing_prediction_strategy,
+            missing_prediction_statistic,
+        )
 
         # Collect valid prediction values for the required imputation categories.
-        values_per_category: dict[str, list[float]] = {}
-
-        if missing_prediction_strategy == "all":
-            values_per_category["all"] = []
-
-        for gene_predictions in gene_substrate_prediction_dict.values():
-            for prediction in gene_predictions.values():
-                if prediction.missing_smiles:
-                    continue
-
-                category = (
-                    "all" if missing_prediction_strategy == "all" else prediction.compartment
-                )
-
-                values_per_category.setdefault(category, []).append(
-                    prediction.prediction_value
-                )
-
-        # Calculate the imputation value once per category.
-        imputation_values = {
-            category: statistic(values)
-            for category, values in values_per_category.items()
-            if values
-        }
-
         imputed_gene_substrate_prediction_dict: dict[
             str, dict[str, GeneSubstratePrediction]
         ] = {}
@@ -549,11 +610,12 @@ if __name__ == "__main__":
     )
 
     class DummyFullConfig:
-        protein = type("ProteinConfig", (), {"trim_enabled": True})()
-        kcat = type(
+        protein = type("ProteinConfig", (), {"trim_enable": True})()
+        Kcat = type(
             "KcatConfig",
             (),
             {
+                "prediction_value_column": "median",
                 "prediction_transformation_state": "log10",
                 "main_substrate_selection_statistic": "max",
                 "missing_prediction_strategy": "all",  # alternative is "per_compartment"
@@ -582,6 +644,7 @@ if __name__ == "__main__":
     imputed_substrate_predictions_dict = (
         main_substrate_aggregegator.impute_missing_predictions(
             substrate_predictions_dict,
+            reaction_main_substrate_predictions=main_substrate_per_gene_per_reaction,
             missing_prediction_strategy="all",
             missing_prediction_statistic="median",
         )

@@ -94,7 +94,21 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
             dict[str, dict[str, GeneSubstratePrediction]],
             scaffold.get_scaffold_value("before_imputation_gene_substrate_predictions"),
         )
-        plot_config = PlotConfig()
+        plot_config = PlotConfig(
+            histogram_nbinsx=80,
+        )
+        # convert to log 10 only for imputed reaction predictions (the whole dict)
+        for (
+            _reaction_id,
+            reaction_pred,
+        ) in imputed_per_gene_per_reaction_main_substrate_predictions.items():
+            for _gene_id, gene_pred in reaction_pred.gene_main_substrate_predictions.items():
+                if gene_pred.stoichiometry_adjusted_main_substrate_prediction_value > 0:
+                    gene_pred.stoichiometry_adjusted_main_substrate_prediction_value = (
+                        np.log10(
+                            gene_pred.stoichiometry_adjusted_main_substrate_prediction_value
+                        )
+                    )
 
         ## plots
         before_imputation_reaction_plots = self._create_plots(
@@ -135,9 +149,12 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
     ):
         # categories are compartments, we want to get the predictions per compartment
         reaction_values = [
-            (pred.main_substrate_compartment, pred.main_substrate_prediction_value)
+            (
+                pred.main_substrate_compartment,
+                pred.stoichiometry_adjusted_main_substrate_prediction_value,
+            )
             for reaction_main_substrate_object in reaction_main_substrate_predictions.values()
-            for pred in reaction_main_substrate_object.gene_main_substrate_predictions.values()
+            for pred in reaction_main_substrate_object.gene_main_substrate_predictions.values()  # noqa: E501
         ]
         gene_values = [
             (pred.compartment, pred.prediction_value)
@@ -160,13 +177,13 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
         reaction_boxplot = create_per_category_boxplot(
             categories=[
                 pred.main_substrate_compartment
-                for reaction_main_substrate_object in reaction_main_substrate_predictions.values()
-                for pred in reaction_main_substrate_object.gene_main_substrate_predictions.values()
+                for reaction_main_substrate_object in reaction_main_substrate_predictions.values()  # noqa: E501
+                for pred in reaction_main_substrate_object.gene_main_substrate_predictions.values()  # noqa: E501
             ],
             values=[
-                pred.main_substrate_prediction_value
-                for reaction_main_substrate_object in reaction_main_substrate_predictions.values()
-                for pred in reaction_main_substrate_object.gene_main_substrate_predictions.values()
+                pred.stoichiometry_adjusted_main_substrate_prediction_value
+                for reaction_main_substrate_object in reaction_main_substrate_predictions.values()  # noqa: E501
+                for pred in reaction_main_substrate_object.gene_main_substrate_predictions.values()  # noqa: E501
             ],
             name="Reaction Main Substrate Kcats",
             plot_config=plot_config,
@@ -191,9 +208,9 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
 
         reaction_histogram = self._create_histogram_distribution(
             data=[
-                pred.main_substrate_prediction_value
-                for reaction_main_substrate_object in reaction_main_substrate_predictions.values()
-                for pred in reaction_main_substrate_object.gene_main_substrate_predictions.values()
+                pred.stoichiometry_adjusted_main_substrate_prediction_value
+                for reaction_main_substrate_object in reaction_main_substrate_predictions.values()  # noqa: E501
+                for pred in reaction_main_substrate_object.gene_main_substrate_predictions.values()  # noqa: E501
             ],
             title="Reaction Main Substrate Prediction Kcat",
             xlabel="Kcat",
@@ -296,6 +313,45 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
         ]
         return diagnostic_output
 
+    def _create_metabolite_to_GeneSubstratePrediction_map(
+        self,
+        after_imputation_gene_substrate_predictions: dict[
+            str, dict[str, GeneSubstratePrediction]
+        ],
+    ) -> dict[str, list[GeneSubstratePrediction]]:
+        metabolite_to_GeneSubstratePrediction_map: dict[
+            str, list[GeneSubstratePrediction]
+        ] = {}
+        for (
+            _gene_id,
+            substrate_predictions,
+        ) in after_imputation_gene_substrate_predictions.items():
+            for substrate_id, prediction in substrate_predictions.items():
+                if substrate_id not in metabolite_to_GeneSubstratePrediction_map:
+                    metabolite_to_GeneSubstratePrediction_map[substrate_id] = []
+                metabolite_to_GeneSubstratePrediction_map[substrate_id].append(prediction)
+        return metabolite_to_GeneSubstratePrediction_map
+
+    def _get_metabolite_reaction_counts(
+        self, metabolite, adjusted_model: Model
+    ) -> tuple[int, int, int]:
+        output_reaction_count = len(
+            [
+                rxn
+                for rxn in metabolite.reactions
+                if rxn.metabolites.get(metabolite) < 0 and rxn.id in adjusted_model.reactions
+            ]
+        )
+        input_reaction_count = len(
+            [
+                rxn
+                for rxn in metabolite.reactions
+                if rxn.metabolites.get(metabolite) > 0 and rxn.id in adjusted_model.reactions
+            ]
+        )
+        total_reaction_count = output_reaction_count + input_reaction_count
+        return output_reaction_count, input_reaction_count, total_reaction_count
+
     def _divide_model_metabolites_into_categories(
         self,
         adjusted_model: Model,
@@ -310,17 +366,11 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
         # )
 
         metabolites = list(adjusted_model.metabolites)
-        metabolite_to_GeneSubstratePrediction_map: dict[
-            str, list[GeneSubstratePrediction]
-        ] = {}
-        for (
-            _gene_id,
-            substrate_predictions,
-        ) in after_imputation_gene_substrate_predictions.items():
-            for substrate_id, prediction in substrate_predictions.items():
-                if substrate_id not in metabolite_to_GeneSubstratePrediction_map:
-                    metabolite_to_GeneSubstratePrediction_map[substrate_id] = []
-                metabolite_to_GeneSubstratePrediction_map[substrate_id].append(prediction)
+        metabolite_to_GeneSubstratePrediction_map = (
+            self._create_metabolite_to_GeneSubstratePrediction_map(
+                after_imputation_gene_substrate_predictions
+            )
+        )
 
         category_participation_dict: dict[str, dict[str, list[str]]] = {
             "missing_smiles": {"True": [], "False": []},
@@ -371,42 +421,21 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
                     category_participation_dict["compartment"][compartment] = []
                 category_participation_dict["compartment"][compartment].append(metabolite.id)
 
-            # output reactions
-            output_reaction_count = len(
-                [rxn for rxn in metabolite.reactions if rxn.metabolites.get(metabolite) < 0]
+            # reaction counts
+            output_count, input_count, total_count = self._get_metabolite_reaction_counts(
+                metabolite, adjusted_model
             )
-            if output_reaction_count <= 3:
-                category_participation_dict["output_reactions"][
-                    str(output_reaction_count)
-                ].append(metabolite.id)
-            elif output_reaction_count <= 10:
-                category_participation_dict["output_reactions"]["<=10"].append(metabolite.id)
-            else:
-                category_participation_dict["output_reactions"][">10"].append(metabolite.id)
-
-            # input reactions
-            input_reaction_count = len(
-                [rxn for rxn in metabolite.reactions if rxn.metabolites.get(metabolite) > 0]
-            )
-            if input_reaction_count <= 3:
-                category_participation_dict["input_reactions"][
-                    str(input_reaction_count)
-                ].append(metabolite.id)
-            elif input_reaction_count <= 10:
-                category_participation_dict["input_reactions"]["<=10"].append(metabolite.id)
-            else:
-                category_participation_dict["input_reactions"][">10"].append(metabolite.id)
-
-            # total reactions
-            total_reaction_count = output_reaction_count + input_reaction_count
-            if total_reaction_count <= 3:
-                category_participation_dict["total_reactions"][
-                    str(total_reaction_count)
-                ].append(metabolite.id)
-            elif total_reaction_count <= 10:
-                category_participation_dict["total_reactions"]["<=10"].append(metabolite.id)
-            else:
-                category_participation_dict["total_reactions"][">10"].append(metabolite.id)
+            for count_type, count in zip(
+                ["output_reactions", "input_reactions", "total_reactions"],
+                [output_count, input_count, total_count],
+                strict=False,
+            ):
+                if count <= 3:
+                    category_participation_dict[count_type][str(count)].append(metabolite.id)
+                elif count <= 10:
+                    category_participation_dict[count_type]["<=10"].append(metabolite.id)
+                else:
+                    category_participation_dict[count_type][">10"].append(metabolite.id)
 
         return category_participation_dict
 
@@ -603,7 +632,7 @@ if __name__ == "__main__":
     )
 
     class DummyFullConfig:
-        protein = type("ProteinConfig", (), {"trim_enabled": True})()
+        protein = type("ProteinConfig", (), {"trim_enable": True})()
         kcat = type(
             "KcatConfig",
             (),
@@ -615,7 +644,7 @@ if __name__ == "__main__":
             },
         )()
 
-    diagnostics.full_config = DummyFullConfig()
+    diagnostics.full_config = DummyFullConfig()  # ty:ignore
     number_of_reactions_with_missing_smiles = sum(
         1
         for gene_id in imputed_gene_substrate_predictions.values()

@@ -20,7 +20,9 @@ class GeneMainSubstratePrediction:
     main_substrate: str
     main_substrate_compartment: str
     main_substrate_prediction_value: float
+    stoichiometry_adjusted_main_substrate_prediction_value: float
     metabolites_considered: dict[str, float]
+    metabolites_stoichiometry_adjusted_considered: dict[str, float]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -28,7 +30,13 @@ class GeneMainSubstratePrediction:
             "main_substrate": self.main_substrate,
             "main_substrate_compartment": self.main_substrate_compartment,
             "main_substrate_prediction_value": self.main_substrate_prediction_value,
+            "stoichiometry_adjusted_main_substrate_prediction_value": (
+                self.stoichiometry_adjusted_main_substrate_prediction_value
+            ),
             "metabolites_considered": self.metabolites_considered,
+            "metabolites_stoichiometry_adjusted_considered": (
+                self.metabolites_stoichiometry_adjusted_considered
+            ),
         }
 
     @staticmethod
@@ -38,7 +46,13 @@ class GeneMainSubstratePrediction:
             main_substrate=data["main_substrate"],
             main_substrate_compartment=data["main_substrate_compartment"],
             main_substrate_prediction_value=data["main_substrate_prediction_value"],
+            stoichiometry_adjusted_main_substrate_prediction_value=data[
+                "stoichiometry_adjusted_main_substrate_prediction_value"
+            ],
             metabolites_considered=data["metabolites_considered"],
+            metabolites_stoichiometry_adjusted_considered=data[
+                "metabolites_stoichiometry_adjusted_considered"
+            ],
         )
 
 
@@ -79,14 +93,14 @@ class GeneSubstratePrediction:
     substrate_id: str
     compartment: str
     prediction_value: float
-    prediction_min: float
-    prediction_max: float
-    prediction_median: float
-    prediction_mean: float
-    prediction_sd: float
-    missing_smiles: bool
-    imputed: bool
-    smiles_longer_than_218: bool
+    imputed: bool = False
+    smiles_longer_than_218: bool = False
+    missing_smiles: bool = False
+    prediction_min: float | None = field(default=None)
+    prediction_max: float | None = field(default=None)
+    prediction_median: float | None = field(default=None)
+    prediction_mean: float | None = field(default=None)
+    prediction_sd: float | None = field(default=None)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -138,31 +152,6 @@ class GeneSubstratePrediction:
             raise TypeError(
                 f"prediction_value must be a float or int, got "
                 f"{type(self.prediction_value).__name__}"
-            )
-        if not isinstance(self.prediction_min, (float, int)):
-            raise TypeError(
-                f"prediction_min must be a float or int, got "
-                f"{type(self.prediction_min).__name__}"
-            )
-        if not isinstance(self.prediction_max, (float, int)):
-            raise TypeError(
-                f"prediction_max must be a float or int, got "
-                f"{type(self.prediction_max).__name__}"
-            )
-        if not isinstance(self.prediction_median, (float, int)):
-            raise TypeError(
-                f"prediction_median must be a float or int, got "
-                f"{type(self.prediction_median).__name__}"
-            )
-        if not isinstance(self.prediction_mean, (float, int)):
-            raise TypeError(
-                f"prediction_mean must be a float or int, got "
-                f"{type(self.prediction_mean).__name__}"
-            )
-        if not isinstance(self.prediction_sd, (float, int)):
-            raise TypeError(
-                f"prediction_sd must be a float or int, got "
-                f"{type(self.prediction_sd).__name__}"
             )
 
     def _validate_boolean_types(self):
