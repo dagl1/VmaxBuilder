@@ -17,16 +17,18 @@ from VmaxBuilder.utils.extra_utils import (
 @dataclass
 class GeneMainSubstratePrediction:
     gene_id: str
+    reaction_id: str
     main_substrate: str
     main_substrate_compartment: str
     main_substrate_prediction_value: float
-    stoichiometry_adjusted_main_substrate_prediction_value: float
     metabolites_considered: dict[str, float]
-    metabolites_stoichiometry_adjusted_considered: dict[str, float]
+    stoichiometry_adjusted_main_substrate_prediction_value: float | None = None
+    metabolites_stoichiometry_adjusted_considered: dict[str, float] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "gene_id": self.gene_id,
+            "reaction_id": self.reaction_id,
             "main_substrate": self.main_substrate,
             "main_substrate_compartment": self.main_substrate_compartment,
             "main_substrate_prediction_value": self.main_substrate_prediction_value,
@@ -43,6 +45,7 @@ class GeneMainSubstratePrediction:
     def from_dict(data: dict[str, Any]) -> "GeneMainSubstratePrediction":
         return GeneMainSubstratePrediction(
             gene_id=data["gene_id"],
+            reaction_id=data["reaction_id"],
             main_substrate=data["main_substrate"],
             main_substrate_compartment=data["main_substrate_compartment"],
             main_substrate_prediction_value=data["main_substrate_prediction_value"],
@@ -61,7 +64,7 @@ class ReactionMainSubstratePrediction:
     reaction_id: str
     gene_main_substrate_predictions: dict[str, GeneMainSubstratePrediction]
     genes_considered: set[str]
-    substrates_considered: set[str]
+    substrates_considered: dict[str, float]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -71,7 +74,7 @@ class ReactionMainSubstratePrediction:
                 for gene_id, prediction in self.gene_main_substrate_predictions.items()
             },
             "genes_considered": list(self.genes_considered),
-            "substrates_considered": list(self.substrates_considered),
+            "substrates_considered": self.substrates_considered,
         }
 
     @staticmethod
@@ -83,7 +86,7 @@ class ReactionMainSubstratePrediction:
                 for gene_id, prediction in data["gene_main_substrate_predictions"].items()
             },
             genes_considered=set(data["genes_considered"]),
-            substrates_considered=set(data["substrates_considered"]),
+            substrates_considered=data["substrates_considered"],
         )
 
 

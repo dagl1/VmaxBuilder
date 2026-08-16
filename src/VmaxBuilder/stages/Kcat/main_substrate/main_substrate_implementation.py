@@ -166,10 +166,24 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                 ignore_missing_predictions=False,
             )
         )
-
         imputed_main_substrate_per_gene_per_reaction = (
             self._convert_predictions_to_linear_scale(
                 imputed_main_substrate_per_gene_per_reaction
+            )
+        )
+
+        imputed_main_substrate_per_gene_per_reaction = (
+            self._assign_stoichiometry_adjusted_predictions(
+                imputed_main_substrate_per_gene_per_reaction,
+            )
+        )
+
+        main_substrate_per_gene_per_reaction = self._convert_predictions_to_linear_scale(
+            main_substrate_per_gene_per_reaction
+        )
+        main_substrate_per_gene_per_reaction = (
+            self._assign_stoichiometry_adjusted_predictions(
+                main_substrate_per_gene_per_reaction,
             )
         )
 
@@ -179,6 +193,50 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
             gene_substrate_prediction_dict,
             imputed_gene_substrate_prediction_dict,
         )
+
+    def _assign_stoichiometry_adjusted_predictions(
+        self,
+        reaction_predictions: dict[str, ReactionMainSubstratePrediction],
+    ) -> dict[str, ReactionMainSubstratePrediction]:
+        """
+        Adjust the main substrate predictions based on the stoichiometry of the substrates
+        in the reactions.
+
+        For each reaction, the stoichiometry of each substrate is considered. The main
+        substrate prediction value for each gene is adjusted by dividing it by the
+        absolute value of the stoichiometry of the main substrate in that reaction.
+
+        Returns:
+            Mapping from reaction ID to ReactionMainSubstratePrediction with adjusted values.
+        """
+        for reaction_id, reaction_prediction in reaction_predictions.items():
+            substrate_stoichiometries: dict[str, float] = (
+                reaction_prediction.substrates_considered
+            )
+            for (
+                gene_id,
+                gene_prediction,
+            ) in reaction_prediction.gene_main_substrate_predictions.items():
+                main_substrate_id = gene_prediction.main_substrate
+                if main_substrate_id in substrate_stoichiometries:
+                    stoichiometry = abs(substrate_stoichiometries[main_substrate_id])
+                    gene_prediction.stoichiometry_adjusted_main_substrate_prediction_value = (
+                        gene_prediction.main_substrate_prediction_value / stoichiometry
+                    )
+                    gene_prediction.metabolites_stoichiometry_adjusted_considered = {
+                        substrate_id: prediction_value
+                        / abs(substrate_stoichiometries[substrate_id])
+                        for substrate_id, prediction_value in gene_prediction.metabolites_considered.items()  # noqa: E501
+                        if substrate_id in substrate_stoichiometries
+                    }
+                else:
+                    raise ValueError(
+                        f"Main substrate {main_substrate_id} for gene {gene_id} "
+                        f"in reaction {reaction_id} is not found in the substrate"
+                        f"stoichiometries."
+                    )
+
+        return reaction_predictions
 
     def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
         # Load inputs
@@ -263,20 +321,9 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                 gene_prediction.main_substrate_prediction_value = (
                     10**gene_prediction.main_substrate_prediction_value
                 )
-                gene_prediction.stoichiometry_adjusted_main_substrate_prediction_value = (
-                    10**gene_prediction.stoichiometry_adjusted_main_substrate_prediction_value
-                )
                 for substrate_id in gene_prediction.metabolites_considered:
                     gene_prediction.metabolites_considered[substrate_id] = (
                         10 ** gene_prediction.metabolites_considered[substrate_id]
-                    )
-                    gene_prediction.metabolites_stoichiometry_adjusted_considered[
-                        substrate_id
-                    ] = (
-                        10
-                        ** gene_prediction.metabolites_stoichiometry_adjusted_considered[
-                            substrate_id
-                        ]
                     )
 
         return reaction_predictions
@@ -433,29 +480,19 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                 main_prediction = max(
                     valid_predictions.values(),
                     key=lambda prediction: (
-                        prediction.prediction_value
+                        (10**prediction.prediction_value)
                         / abs(substrate_stoichiometries[prediction.substrate_id])
                     ),
                 )
 
                 gene_main_substrate_predictions[gene_id] = GeneMainSubstratePrediction(
                     gene_id=gene_id,
+                    reaction_id=reaction_id,
                     main_substrate=main_prediction.substrate_id,
                     main_substrate_compartment=main_prediction.compartment,
                     main_substrate_prediction_value=(main_prediction.prediction_value),
-                    stoichiometry_adjusted_main_substrate_prediction_value=(
-                        main_prediction.prediction_value
-                        / abs(substrate_stoichiometries[main_prediction.substrate_id])
-                    ),
                     metabolites_considered={
                         prediction.substrate_id: prediction.prediction_value
-                        for prediction in valid_predictions.values()
-                    },
-                    metabolites_stoichiometry_adjusted_considered={
-                        prediction.substrate_id: (
-                            prediction.prediction_value
-                            / abs(substrate_stoichiometries[prediction.substrate_id])
-                        )
                         for prediction in valid_predictions.values()
                     },
                 )
@@ -466,7 +503,7 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                 reaction_id=reaction_id,
                 gene_main_substrate_predictions=gene_main_substrate_predictions,
                 genes_considered=genes_considered,
-                substrates_considered=substrates_considered,
+                substrates_considered=substrate_stoichiometries,
             )
 
         return reaction_predictions

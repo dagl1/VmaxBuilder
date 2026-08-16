@@ -98,17 +98,23 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
             histogram_nbinsx=80,
         )
         # convert to log 10 only for imputed reaction predictions (the whole dict)
+        values = {}
         for (
             _reaction_id,
             reaction_pred,
         ) in imputed_per_gene_per_reaction_main_substrate_predictions.items():
+            values[reaction_pred.reaction_id] = {}
+
             for _gene_id, gene_pred in reaction_pred.gene_main_substrate_predictions.items():
-                if gene_pred.stoichiometry_adjusted_main_substrate_prediction_value > 0:
-                    gene_pred.stoichiometry_adjusted_main_substrate_prediction_value = (
-                        np.log10(
+                if (
+                    gene_pred.stoichiometry_adjusted_main_substrate_prediction_value
+                    and gene_pred.stoichiometry_adjusted_main_substrate_prediction_value > 0
+                ):
+                    values[reaction_pred.reaction_id][gene_pred.gene_id] = {
+                        gene_pred.gene_id: np.log10(
                             gene_pred.stoichiometry_adjusted_main_substrate_prediction_value
                         )
-                    )
+                    }
 
         ## plots
         before_imputation_reaction_plots = self._create_plots(
@@ -121,10 +127,16 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
             imputed_gene_substrate_predictions,
             plot_config,
         )
-        catagorised_metabolites = self._divide_model_metabolites_into_categories(
+        categorized_metabolites = self._divide_model_metabolites_into_categories(
             adjusted_irreversible_cobra_model, imputed_gene_substrate_predictions
         )
-        alluvial_plot_data = prepare_alluvial_plot_data(catagorised_metabolites)
+
+        alluvial_plot_data = prepare_alluvial_plot_data(categorized_metabolites)
+        categorized_metabolites_spec = DiagnosticOutputSpec(
+            save_file_name="categorized_metabolites",
+            data=categorized_metabolites,
+            extensions=[".json"],
+        )
         alluvial_plot = create_alluvial_plot(alluvial_plot_data, plot_config=plot_config)
 
         diagnostic_output = self._create_diagnostic_output(
@@ -135,7 +147,10 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
         # ensure we dont overwrite anything in the new_scaffold_objects diagnostics
         new_scaffold_objects = {
             "outputs": {},
-            "diagnostics": {"main_substrate_aggregation": diagnostic_output},
+            "diagnostics": {
+                "main_substrate_aggregation": diagnostic_output
+                + [categorized_metabolites_spec]
+            },
             "metadata": {},
             "artifacts": {},
         }
@@ -184,6 +199,7 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
                 pred.stoichiometry_adjusted_main_substrate_prediction_value
                 for reaction_main_substrate_object in reaction_main_substrate_predictions.values()  # noqa: E501
                 for pred in reaction_main_substrate_object.gene_main_substrate_predictions.values()  # noqa: E501
+                if pred.stoichiometry_adjusted_main_substrate_prediction_value is not None
             ],
             name="Reaction Main Substrate Kcats",
             plot_config=plot_config,
@@ -339,14 +355,23 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
             [
                 rxn
                 for rxn in metabolite.reactions
-                if rxn.metabolites.get(metabolite) < 0 and rxn.id in adjusted_model.reactions
+                if rxn.id in adjusted_model.reactions
+                and (
+                    rxn.metabolites.get(metabolite) < 0
+                    or (rxn.boundary and rxn.metabolites.get(metabolite) > 0)
+                )
             ]
         )
+
         input_reaction_count = len(
             [
                 rxn
                 for rxn in metabolite.reactions
-                if rxn.metabolites.get(metabolite) > 0 and rxn.id in adjusted_model.reactions
+                if rxn.id in adjusted_model.reactions
+                and (
+                    rxn.metabolites.get(metabolite) > 0
+                    or (rxn.boundary and rxn.metabolites.get(metabolite) < 0)
+                )
             ]
         )
         total_reaction_count = output_reaction_count + input_reaction_count
@@ -373,7 +398,7 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
         )
 
         category_participation_dict: dict[str, dict[str, list[str]]] = {
-            "missing_smiles": {"True": [], "False": []},
+            "missing_smiles": {"True": [], "False": [], "No gene association": []},
             "compartment": {},
             "output_reactions": {
                 "0": [],
@@ -413,6 +438,10 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
                     category_participation_dict["missing_smiles"]["False"].append(
                         metabolite.id
                     )
+            else:
+                category_participation_dict["missing_smiles"]["No gene association"].append(
+                    metabolite.id
+                )
 
             # compartment
             compartment = metabolite.compartment
