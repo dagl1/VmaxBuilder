@@ -20,6 +20,9 @@ from VmaxBuilder.stages.Kcat.Kcat_utils import (
     _validate_gene_substrate_predictions,
 )
 from VmaxBuilder.stages.Kcat.main_substrate.config import MainSubstrateConfig
+from VmaxBuilder.stages.Kcat.main_substrate.diagnostics import (
+    GeneSubstratePredictionDiagnostics,
+)
 from VmaxBuilder.typing_stubs.Kcat.main_substrate.main_substrate_implementation import (
     MainSubstrateConfigProtocol,
 )
@@ -51,7 +54,9 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
     IMPL_NAME = "main_substrate_aggregation"
     IMPLEMENTATION_CONFIG_CLASS = MainSubstrateConfig
     CHILD_IMPLEMENTATIONS = []
-    DIAGNOSTICS: list[type[BaseImplementationDiagnostics]] = []
+    DIAGNOSTICS: list[type[BaseImplementationDiagnostics]] = [
+        GeneSubstratePredictionDiagnostics
+    ]
     INPUTS: list[InputSpec] = [
         InputSpec(
             name="adjusted_irreversible_cobra_model",
@@ -68,19 +73,34 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
             ),
         ),
     ]
+
     OUTPUTS: list[OutputSpec] = [
         OutputSpec(
-            name="per_gene_per_reaction_main_substrate_predictions",
+            name="imputed_per_gene_per_reaction_main_substrate_predictions",
+            data_type=dict,
+            scaffold_location="outputs",
+            save_file_name="imputed_per_gene_per_reaction_main_substrate_predictions",
+            extension=".json",
+        ),
+        OutputSpec(
+            name="imputed_gene_substrate_predictions",
             data_type=dict,
             scaffold_location="artifacts",
-            save_file_name="per_gene_per_reaction_main_substrate_predictions",
+            save_file_name="imputed_gene_substrate_predictions",
             extension=".json",
         ),
         OutputSpec(
             name="before_imputation_per_gene_per_reaction_main_substrate_predictions",
             data_type=dict,
             scaffold_location="artifacts",
-            save_file_name="per_gene_per_reaction_main_substrate_predictions",
+            save_file_name="before_imputation_per_gene_per_reaction_main_substrate_predictions",
+            extension=".json",
+        ),
+        OutputSpec(
+            name="before_imputation_gene_substrate_predictions",
+            data_type=dict,
+            scaffold_location="artifacts",
+            save_file_name="before_imputation_gene_substrate_predictions",
             extension=".json",
         ),
     ]
@@ -377,6 +397,7 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                 gene_main_substrate_predictions[gene_id] = GeneMainSubstratePrediction(
                     gene_id=gene_id,
                     main_substrate=main_prediction.substrate_id,
+                    main_substrate_compartment=main_prediction.compartment,
                     main_substrate_prediction_value=(main_prediction.prediction_value),
                     metabolites_considered={
                         prediction.substrate_id: prediction.prediction_value
