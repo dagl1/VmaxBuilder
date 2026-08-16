@@ -6,7 +6,7 @@ from typing import Any
 import plotly.graph_objects as go
 from cobra import Metabolite, Model, Reaction
 
-from VmaxBuilder.base.classes import BaseImplementationDiagnostics
+from VmaxBuilder.base.classes import BaseImplementationDiagnostics, DiagnosticOutputSpec
 from VmaxBuilder.base.configs import FullConfig, Scaffold
 from VmaxBuilder.utils.extra_utils import _get_reaction_compartments, get_transport_reactions
 from VmaxBuilder.utils.plotting.alluvial import (
@@ -68,7 +68,7 @@ class ModelDiagnostics(BaseImplementationDiagnostics):
 
     def after_run(
         self,
-        new_scaffold_objects: dict[str, dict[str, Any]],
+        scaffold_objects: dict[str, dict[str, Any]],
         scaffold: Scaffold,
     ) -> dict[str, dict[str, Any]]:
         """Generated: validation needed.
@@ -86,7 +86,9 @@ class ModelDiagnostics(BaseImplementationDiagnostics):
         Modifies:
             Cached diagnostics state.
         """
-        irreversible_cobra_model = scaffold.get_scaffold_value("irreversible_cobra_model")
+        irreversible_cobra_model = scaffold.get_scaffold_value(
+            "adjusted_irreversible_cobra_model"
+        )
         if irreversible_cobra_model is None:
             raise ValueError("'irreversible_cobra_model' missing from scaffold.")
         reactions = irreversible_cobra_model.reactions
@@ -97,8 +99,19 @@ class ModelDiagnostics(BaseImplementationDiagnostics):
         _reaction_alluvial_plot_figure = create_alluvial_plot(
             alluvial_plot_data, plot_config=plot_config
         )
-        # todo add to diagnosticoutput and put in scaffol
+        alluvial_diagnostics_output = DiagnosticOutputSpec(
+            save_file_name="model_reaction_alluvial_plot",
+            data=_reaction_alluvial_plot_figure,
+            extensions=[".svg", ".html"],
+        )
 
+        diagnostics = {"model": [alluvial_diagnostics_output]}
+        new_scaffold_objects = {
+            "outputs": {},
+            "diagnostics": diagnostics,
+            "metadata": {},
+            "artifacts": {},
+        }
         return new_scaffold_objects
 
     def _divide_model_reactions_into_categories(

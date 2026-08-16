@@ -43,6 +43,8 @@ class StageLoading:
     model_loading_info: StageLoadingInfo
     protein_loading_info: StageLoadingInfo
     allocation_loading_info: StageLoadingInfo
+    Vmax_loading_info: StageLoadingInfo
+    Kcat_loading_info: StageLoadingInfo | None = None
     # protein_stage: str
 
 

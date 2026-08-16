@@ -57,7 +57,7 @@ class GPRDiagnostics(BaseImplementationDiagnostics[FullConfig]):
 
     def after_run(
         self,
-        new_scaffold_objects: dict[str, dict[str, Any]],
+        scaffold_objects: dict[str, dict[str, Any]],
         scaffold: Scaffold,
     ) -> dict[str, dict[str, Any]]:
         return {

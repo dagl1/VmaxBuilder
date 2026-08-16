@@ -25,6 +25,10 @@ from VmaxBuilder.stages.allocation.allocation import AllocationStage
 from VmaxBuilder.stages.allocation.FairAllocation.implementation import (
     FairAllocationImplementation,
 )
+from VmaxBuilder.stages.Kcat.Kcat import KcatStage
+from VmaxBuilder.stages.Kcat.main_substrate.main_substrate_implementation import (
+    MainSubstrateImplementation,
+)
 from VmaxBuilder.stages.model.default.implementation import (
     DefaultIrreversibleModelImplementation,
 )
@@ -33,6 +37,10 @@ from VmaxBuilder.stages.protein.MvalueTrimmingExpressionPTR.implementation impor
     MvalueTrimmingExpressionPTRImplementation,
 )
 from VmaxBuilder.stages.protein.protein import ProteinStage
+from VmaxBuilder.stages.Vmax.default.reaction_resolving import (
+    DefaultVmaxReactionResolving,
+)
+from VmaxBuilder.stages.Vmax.Vmax import VmaxStage
 from VmaxBuilder.utils.custom_logging import CustomLogger, custom_asdict
 from VmaxBuilder.utils.iterables import make_json_serializable
 
@@ -62,10 +70,8 @@ class Orchestrator:
         "model": ModelStage,
         "protein": ProteinStage,
         "allocation": AllocationStage,
-        # "Vmax"
-        # "Kcat": KcatStage,
-        # add more stages here as needed
-        # "stage_name": StageClass,
+        "Kcat": KcatStage,
+        "Vmax": VmaxStage,
     }
 
     ImplT = TypeVar("ImplT", bound=BaseImplementation[Any])
@@ -134,6 +140,32 @@ class Orchestrator:
         )
         self.set_print_level(self.config.run.print_level)
         self._discover_user_submitted_paths(stage_name="allocation")
+        self.scaffold.discovered_inputs = self.discovered_inputs
+
+        return implementation
+
+    def set_Kcat_implementation(self, implementation_cls: type[ImplT]) -> ImplT:
+        implementation = implementation_cls(full_config=self.config)
+        self._Kcat = implementation
+        self.config.Kcat = implementation.config
+        self.Kcat_stage = self.stages["Kcat"](
+            implementation=implementation, full_config=self.config
+        )
+        self.set_print_level(self.config.run.print_level)
+        self._discover_user_submitted_paths(stage_name="Kcat")
+        self.scaffold.discovered_inputs = self.discovered_inputs
+
+        return implementation
+
+    def set_Vmax_implementation(self, implementation_cls: type[ImplT]) -> ImplT:
+        implementation = implementation_cls(full_config=self.config)
+        self._Vmax = implementation
+        self.config.Vmax = implementation.config
+        self.Vmax_stage = self.stages["Vmax"](
+            implementation=implementation, full_config=self.config
+        )
+        self.set_print_level(self.config.run.print_level)
+        self._discover_user_submitted_paths(stage_name="Vmax")
         self.scaffold.discovered_inputs = self.discovered_inputs
 
         return implementation
@@ -617,6 +649,7 @@ if __name__ == "__main__":
 
     expression_name = "NCI_60_human"
     expression_path = base_dir / "expression_datasets" / expression_name
+    Kcat_path = base_dir / "Kcat_predictions" / "UniKPV1" / "model_inhouse_v7_human"
     ptr_path = base_dir / "PTR_datasets" / "Eraslan2019_human"
     # proteomics_path = base_dir / "proteomics" / "NCI60"
     output_path = Path("~/git/VmaxBuilder/data/run_example_output")
@@ -640,11 +673,20 @@ if __name__ == "__main__":
     allocation_stage_loading_info = StageLoadingInfo(
         stage_name="allocation",
     )
+    kcat_stage_loading_info = StageLoadingInfo(
+        stage_name="Kcat",
+        directories=[Kcat_path],
+    )
+    Vmax_stage_loading_info = StageLoadingInfo(
+        stage_name="Vmax",
+    )
     # Protein inputs (set whichever mode needs).
     stage_loading_info = StageLoading(
         model_loading_info=model_stage_loading_info,
         protein_loading_info=protein_stage_loading_info,
         allocation_loading_info=allocation_stage_loading_info,
+        Kcat_loading_info=kcat_stage_loading_info,
+        Vmax_loading_info=Vmax_stage_loading_info,
     )
 
     run_config = RunConfig(
@@ -660,6 +702,10 @@ if __name__ == "__main__":
     protein = orchestrator.set_protein_implementation(
         MvalueTrimmingExpressionPTRImplementation
     )
+    allocation = orchestrator.set_allocation_implementation(FairAllocationImplementation)
+    Kcat = orchestrator.set_Kcat_implementation(MainSubstrateImplementation)
+    Vmax = orchestrator.set_Vmax_implementation(DefaultVmaxReactionResolving)
+
     allocation = orchestrator.set_allocation_implementation(FairAllocationImplementation)
     protein.config.expression_sample_type_map = {idx: "heart" for idx in range(1, 1000)}
 

@@ -64,7 +64,7 @@ class BaseStage:
             impl.__name__: impl(config)
             for impl in self.ADDITIONAL_IMPLEMENTATIONS
         }
-        self.diagnostics = [diag() for diag in self.DIAGNOSTICS]
+        self.diagnostics = [diag(self.config) for diag in self.DIAGNOSTICS]
         self.logger = CustomLogger(f"{self.STAGE_NAME}_stage_logger")
 
     def run(self, scaffold):
@@ -151,6 +151,10 @@ class BaseStageDiagnostics(ABC):
     based on stage contracts.
     """
 
+    def __init__(self, full_config: "FullConfig"):
+        self.full_config = full_config
+        self.logger = CustomLogger(f"{self.DIAGNOSTICS_NAME}_diagnostics_logger")
+
     DIAGNOSTICS_NAME: str
 
     @abstractmethod
@@ -191,7 +195,7 @@ class BaseImplementationDiagnostics(Generic[ConfigType], ABC):
     @abstractmethod
     def after_run(
         self,
-        new_scaffold_objects: dict[str, dict[str, Any]],
+        scaffold_objects: dict[str, dict[str, Any]],
         scaffold: "Scaffold",
     ) -> dict[str, dict[str, Any]]: ...
 
@@ -332,8 +336,27 @@ class BaseImplementation(Generic[ConfigType], ABC):
             "diagnostics": {},
             "metadata": {},
         }
+        to_collate_diagnostics = []
         for diagnostic in self.diagnostics:
             new_scaffold_objects = diagnostic.after_run(scaffold_objects, scaffold=scaffold)
+            # Collate diagnostics from all diagnostics
+            to_collate_diagnostics.append(new_scaffold_objects.get("diagnostics", {}))
+
+        # combine all diagnostics into a single dictionary
+        combined_diagnostics = {}
+
+        def _recursive_update(d, u):
+            for k, v in u.items():
+                if isinstance(v, dict):
+                    d[k] = _recursive_update(d.get(k, {}), v)
+                else:
+                    d[k] = v
+            return d
+
+        for diag in to_collate_diagnostics:
+            _recursive_update(combined_diagnostics, diag)
+        new_scaffold_objects["diagnostics"] = combined_diagnostics
+
         return new_scaffold_objects
 
     def run(self, scaffold: "Scaffold") -> "Scaffold":
@@ -592,7 +615,10 @@ class BaseImplementation(Generic[ConfigType], ABC):
     def add_diagnostic_modifier_to_scaffold(
         self, new_scaffold_objects: dict[str, dict[str, Any]], diagnostic_addition: str
     ) -> dict[str, Any]:
+        stage_name = f"{self.STAGE_NAME}_stage"
         for key, value in list(new_scaffold_objects.items()):
+            if key == stage_name or key in ["after_run", "before_run", "during_run"]:
+                continue
             # if isinstance(value, dict) and diagnostic_addition in value:
             #     continue
             # elif key == "outputs":
@@ -608,6 +634,8 @@ class BaseImplementation(Generic[ConfigType], ABC):
     ) -> dict[str, Any]:
         stage_name = f"{self.STAGE_NAME}_stage"
         for key, value in list(new_scaffold_objects.items()):
+            if key == stage_name or key in ["after_run", "before_run", "during_run"]:
+                continue
             if not value:
                 continue
 
@@ -835,13 +863,24 @@ class BaseImplementation(Generic[ConfigType], ABC):
             saver_args["logger"] = self.logger
             accepted_args = inspect.signature(diagnostic_value.saver).parameters
             filtered_saver_args = {k: v for k, v in saver_args.items() if k in accepted_args}
-
             diagnostic_value.saver(
                 diagnostic_value.data,
                 save_location / f"{diagnostic_value.save_file_name}",
                 **filtered_saver_args,
             )
             return
+        from VmaxBuilder.stages.Kcat.Kcat_utils import (
+            GeneMainSubstratePrediction,
+            GeneSubstratePrediction,
+            ReactionMainSubstratePrediction,
+        )
+
+        if isinstance(diagnostic_value, ReactionMainSubstratePrediction):
+            diagnostic_value = diagnostic_value.to_dict()
+        elif isinstance(diagnostic_value, GeneMainSubstratePrediction):
+            diagnostic_value = diagnostic_value.to_dict()
+        elif isinstance(diagnostic_value, GeneSubstratePrediction):
+            diagnostic_value = diagnostic_value.to_dict()
 
         with (save_location / f"{diagnostic_name}.json").open(
             "w",
