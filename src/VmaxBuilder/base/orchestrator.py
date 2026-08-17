@@ -1,4 +1,5 @@
 import json
+import sys
 from collections.abc import Iterator
 from dataclasses import fields, is_dataclass
 from pathlib import Path
@@ -183,6 +184,7 @@ class Orchestrator:
         self.logger.info("Starting orchestrator run...")
         metadata = self.create_metadata()
         self._save_metadata(metadata)
+        self._discover_optional_dependencies()
 
         if not self.config.run.lazy_load:
             self.load_inputs()
@@ -194,6 +196,47 @@ class Orchestrator:
             self._run_stage(stage_name)
 
         self.logger.info("Orchestrator run completed.")
+
+    def _discover_optional_dependencies(self):
+        # this function simply checks the currently enabled implementations and
+        # sees if any has the class attribute OPTIONAL_DEPENDENCIES and
+        # if so, calls its function before any other code is ran.
+        # For instance, UniKP requires several models to be downloaded,
+        # as well as --submodule recursive to be used to get the fork
+        # of the UniKP repo. As this breaks the normal flow of the orchestrator,
+        # we first let users know. The function called by OPTIONAL_DEPENDENCIES
+        # is an installation function that checks if the dependencies are present
+        # if not, asks for y/n input to download them.
+        # Afterwards the orchestrator should be called again as new python
+        # files are now discoverable (think of this as uv installing packages)
+
+        installed_one_or_more_dependencies = False
+        for stage_name in self.stages:
+            stage = getattr(self, f"{stage_name}_stage", None)
+            if stage is not None:
+                stage_implementation: BaseImplementation = stage.implementation
+                for implementation in _iter_implementations(stage_implementation):
+                    if isinstance(implementation, type):
+                        continue
+                    optional_dependencies = getattr(
+                        implementation, "OPTIONAL_DEPENDENCIES", None
+                    )
+                    if optional_dependencies is not None:
+                        self.logger.info(
+                            f"Checking optional dependencies for "
+                            f"{implementation.__class__.__name__}..."
+                        )
+                        for dependency in optional_dependencies:
+                            installed_something = dependency()
+                            if installed_something:
+                                installed_one_or_more_dependencies = True
+        if installed_one_or_more_dependencies:
+            self.logger.info(
+                "One or more optional dependencies were installed. "
+                "Please rerun the orchestrator to ensure all dependencies are loaded."
+            )
+            # exit the program
+            sys.exit(0)
 
     def return_config(
         self, sections: list[str] | str | None = None, verbose: bool = True
