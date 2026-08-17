@@ -205,10 +205,10 @@ def prepare_alluvial_plot_data(
 def create_alluvial_plot(
     alluvial_plot_data: dict[str, Any],
     plot_config: PlotConfig | None = None,
+    title: str = "Alluvial Plot",
 ) -> go.Figure:
     if plot_config is None:
         plot_config = PlotConfig()
-    title = "Alluvial Plot Example"
     fig = go.Figure(
         go.Parcats(
             dimensions=alluvial_plot_data["dimensions"],

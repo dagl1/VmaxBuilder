@@ -179,7 +179,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         use_trimmed_genes_for_kcat: bool,
         kcats_of_genes_in_reaction: dict[str, GeneMainSubstratePrediction],
         _IFP: str,
-    ) -> float:
+    ) -> tuple[float, float, float]:
         abundance = float(IFP_abundance_df.at[_IFP, sample])  # ty: ignore
         # make abundance  numeric
         genes = self.get_genes_for_IFP(
@@ -217,7 +217,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
                 f"Negative max Kcat for reaction {reaction}"
                 f"in sample {sample}: {max_kcat}. Setting to 0."
             )
-        return additional_capacity
+        return additional_capacity, abundance, max_kcat
 
     def resolve_reaction_capacity(
         self,
@@ -260,10 +260,13 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         IFPs_not_in_df = set()
         reactions_skipped_due_to_missing_kcat = set()
 
+        IFP_sample_abundance_dict = {}
+
         for sample in tqdm(
             samples,
             desc="Calculating reaction capacities",
         ):
+            IFP_sample_abundance_dict[sample] = {}
             for reaction in reactions:
                 if reaction not in Kcats_per_reaction_per_gene:
                     reactions_skipped_due_to_missing_kcat.add(reaction)
@@ -274,6 +277,19 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
                 IFPs = IFPs_object.get("IFPs", [])
                 if not IFPs:
                     continue
+
+                IFP_sample_abundance_dict[sample][reaction] = {
+                    "IFPs": {},
+                    "GPR_rule": cobra_model.reactions.get_by_id(reaction).gene_reaction_rule,
+                    "genes": {
+                        gene.id: {
+                            "expression": None,
+                            "PTR": None,
+                        }
+                        for gene in cobra_model.reactions.get_by_id(reaction).genes
+                    },
+                    "Vmax": None,
+                }
 
                 gene_objects = Kcats_per_reaction_per_gene[
                     reaction
@@ -286,18 +302,41 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
                         IFPs_not_in_df.add(_IFP)
                         continue
 
-                    additional_capacity = self.get_specific_abundance_additional_capacity(
-                        sample,
-                        reaction,
-                        IFP_abundance_df,
-                        trimming_output,
-                        IFP_to_genes,
-                        use_trimmed_genes_for_kcat,
-                        kcats_of_genes_in_reaction,
-                        _IFP,
+                    additional_capacity, ifp_abundance, ifp_kcat = (
+                        self.get_specific_abundance_additional_capacity(
+                            sample,
+                            reaction,
+                            IFP_abundance_df,
+                            trimming_output,
+                            IFP_to_genes,
+                            use_trimmed_genes_for_kcat,
+                            kcats_of_genes_in_reaction,
+                            _IFP,
+                        )
                     )
 
+                    IFP_sample_abundance_dict[sample][reaction]["IFPs"][_IFP] = {
+                        "abundance": ifp_abundance,
+                        "kcat": ifp_kcat,
+                        "Vmax": additional_capacity,
+                        "genes": {
+                            "gene": {
+                                "expression": None,
+                                "PTR": None,
+                                "main_substrate_prediction_value": kcats_of_genes_in_reaction[
+                                    gene
+                                ].main_substrate_prediction_value,
+                                "stoichiometry_adjusted_main_substrate_prediction_value": (
+                                    kcats_of_genes_in_reaction[
+                                        gene
+                                    ].stoichiometry_adjusted_main_substrate_prediction_value
+                                ),
+                            }
+                        },
+                    }
                     total_capacity += additional_capacity
+
+                IFP_sample_abundance_dict[sample][reaction]["Vmax"] = total_capacity
 
                 reaction_capacity_df.at[reaction, sample] = total_capacity
 
