@@ -1,5 +1,6 @@
 # Byte-compiled / optimized / DLL files
 
+external/UniKP/models
 data/for_VmaxBuilder/Kcat_predictions/shared_embedding_cache
 UniKP20Km.pkl
 UniKP20kcat.pkl
