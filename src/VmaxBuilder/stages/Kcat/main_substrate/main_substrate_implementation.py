@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, cast, no_type_check
 
 import numpy as np
@@ -211,7 +210,7 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
         """
         for reaction_id, reaction_prediction in reaction_predictions.items():
             substrate_stoichiometries: dict[str, float] = (
-                reaction_prediction.substrates_considered
+                reaction_prediction.substrate_stoichiometries
             )
             for (
                 gene_id,
@@ -443,7 +442,6 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                 gene_predictions = {
                     substrate_id: prediction
                     for substrate_id, prediction in gene_predictions.items()
-                    if substrate_id in substrate_stoichiometries
                 }
 
                 # Filter/cache predictions for this gene.
@@ -491,6 +489,7 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                     main_substrate=main_prediction.substrate_id,
                     main_substrate_compartment=main_prediction.compartment,
                     main_substrate_prediction_value=(main_prediction.prediction_value),
+                    substrate_stoichiometries=substrate_stoichiometries,
                     metabolites_considered={
                         prediction.substrate_id: prediction.prediction_value
                         for prediction in valid_predictions.values()
@@ -503,7 +502,7 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                 reaction_id=reaction_id,
                 gene_main_substrate_predictions=gene_main_substrate_predictions,
                 genes_considered=genes_considered,
-                substrates_considered=substrate_stoichiometries,
+                substrate_stoichiometries=substrate_stoichiometries,
             )
 
         return reaction_predictions

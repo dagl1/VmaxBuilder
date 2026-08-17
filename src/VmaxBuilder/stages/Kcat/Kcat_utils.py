@@ -22,6 +22,7 @@ class GeneMainSubstratePrediction:
     main_substrate_compartment: str
     main_substrate_prediction_value: float
     metabolites_considered: dict[str, float]
+    substrate_stoichiometries: dict[str, float]
     stoichiometry_adjusted_main_substrate_prediction_value: float | None = None
     metabolites_stoichiometry_adjusted_considered: dict[str, float] | None = None
 
@@ -36,6 +37,7 @@ class GeneMainSubstratePrediction:
                 self.stoichiometry_adjusted_main_substrate_prediction_value
             ),
             "metabolites_considered": self.metabolites_considered,
+            "substrate_stoichiometries": self.substrate_stoichiometries,
             "metabolites_stoichiometry_adjusted_considered": (
                 self.metabolites_stoichiometry_adjusted_considered
             ),
@@ -52,6 +54,7 @@ class GeneMainSubstratePrediction:
             stoichiometry_adjusted_main_substrate_prediction_value=data[
                 "stoichiometry_adjusted_main_substrate_prediction_value"
             ],
+            substrate_stoichiometries=data["substrate_stoichiometries"],
             metabolites_considered=data["metabolites_considered"],
             metabolites_stoichiometry_adjusted_considered=data[
                 "metabolites_stoichiometry_adjusted_considered"
@@ -64,7 +67,7 @@ class ReactionMainSubstratePrediction:
     reaction_id: str
     gene_main_substrate_predictions: dict[str, GeneMainSubstratePrediction]
     genes_considered: set[str]
-    substrates_considered: dict[str, float]
+    substrate_stoichiometries: dict[str, float]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -74,7 +77,7 @@ class ReactionMainSubstratePrediction:
                 for gene_id, prediction in self.gene_main_substrate_predictions.items()
             },
             "genes_considered": list(self.genes_considered),
-            "substrates_considered": self.substrates_considered,
+            "substrate_stoichiometries": self.substrate_stoichiometries,
         }
 
     @staticmethod
@@ -82,11 +85,11 @@ class ReactionMainSubstratePrediction:
         return ReactionMainSubstratePrediction(
             reaction_id=data["reaction_id"],
             gene_main_substrate_predictions={
-                gene_id: GeneMainSubstratePrediction(**prediction)
+                gene_id: GeneMainSubstratePrediction.from_dict(prediction)
                 for gene_id, prediction in data["gene_main_substrate_predictions"].items()
             },
             genes_considered=set(data["genes_considered"]),
-            substrates_considered=data["substrates_considered"],
+            substrate_stoichiometries=data["substrate_stoichiometries"],
         )
 
 
