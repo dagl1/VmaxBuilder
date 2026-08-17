@@ -255,8 +255,9 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             if trimmable_genes is None:
                 raise ValueError("Trimming is enabled, but no trimmable_genes were provided.")
             self.logger.warning(
-                "Trimming is enabled. This may result in some IFPs being trimmed "
-                "and not included in the final allocation."
+                "Trimming is enabled. This may result in some IFPs being trimmed, "
+                "this means that some genes are not considered for IFP allocation in a"
+                "per-sample and per-IFP dependent manner."
             )
             (IFPs_per_sample, trimming_output) = self.trim_IFPs(
                 protein_abundance_df,
