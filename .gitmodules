@@ -4,3 +4,6 @@
 [submodule "data/VmaxBuilder_results"]
 	path = data/VmaxBuilder_results
 	url = https://github.com/dagl1/VmaxBuilder_data.git
+[submodule "external/UniKP"]
+	path = external/UniKP
+	url = https://github.com/dagl1/UniKP
