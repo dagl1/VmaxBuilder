@@ -6,7 +6,7 @@ from cobra.core.model import Model
 from pandas import DataFrame
 from typing_extensions import Protocol
 
-from VmaxBuilder.base.classes import BaseImplementation, DiagnosticOutputSpec
+from VmaxBuilder.base.classes import DiagnosticOutputSpec, RealImplementation
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.database_retrieval.identifier_translation import IdentifierTranslationService
 from VmaxBuilder.stages.model.default.config import ModelConfig
@@ -57,7 +57,7 @@ class TranscriptMetadataServiceProtocol(Protocol):
         """
 
 
-class DefaultIrreversibleModelImplementation(BaseImplementation[DefaultModelConfigProtocol]):
+class DefaultIrreversibleModelImplementation(RealImplementation[DefaultModelConfigProtocol]):
     BASE_STAGE_CONFIG = ModelCoreConfig
     IMPLEMENTATION_CONFIG_CLASS = ModelConfig
     _RESOLVED_CONFIG_CLASS = DefaultModelConfigProtocol

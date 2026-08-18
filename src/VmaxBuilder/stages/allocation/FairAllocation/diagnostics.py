@@ -27,7 +27,7 @@ import cobra.io.mat
 from cobra.core.model import Model
 from cobra.io.json import load_json_model
 
-from VmaxBuilder.cobrapy_overwrites.cobrapy_io import load_matlab_model
+from VmaxBuilder.cobrapy_overwrites.cobrapy_io import load_matlab_model, save_json_model
 from VmaxBuilder.utils.extra_utils import remove_compartment
 
 if __name__ == "__main__":
@@ -82,6 +82,13 @@ if __name__ == "__main__":
 
     human_2 = cobra.io.mat.load_matlab_model(human_2)
     hum_2_all_gene_substrate_combinations = get_all_gene_substrate_combinations(human_2)
+    save_json_model(
+        human_2,
+        str(
+            r"/home/p70088775/git/SWAPAM/data/for_SWAMP"
+            "/models/Human-GEM-2.0.0/model_Human-GEM.json"
+        ),
+    )
 
     human_1_17 = load_json_model(str(human_1_17))
     hum_1_17_all_gene_substrate_combinations = get_all_gene_substrate_combinations(human_1_17)
