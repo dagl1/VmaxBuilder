@@ -2,6 +2,8 @@ from collections.abc import Set
 from pathlib import PosixPath
 from typing import Generic, Iterable, Optional, TypeVar
 
+import pandas as pd
+
 T = TypeVar("T")
 
 
@@ -52,11 +54,20 @@ class SortedSet(Set, Generic[T]):
 
 
 def make_json_serializable(obj):
-    from VmaxBuilder.stages.Kcat.Kcat_utils import (
-        GeneMainSubstratePrediction,
-        GeneSubstratePrediction,
-        ReactionMainSubstratePrediction,
-    )
+    try:
+        from VmaxBuilder.stages.Kcat.Kcat_utils import (
+            GeneMainSubstratePrediction,
+            GeneSubstratePrediction,
+            ReactionMainSubstratePrediction,
+        )
+
+        prediction_types = (
+            ReactionMainSubstratePrediction,
+            GeneMainSubstratePrediction,
+            GeneSubstratePrediction,
+        )
+    except ModuleNotFoundError:
+        prediction_types = ()
 
     if isinstance(obj, (SortedSet, set)):
         return list(obj)
@@ -66,14 +77,11 @@ def make_json_serializable(obj):
         return [make_json_serializable(value) for value in obj]
     elif isinstance(obj, PosixPath):
         return str(obj)
-    elif isinstance(
-        obj,
-        (
-            ReactionMainSubstratePrediction,
-            GeneMainSubstratePrediction,
-            GeneSubstratePrediction,
-        ),
-    ):
+    elif isinstance(obj, pd.DataFrame):
+        return obj.to_dict(orient="records")
+    elif isinstance(obj, pd.Series):
+        return obj.to_dict()
+    elif prediction_types and isinstance(obj, prediction_types):
         return obj.to_dict()
 
     else:

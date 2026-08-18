@@ -1,65 +1,64 @@
 from __future__ import annotations
 
-from collections import Counter
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 from cobra.core.model import Model
 from cobra.io.json import load_json_model
-from rdkit import Chem
 
-from VmaxBuilder.base.classes import BaseImplementation, DiagnosticOutputSpec
+from VmaxBuilder.base.classes import BaseImplementation, ImplementationConfig
 from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
-from VmaxBuilder.GPR.gpr_preprocessing import (
-    build_gene_to_IFP_mapping,
-    build_gene_to_transcripts_mapping,
-    build_IFP_mapping_from_gpr_rules,
-    build_reaction_to_IFP_mapping,
-    clear_simplification_cache,
-    expand_gene_IFP_to_transcript_IFPs,
-    get_simplification_cache_info,
-    get_unique_genes_from_IFP_mapping,
-    get_unique_gpr_rules,
-)
+from VmaxBuilder.database_retrieval import IdentifierTranslationService
 from VmaxBuilder.Kcat_preprocessing.gene_substrate_preprocessing import (
     get_gene_substrate_mapping,
 )
-from VmaxBuilder.utils.extra_utils import remove_compartment
+from VmaxBuilder.Kcat_preprocessing.smiles_retrieval import (
+    DEFAULT_SMILES_LENGTH_LIMIT,
+    SmilesRetrievalService,
+    function_for_identifying_novel_found_SMILES_and_only_doing_those,
+    inchi_to_smiles,
+    load_manually_curated_smiles_file,
+    load_model_data_frame,
+    smiles_to_inchi,
+)
 
 
-def inchi_to_smiles(inchi, isomeric=True):
-    if pd.isna(inchi) or not str(inchi).strip():
-        return None
-    # Convert InChI to an RDKit Molecule Object
-    mol = Chem.MolFromInchi(str(inchi))
-    if mol:
-        # Convert Molecule to Isomeric or Canonical SMILES
-        return Chem.MolToSmiles(mol, isomericSmiles=isomeric)
-    return "Invalid InChI"
+@dataclass(slots=True)
+class TranscriptSmilesGetterConfig(ImplementationConfig):
+    """Generated: validation needed.
 
+    Description:
+        Runtime options controlling model-stage SMILES retrieval behaviour.
 
-def smiles_to_inchi(smiles):
-    if pd.isna(smiles) or not str(smiles).strip():
-        return None
-    # Convert SMILES to an RDKit Molecule Object
-    mol = Chem.MolFromSmiles(str(smiles))
-    if mol:
-        # Convert Molecule to InChI
-        return Chem.MolToInchi(mol)
-    return "Invalid SMILES"
+    Args:
+        use_most_protonated_smiles (bool): Whether multi-hit PubChem matches prefer
+            most protonated compatible formula variant.
+        smiles_length_limit (int): Length threshold used for UniKP diagnostics.
+        retrieve_transcript_metadata (bool): Whether missing transcript metadata should
+            be retrieved automatically from identifier translation providers.
+        retrieve_alternative_transcripts (bool): Whether transcript lookup should retain
+            alternative transcript rows in addition to canonical rows.
+    """
 
-
-def function_for_identifying_novel_found_SMILES_and_only_doing_those(
-    old_SMILES_df: pd.DataFrame,
-    new_SMILES_df: pd.DataFrame,
-):
-    pass
+    use_most_protonated_smiles: bool = True
+    smiles_length_limit: int = DEFAULT_SMILES_LENGTH_LIMIT
+    retrieve_transcript_metadata: bool = True
+    retrieve_alternative_transcripts: bool = False
 
 
 class TranscriptSMILESGetter(BaseImplementation[FullConfig]):
+    """Generated: validation needed.
+
+    Description:
+        Build metabolite SMILES table for transcript-level Kcat preprocessing while
+        preserving legacy lookup capabilities behind cleaner service helpers.
+    """
+
     STAGE_NAME: str = "model"  # while necessary for kcat, it really is based on the model
     IMPL_NAME: str = "SMILES_transcript_getter"
+    IMPLEMENTATION_CONFIG_CLASS = TranscriptSmilesGetterConfig
     INPUTS: list[InputSpec] = [
         InputSpec(
             name="cobra_model",
@@ -69,6 +68,7 @@ class TranscriptSMILESGetter(BaseImplementation[FullConfig]):
         InputSpec(
             name="cobra_model_data",
             data_type=pd.DataFrame,
+            loader=load_model_data_frame,
             prefix="model_data",  # for SysBioChalmers models (Human1 etc. ) this is
             # often a .xlsx file with multiple sheets. Rename it to avoid confusion
             extensions=[".csv", ".xlsx"],
@@ -76,6 +76,7 @@ class TranscriptSMILESGetter(BaseImplementation[FullConfig]):
         InputSpec(
             name="genes_df",
             data_type=pd.DataFrame,
+            optional=True,
             prefix="model_genes",  # for SysBioChalmers models (Human1 etc. ) this is
             # often a .xlsx file with multiple sheets. Rename it to avoid confusion
             extensions=[".tsv", ".csv", ".xlsx"],
@@ -95,6 +96,7 @@ class TranscriptSMILESGetter(BaseImplementation[FullConfig]):
         InputSpec(
             name="manually_curated_SMILES_df",
             data_type=pd.DataFrame,
+            loader=load_manually_curated_smiles_file,
             optional=True,
         ),
         InputSpec(
@@ -110,6 +112,34 @@ class TranscriptSMILESGetter(BaseImplementation[FullConfig]):
             data_type=pd.DataFrame,
             optional=True,
         ),
+        InputSpec(
+            name="metabolite_name_synonyms_df",
+            data_type=pd.DataFrame,
+            optional=True,
+            prefix="metabolite_name_synonyms",
+            extensions=[".tsv", ".csv"],
+        ),
+        InputSpec(
+            name="chebi_df",
+            data_type=pd.DataFrame,
+            optional=True,
+            prefix="chebi_id_SMILES",
+            extensions=[".csv", ".tsv"],
+        ),
+        InputSpec(
+            name="chem_prop_df",
+            data_type=pd.DataFrame,
+            optional=True,
+            prefix="chem_prop",
+            extensions=[".tsv", ".csv"],
+        ),
+        InputSpec(
+            name="recon3d_data",
+            data_type=dict,
+            optional=True,
+            prefix="Recon3D",
+            extensions=[".json"],
+        ),
     ]
     OUTPUTS: list[OutputSpec] = [
         OutputSpec(
@@ -123,7 +153,7 @@ class TranscriptSMILESGetter(BaseImplementation[FullConfig]):
         OutputSpec(
             name="transcript_df",
             data_type=pd.DataFrame,
-            scaffold_location="diagnostics",
+            scaffold_location="artifacts",
             save_file_name="transcript_df",
             extension=".csv",
             validator=None,
@@ -132,254 +162,474 @@ class TranscriptSMILESGetter(BaseImplementation[FullConfig]):
             "gene_substrate_mapping",
             data_type=dict[str, set[str]],
             scaffold_location="diagnostics",
+            save_file_name="gene_substrate_mapping",
+            extension=".json",
+        ),
+        OutputSpec(
+            name="gene_transcript_mapping",
+            data_type=pd.DataFrame,
+            scaffold_location="artifacts",
+            save_file_name="gene_transcript_mapping",
+            extension=".csv",
+        ),
+        OutputSpec(
+            name="transcript_sequences",
+            data_type=pd.DataFrame,
+            scaffold_location="artifacts",
+            save_file_name="transcript_sequences",
+            extension=".csv",
+        ),
+        OutputSpec(
+            name="transcript_to_gene_mapping",
+            data_type=dict,
+            scaffold_location="artifacts",
+            save_file_name="transcript_to_gene_mapping",
+            extension=".json",
+        ),
+        OutputSpec(
+            name="gene_to_transcript_mapping",
+            data_type=dict,
+            scaffold_location="artifacts",
+            save_file_name="gene_to_transcript_mapping",
+            extension=".json",
+        ),
+        OutputSpec(
+            name="protein_coding_transcripts",
+            data_type=list,
+            scaffold_location="artifacts",
+            save_file_name="protein_coding_transcripts",
+            extension=".json",
+        ),
+        OutputSpec(
+            name="canonical_transcripts",
+            data_type=list,
+            scaffold_location="artifacts",
+            save_file_name="canonical_transcripts",
+            extension=".json",
         ),
     ]
 
+    def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
+        """Generated: validation needed.
+
+        Description:
+            Resolve metabolite SMILES for current model, reuse prior results where
+            possible, and return transcript/Kcat preprocessing payloads.
+
+        Args:
+            scaffold (Scaffold): Shared pipeline scaffold.
+
+        Returns:
+            dict[str, dict[str, Any]]: Scaffold payload containing SMILES artifacts,
+                transcript diagnostics, gene-substrate mapping, and metadata.
+
+        Raises:
+            ValueError: If COBRA model is unavailable.
+        """
+
+        self.load_inputs(scaffold)
+        cobra_model = scaffold.get_scaffold_value("cobra_model", Model)
+        if cobra_model is None:
+            raise ValueError("No COBRA model found in scaffold for SMILES processing.")
+
+        smiles_service = SmilesRetrievalService(
+            logger=self.logger,
+            use_most_protonated_smiles=self.config.use_most_protonated_smiles,
+            smiles_length_limit=self.config.smiles_length_limit,
+        )
+
+        elapsed_time, smiles_result = self.get_time_decorator(
+            smiles_service.build_smiles_dataframe
+        )(
+            cobra_model=cobra_model,
+            existing_smiles_df=self._get_dataframe_value(scaffold, "SMILES_df"),
+            model_data_df=self._get_dataframe_value(scaffold, "cobra_model_data"),
+            metabolites_df=self._get_dataframe_value(scaffold, "metabolites_df"),
+            manually_curated_smiles_df=self._get_dataframe_value(
+                scaffold,
+                "manually_curated_SMILES_df",
+            ),
+            metabolites_smiles_inchi_df=self._get_dataframe_value(
+                scaffold,
+                "metabolites_SMILES_Inchi_df",
+            ),
+            metabolite_name_synonyms_df=self._get_dataframe_value(
+                scaffold,
+                "metabolite_name_synonyms_df",
+            ),
+            chebi_df=self._get_dataframe_value(scaffold, "chebi_df"),
+            chem_prop_df=self._get_dataframe_value(scaffold, "chem_prop_df"),
+            recon3d_data=self._get_dictionary_value(scaffold, "recon3d_data"),
+        )
+
+        transcript_artifacts = self._get_or_build_transcript_artifacts(scaffold, cobra_model)
+        transcript_df = transcript_artifacts["gene_transcript_mapping"]
+
+        gene_substrate_mapping = get_gene_substrate_mapping(cobra_model=cobra_model)
+        previous_smiles_df = self._get_dataframe_value(scaffold, "SMILES_df")
+        if previous_smiles_df is None:
+            previous_smiles_df = pd.DataFrame()
+        novel_lookup_targets = (
+            function_for_identifying_novel_found_SMILES_and_only_doing_those(
+                old_SMILES_df=previous_smiles_df,
+                new_SMILES_df=smiles_result.smiles_df,
+            )
+        )
+        scaffold.inputs["SMILES_df"] = smiles_result.smiles_df
+        scaffold.inputs["transcript_df"] = transcript_df
+        scaffold.artifacts.update(transcript_artifacts)
+
+        metadata = {
+            "smiles": {
+                "implementation": type(self).__name__,
+                "elapsed_time_seconds": elapsed_time,
+                "params": self.get_implementation_config_params(),
+                **smiles_result.metadata,
+            }
+        }
+        diagnostics = {
+            "transcript_df": transcript_df,
+            "gene_substrate_mapping": gene_substrate_mapping,
+            "smiles_summary": smiles_result.summary,
+            "smiles_diagnostics": smiles_result.diagnostics,
+            "novel_lookup_targets": novel_lookup_targets,
+            "transcript_lookup_summary": {
+                "rows": int(len(transcript_df)),
+                "canonical_rows": int(transcript_df["is_canonical"].sum())
+                if "is_canonical" in transcript_df.columns
+                else 0,
+                "contains_alternative_transcripts": bool(
+                    (~transcript_df["is_canonical"]).any()
+                )
+                if "is_canonical" in transcript_df.columns and not transcript_df.empty
+                else False,
+            },
+        }
+
+        return {
+            "outputs": {},
+            "artifacts": {
+                "SMILES_df": smiles_result.smiles_df,
+                "transcript_df": transcript_df,
+                **transcript_artifacts,
+            },
+            "metadata": metadata,
+            "diagnostics": diagnostics,
+        }
+
+    def _get_or_build_transcript_artifacts(
+        self,
+        scaffold: Scaffold,
+        cobra_model: Model,
+    ) -> dict[str, Any]:
+        """Generated: validation needed.
+
+        Description:
+            Return transcript artifacts from scaffold when provided, otherwise retrieve
+            transcript and amino-acid metadata for model genes.
+
+        Args:
+            scaffold (Scaffold): Shared scaffold payload.
+            cobra_model (Model): COBRA model containing gene identifiers.
+
+        Returns:
+            dict[str, Any]: Transcript dataframe plus derived mapping artifacts.
+        """
+
+        transcript_df = self._get_dataframe_value(scaffold, "transcript_df")
+        if transcript_df is not None:
+            return self._build_transcript_artifact_payload(transcript_df)
+
+        if not self.config.retrieve_transcript_metadata:
+            return self._build_transcript_artifact_payload(self._empty_transcript_dataframe())
+
+        genes_in_model = [str(gene.id) for gene in cobra_model.genes if str(gene.id).strip()]
+        gene_id_type = self._infer_gene_id_type()
+        if not genes_in_model or gene_id_type is None:
+            return self._build_transcript_artifact_payload(self._empty_transcript_dataframe())
+
+        translation_service = IdentifierTranslationService()
+        transcript_df = translation_service.build_gene_transcript_dataframe(
+            genes_in_model,
+            gene_id_type=gene_id_type,
+            species=self.full_config.transcripts.id_translation_species,
+            provider=self.full_config.transcripts.id_translation_provider,
+            max_workers=self.full_config.transcripts.id_translation_max_workers,
+            batch_size=self.full_config.transcripts.id_translation_batch_size,
+        )
+        transcript_df = self._filter_transcript_dataframe(transcript_df)
+        return self._build_transcript_artifact_payload(transcript_df)
+
+    def _filter_transcript_dataframe(self, transcript_df: pd.DataFrame) -> pd.DataFrame:
+        """Generated: validation needed.
+
+        Description:
+            Apply configured transcript filtering, keeping canonical-only mode as default
+            while optionally retaining alternative transcripts.
+
+        Args:
+            transcript_df (pd.DataFrame): Retrieved transcript metadata dataframe.
+
+        Returns:
+            pd.DataFrame: Filtered transcript metadata dataframe.
+        """
+
+        if transcript_df.empty:
+            return transcript_df
+
+        filtered_transcript_df = transcript_df.copy()
+        if self.full_config.transcripts.protein_coding_only and (
+            "is_protein_coding" in filtered_transcript_df.columns
+        ):
+            filtered_transcript_df = filtered_transcript_df[
+                filtered_transcript_df["is_protein_coding"]
+            ]
+
+        if self.config.retrieve_alternative_transcripts:
+            return filtered_transcript_df.reset_index(drop=True)
+
+        if "is_canonical" not in filtered_transcript_df.columns:
+            return filtered_transcript_df.reset_index(drop=True)
+
+        canonical_transcript_df = filtered_transcript_df[
+            filtered_transcript_df["is_canonical"]
+        ]
+        if canonical_transcript_df.empty:
+            return filtered_transcript_df.reset_index(drop=True)
+        return canonical_transcript_df.reset_index(drop=True)
+
+    def _build_transcript_artifact_payload(
+        self,
+        transcript_df: pd.DataFrame,
+    ) -> dict[str, Any]:
+        """Generated: validation needed.
+
+        Description:
+            Build transcript mapping and sequence artifacts from transcript dataframe.
+
+        Args:
+            transcript_df (pd.DataFrame): Transcript metadata dataframe.
+
+        Returns:
+            dict[str, Any]: Transcript artifacts used by downstream transcript-aware logic.
+        """
+
+        if transcript_df.empty:
+            transcript_to_gene_mapping: dict[str, str] = {}
+            gene_to_transcript_mapping: dict[str, list[str]] = {}
+            protein_coding_transcripts: list[str] = []
+            canonical_transcripts: list[str] = []
+            transcript_sequences = self._empty_transcript_dataframe()[
+                [
+                    "transcript_id",
+                    "gene_id",
+                    "peptide_len",
+                    "cdna_len",
+                    "peptide_seq",
+                    "cdna_seq",
+                ]
+            ]
+        else:
+            transcript_to_gene_mapping = transcript_df.set_index("transcript_id")[
+                "gene_id"
+            ].to_dict()
+            gene_to_transcript_mapping = (
+                transcript_df.groupby("gene_id")["transcript_id"].agg(list).to_dict()
+            )
+            protein_coding_transcripts = transcript_df[
+                transcript_df["is_protein_coding"]
+            ]["transcript_id"].tolist()
+            canonical_transcripts = transcript_df[transcript_df["is_canonical"]][
+                "transcript_id"
+            ].tolist()
+            transcript_sequences = transcript_df[
+                [
+                    "transcript_id",
+                    "gene_id",
+                    "peptide_len",
+                    "cdna_len",
+                    "peptide_seq",
+                    "cdna_seq",
+                ]
+            ].reset_index(drop=True)
+
+        return {
+            "gene_transcript_mapping": transcript_df.reset_index(drop=True),
+            "transcript_to_gene_mapping": transcript_to_gene_mapping,
+            "gene_to_transcript_mapping": gene_to_transcript_mapping,
+            "protein_coding_transcripts": protein_coding_transcripts,
+            "canonical_transcripts": canonical_transcripts,
+            "transcript_sequences": transcript_sequences,
+        }
+
+    def _infer_gene_id_type(self) -> str | None:
+        """Generated: validation needed.
+
+        Description:
+            Infer identifier-translation source type for model genes from active model config.
+
+        Returns:
+            str | None: Translation service gene identifier type, or None when it cannot
+                be inferred safely.
+        """
+
+        model_config = getattr(self.full_config, "model", None)
+        if model_config is None:
+            return None
+
+        gene_id_type = getattr(model_config, "gene_id_type", None)
+        level = str(getattr(model_config, "level", "gene")).lower()
+        if isinstance(gene_id_type, str) and gene_id_type.strip():
+            if gene_id_type.startswith("ensembl_") or gene_id_type in {
+                "symbol",
+                "entrez_gene_id",
+                "ensembl_gene_id",
+                "ensembl_transcript_id",
+            }:
+                return gene_id_type
+            if gene_id_type == "ensembl":
+                return f"ensembl_{level}_id"
+            return gene_id_type
+
+        provider_id_type = getattr(model_config, "id_type", None)
+        if not isinstance(provider_id_type, str) or not provider_id_type.strip():
+            return None
+        if provider_id_type == "ensembl":
+            return f"ensembl_{level}_id"
+        return provider_id_type
+
+    @staticmethod
+    def _empty_transcript_dataframe() -> pd.DataFrame:
+        """Generated: validation needed.
+
+        Description:
+            Create empty transcript metadata dataframe with expected sequence columns.
+
+        Returns:
+            pd.DataFrame: Empty transcript metadata dataframe.
+        """
+
+        return pd.DataFrame(
+            columns=[
+                "transcript_id",
+                "gene_id",
+                "is_protein_coding",
+                "is_canonical",
+                "peptide_len",
+                "cdna_len",
+                "peptide_seq",
+                "cdna_seq",
+            ]
+        )
+
+    @staticmethod
+    def _get_dataframe_value(
+        scaffold: Scaffold,
+        key: str,
+    ) -> pd.DataFrame | None:
+        """Generated: validation needed.
+
+        Description:
+            Read dataframe-like value from scaffold when present.
+
+        Args:
+            scaffold (Scaffold): Shared scaffold payload.
+            key (str): Scaffold key to retrieve.
+
+        Returns:
+            pd.DataFrame | None: Retrieved dataframe, or None when absent or wrong type.
+        """
+
+        value = scaffold.get_scaffold_value(key)
+        return value if isinstance(value, pd.DataFrame) else None
+
+    @staticmethod
+    def _get_dictionary_value(
+        scaffold: Scaffold,
+        key: str,
+    ) -> dict[str, Any] | list[dict[str, Any]] | None:
+        """Generated: validation needed.
+
+        Description:
+            Read dictionary- or list-like value from scaffold when present.
+
+        Args:
+            scaffold (Scaffold): Shared scaffold payload.
+            key (str): Scaffold key to retrieve.
+
+        Returns:
+            dict[str, Any] | list[dict[str, Any]] | None: Retrieved value when type is
+                compatible with Recon3D-style payloads.
+        """
+
+        value = scaffold.get_scaffold_value(key)
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, list) and all(isinstance(entry, dict) for entry in value):
+            return value
+        return None
+
 
 if __name__ == "__main__":
-    import json
-    from pathlib import Path
+    base_dir = Path(
+        "/home/p70088775/git/VmaxBuilder/data/run_example_output/NCI_60_human_run/"
+    )
+    swapam_data_dir = Path("/home/p70088775/git/SWAPAM/data/for_SWAMP/")
+    model_dir = swapam_data_dir / "models" / "Human-GEM-2.0.0"
 
-    # load model
-    # load model data
-    # load smiles df if exitst
-    # laod transcript df if exists
-
-    base_dir = r"/home/p70088775/git/VmaxBuilder/data/run_example_output/NCI_60_human_run/"
-    SWAPAM_data_dir = Path(r"/home/p70088775/git/SWAPAM/data/for_SWAMP/")
-    models_dir = SWAPAM_data_dir / "models"
-    model_dir = models_dir / "Human-GEM-2.0.0"
     model_file = model_dir / "model_Human-GEM.json"
     metabolites_file = model_dir / "model_metabolites.tsv"
-    genes_file = model_dir / "model_genes.tsv"
     model_data_file = model_dir / "model_data_Human-GEM.xlsx"
-    manually_curated_SMILES_file = model_dir / "manually_curated_SMILES.csv"
-    metabolites_SMILES_Inchi_file = model_dir / "metabolites_SMILES_Inchi.tsv"
+    manually_curated_smiles_file = model_dir / "manually_curated_SMILES.csv"
+    metabolites_smiles_inchi_file = model_dir / "metabolites_SMILES_Inchi.tsv"
+    metabolite_name_synonyms_file = model_dir / "metabolite_name_synonyms.tsv"
+    chebi_file = model_dir / "chebi_id_SMILES.csv"
+    chem_prop_file = model_dir / "chem_prop.tsv"
+    recon3d_file = model_dir / "Recon3D.json"
 
-    # model_data_GENES = pd.read_excel(model_data_file, sheet_name="GENES")
-    model_data_METS = pd.read_excel(model_data_file, sheet_name="METS")
-    # model_genes_df = pd.read_csv(genes_file, sep="\t")
-    model_metabolites_df = pd.read_csv(metabolites_file, sep="\t")
     cobra_model = load_json_model(model_file)
-    metabolites_SMILES_Inchi_df = pd.read_csv(
-        metabolites_SMILES_Inchi_file, sep="\t", dtype=str, na_filter=False
+    model_data_df = load_model_data_frame(model_data_file)
+    metabolites_df = pd.read_csv(metabolites_file, sep="\t")
+    manually_curated_smiles_df = load_manually_curated_smiles_file(
+        manually_curated_smiles_file
     )
-
-    import csv
-    from pathlib import Path
-
-    def load_manually_curated_SMILES(
-        manually_curated_SMILES_file: str | Path,
-    ) -> pd.DataFrame:
-        expected_columns = [
-            "name",
-            "id",
-            "id_without_compartment",
-            "base_to_work_from",
-            "difference",
-            "base_smiles",
-            "modified_smiles",
-        ]
-
-        rows = []
-
-        with open(
-            manually_curated_SMILES_file,
-            "r",
-            encoding="utf-8",
-            newline="",
-        ) as f:
-            reader = csv.reader(f)
-
-            # Skip the original header.
-            next(reader)
-
-            for row in reader:
-                # Empty line
-                if not row:
-                    continue
-
-                # The first field is the name. If the name contains an
-                # unquoted comma, reconstruct it from the extra fields.
-                if len(row) > len(expected_columns):
-                    extra_fields = len(row) - len(expected_columns) + 1
-
-                    name = ",".join(row[:extra_fields])
-                    row = [name] + row[extra_fields:]
-
-                # Pad rows with missing trailing fields.
-                row += [None] * (len(expected_columns) - len(row))
-
-                # Reject genuinely malformed rows.
-                if len(row) > len(expected_columns):
-                    raise ValueError(
-                        f"Malformed row with {len(row)} fields "
-                        f"(expected at most {len(expected_columns)}):\n{row}"
-                    )
-
-                rows.append(row)
-
-        return pd.DataFrame(rows, columns=expected_columns)
-
-    gene_substrate_mapping = get_gene_substrate_mapping(
-        cobra_model=cobra_model,
-    )
-    gene_ids = [gene.id for gene in cobra_model.genes]
-    metabolite_ids = [met.id for met in cobra_model.metabolites]
-    metabolite_ids_without_compartment = set(
-        sorted([remove_compartment(met.id) for met in cobra_model.metabolites])
-    )
-
-    # in the SMILES_inchi file, get all inchi's
-    # similarly in model_METS check for Inchi column
-    # check manually_curated_SMILES_df and convert to inchi
-
-    # print columns in each df so we can see what we have
-    manually_curated_SMILES_df = pd.read_csv(
-        manually_curated_SMILES_file,
+    metabolites_smiles_inchi_df = pd.read_csv(
+        metabolites_smiles_inchi_file,
         sep="\t",
         dtype=str,
     )
-    print("model_data_METS columns:", model_data_METS.columns.tolist())
-    print("model_metabolites_df columns:", model_metabolites_df.columns.tolist())
-    print(
-        "metabolites_SMILES_Inchi_df columns:", metabolites_SMILES_Inchi_df.columns.tolist()
+    metabolite_name_synonyms_df = (
+        pd.read_csv(metabolite_name_synonyms_file, sep="\t", dtype=str)
+        if metabolite_name_synonyms_file.exists()
+        else None
     )
-    print("manually_curated_SMILES_df columns:", manually_curated_SMILES_df.columns.tolist())
-    print("manually_curated_SMILES_df columns:", manually_curated_SMILES_df.columns.tolist())
-    print("manually_curated_SMILES_df head:", manually_curated_SMILES_df.head())
-
-    # model_data_METS columns: ['#', 'ID', 'NAME', 'UNCONSTRAINED', 'MIRIAM', 'COMPOSITION',
-    # 'InChI', 'COMPARTMENT', 'REPLACEMENT ID', 'CHARGE']
-    # model_metabolites_df columns: ['mets', 'metsNoComp', 'metBiGGID', 'metKEGGID',
-    # 'metHMDBID',
-    # 'metChEBIID', 'metPubChemID', 'metLipidMapsID', 'metEHMNID', 'metHepat
-    # oNET1ID', 'metRecon3DID', 'metMetaNetXID', 'metHMR2ID', 'metRetired']
-    # metabolites_SMILES_Inchi_df columns: ['mets', 'metsNoComp', 'SMILES', 'inchikey',
-    # 'inchi']
-    # manually_curated_SMILES_df columns: ['name', 'id', 'id_without_compartment',
-    # 'base_to_work_from', 'difference', 'base_smiles', 'modified_smiles']
-
-    # always match id to whatever we want
-    inchi_from_METS = model_data_METS.set_index("ID")["InChI"].to_dict()
-    inchi_from_METS = {remove_compartment(k): v for k, v in inchi_from_METS.items()}
-    inchi_from_metabolites_SMILES_Inchi = metabolites_SMILES_Inchi_df.set_index("mets")[
-        "inchi"
-    ].to_dict()
-    inchi_from_metabolites_SMILES_Inchi = {
-        remove_compartment(k): v for k, v in inchi_from_metabolites_SMILES_Inchi.items()
-    }
-    smiles_from_manually_curated_SMILES = manually_curated_SMILES_df.set_index("id")[
-        "modified_smiles"
-    ].to_dict()
-    # # remove compartment from the keys of smiles_from_manually_curated_SMILES
-    smiles_from_manually_curated_SMILES = {
-        remove_compartment(k): v for k, v in smiles_from_manually_curated_SMILES.items()
-    }
-    #
-    # # convert modified_smiles to inchi using smiles_to_inchi function
-    inchi_from_manually_curated_SMILES = {
-        remove_compartment(k): smiles_to_inchi(v)
-        for k, v in smiles_from_manually_curated_SMILES.items()
-    }
-    #
-    # # get only the sets of metablites without compartment
-    # # and populate them with inchi, if more than one inchi (different) inhchi for the same
-    # # metabolite exists, we put them in a conflict_dict and we just choose the first one
-    # # for now
-    conflict_dict = {}
-    inchi_mapping = {}
-
-    for met_id in metabolite_ids_without_compartment:
-        for source_dict in [
-            inchi_from_METS,
-            inchi_from_metabolites_SMILES_Inchi,
-            inchi_from_manually_curated_SMILES,
-        ]:
-            if met_id in source_dict:
-                if met_id not in conflict_dict:
-                    inchi_mapping[met_id] = set()
-                inchi_mapping[met_id].add(source_dict[met_id])
-                if len(inchi_mapping[met_id]) > 1:
-                    conflict_dict[met_id] = inchi_mapping[met_id]
-
-    # create a SMILES_df with columns: "name", "id", "id_without_compartment", "InChI",
-    # "SMILES"
-    # populate it with the inchi_mapping and convert inchi to SMILES using inchi_to_smiles
-    # function
-    new_SMILES_df = pd.DataFrame(
-        [
-            {
-                "name": met_id,
-                "id": met_id,
-                "id_without_compartment": met_id,
-                "InChI": list(inchi_mapping[met_id])[0],
-                "isomeric_SMILES": inchi_to_smiles(list(inchi_mapping[met_id])[0]),
-                "canonical_SMILES": inchi_to_smiles(
-                    list(inchi_mapping[met_id])[0], isomeric=False
-                ),
-            }
-            for met_id in inchi_mapping
-        ]
+    chebi_df = pd.read_csv(chebi_file, dtype=str) if chebi_file.exists() else None
+    chem_prop_df = (
+        pd.read_csv(chem_prop_file, sep="\t", dtype=str) if chem_prop_file.exists() else None
     )
-    # remove invalid SMILES rows and invalid InChI rows
-    # "Invalid SMILES"
-    new_SMILES_df = new_SMILES_df[
-        (new_SMILES_df["isomeric_SMILES"] != "Invalid InChI")
-        & (new_SMILES_df["canonical_SMILES"] != "Invalid InChI")
-    ]
+    recon3d_data = None
+    if recon3d_file.exists():
+        import json
 
-    # add rows for metabolites that are in the model but not in the SMILES_df,
-    # with missing values for InChI and SMILES (empty values)
+        recon3d_data = json.loads(recon3d_file.read_text(encoding="utf-8"))
 
-    new_SMILES_df = pd.concat(
-        [
-            new_SMILES_df,
-            pd.DataFrame(
-                [
-                    {
-                        "name": met_id,
-                        "id": met_id,
-                        "id_without_compartment": met_id,
-                        "InChI": None,
-                        "isomeric_SMILES": None,
-                        "canonical_SMILES": None,
-                    }
-                    for met_id in metabolite_ids_without_compartment
-                    if met_id not in new_SMILES_df["id_without_compartment"].values
-                ]
-            ),
-        ],
-        ignore_index=True,
+    smiles_service = SmilesRetrievalService()
+    smiles_result = smiles_service.build_smiles_dataframe(
+        cobra_model=cobra_model,
+        model_data_df=model_data_df,
+        metabolites_df=metabolites_df,
+        manually_curated_smiles_df=manually_curated_smiles_df,
+        metabolites_smiles_inchi_df=metabolites_smiles_inchi_df,
+        metabolite_name_synonyms_df=metabolite_name_synonyms_df,
+        chebi_df=chebi_df,
+        chem_prop_df=chem_prop_df,
+        recon3d_data=recon3d_data,
     )
-
-    # amount of missing smiles per met_without compartment
-    # create 2 additional columns, missing_smiles and smiles_longer_than_218
-
-    # missing smiles are those that are NaN in the isomeric_SMILES column or empty strings
-    new_SMILES_df["missing_smiles"] = new_SMILES_df["isomeric_SMILES"].isna() | (
-        new_SMILES_df["isomeric_SMILES"] == ""
-    )
-    new_SMILES_df["smiles_longer_than_218"] = new_SMILES_df["isomeric_SMILES"].apply(
-        lambda x: len(x) > 218 if pd.notna(x) else False
-    )
-    new_SMILES_df.to_csv(base_dir + "SMILES_df.csv", index=False)
-    # number of total rows
-    # number of rows with missing smiles
-    # number of rows with smiles longer than 218 characters
-    print("Total rows in SMILES_df:", len(new_SMILES_df))
-    print(
-        "Number of rows with missing smiles:",
-        new_SMILES_df["missing_smiles"].sum(),
-    )
+    base_dir.mkdir(parents=True, exist_ok=True)
+    smiles_result.smiles_df.to_csv(base_dir / "SMILES_df.csv", index=False)
+    print("Total rows in SMILES_df:", len(smiles_result.smiles_df))
+    print("Number of rows with missing smiles:", smiles_result.summary["missing_smiles"])
     print(
         "Number of rows with smiles longer than 218 characters:",
-        new_SMILES_df["smiles_longer_than_218"].sum(),
+        smiles_result.summary["smiles_longer_than_218"],
     )
-    # old amounts:
-    # 3462
-    # 4299
-    # now -> regressed, so should likely apply the new code
-    # 3024
-    # 4165
-    pass

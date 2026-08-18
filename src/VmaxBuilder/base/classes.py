@@ -869,17 +869,28 @@ class BaseImplementation(Generic[ConfigType], ABC):
                 **filtered_saver_args,
             )
             return
-        from VmaxBuilder.stages.Kcat.Kcat_utils import (
-            GeneMainSubstratePrediction,
-            GeneSubstratePrediction,
-            ReactionMainSubstratePrediction,
-        )
+        try:
+            from VmaxBuilder.stages.Kcat.Kcat_utils import (
+                GeneMainSubstratePrediction,
+                GeneSubstratePrediction,
+                ReactionMainSubstratePrediction,
+            )
+        except ModuleNotFoundError:
+            GeneMainSubstratePrediction = None
+            GeneSubstratePrediction = None
+            ReactionMainSubstratePrediction = None
 
-        if isinstance(diagnostic_value, ReactionMainSubstratePrediction):
+        if ReactionMainSubstratePrediction is not None and isinstance(
+            diagnostic_value, ReactionMainSubstratePrediction
+        ):
             diagnostic_value = diagnostic_value.to_dict()
-        elif isinstance(diagnostic_value, GeneMainSubstratePrediction):
+        elif GeneMainSubstratePrediction is not None and isinstance(
+            diagnostic_value, GeneMainSubstratePrediction
+        ):
             diagnostic_value = diagnostic_value.to_dict()
-        elif isinstance(diagnostic_value, GeneSubstratePrediction):
+        elif GeneSubstratePrediction is not None and isinstance(
+            diagnostic_value, GeneSubstratePrediction
+        ):
             diagnostic_value = diagnostic_value.to_dict()
 
         with (save_location / f"{diagnostic_name}.json").open(
