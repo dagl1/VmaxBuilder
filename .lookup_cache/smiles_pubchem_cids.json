@@ -1,0 +1,132 @@
+{
+  "pubchem_cid:123929.0": [
+    {
+      "compound_id": "123929",
+      "query": 123929,
+      "search_namespace": "cid",
+      "isomeric_smiles": "CC(C)CCCC(C)CCCC(C)CCCC(C)C(=O)O",
+      "canonical_smiles": "CC(C)CCCC(C)CCCC(C)CCCC(C)C(=O)O",
+      "inchi": "InChI=1S/C19H38O2/c1-15(2)9-6-10-16(3)11-7-12-17(4)13-8-14-18(5)19(20)21/h15-18H,6-14H2,1-5H3,(H,20,21)",
+      "inchikey": "PAHGJZDQXIOYTH-UHFFFAOYSA-N",
+      "iupac_name": "2,6,10,14-tetramethylpentadecanoic acid",
+      "molecular_formula": "C19H38O2"
+    }
+  ],
+  "pubchem_cid:26840.0": [
+    {
+      "compound_id": "26840",
+      "query": 26840,
+      "search_namespace": "cid",
+      "isomeric_smiles": "CC(C)CCCC(C)CCCC(C)CCCC(C)CC(=O)O",
+      "canonical_smiles": "CC(C)CCCC(C)CCCC(C)CCCC(C)CC(=O)O",
+      "inchi": "InChI=1S/C20H40O2/c1-16(2)9-6-10-17(3)11-7-12-18(4)13-8-14-19(5)15-20(21)22/h16-19H,6-15H2,1-5H3,(H,21,22)",
+      "inchikey": "RLCKHJSFHOZMDR-UHFFFAOYSA-N",
+      "iupac_name": "3,7,11,15-tetramethylhexadecanoic acid",
+      "molecular_formula": "C20H40O2"
+    }
+  ],
+  "pubchem_cid:92042789.0": [
+    {
+      "compound_id": "92042789",
+      "query": 92042789,
+      "search_namespace": "cid",
+      "isomeric_smiles": "CCC(C1=[N+](C(=C(S1)CCOP(=O)(O)OP(=O)(O)O)C)CC2=CN=C(N=C2N)C)O",
+      "canonical_smiles": "CCC(C1=[N+](C(=C(S1)CCOP(=O)(O)OP(=O)(O)O)C)CC2=CN=C(N=C2N)C)O",
+      "inchi": "InChI=1S/C15H24N4O8P2S/c1-4-12(20)15-19(8-11-7-17-10(3)18-14(11)16)9(2)13(30-15)5-6-26-29(24,25)27-28(21,22)23/h7,12,20H,4-6,8H2,1-3H3,(H4-,16,17,18,21,22,23,24,25)/p+1",
+      "inchikey": "JICPENPXPGFLJB-UHFFFAOYSA-O",
+      "iupac_name": "2-[3-[(4-amino-2-methylpyrimidin-5-yl)methyl]-2-(1-hydroxypropyl)-4-methyl-1,3-thiazol-3-ium-5-yl]ethyl phosphono hydrogen phosphate",
+      "molecular_formula": "C15H25N4O8P2S+"
+    }
+  ],
+  "pubchem_cid:23724626.0": [
+    {
+      "compound_id": "23724626",
+      "query": 23724626,
+      "search_namespace": "cid",
+      "isomeric_smiles": "CC1=C(SC(=[N+]1CC2=CN=C(N=C2N)C)C(C(C)C)O)CCOP(=O)(O)OP(=O)(O)O",
+      "canonical_smiles": "CC1=C(SC(=[N+]1CC2=CN=C(N=C2N)C)C(C(C)C)O)CCOP(=O)(O)OP(=O)(O)O",
+      "inchi": "InChI=1S/C16H26N4O8P2S/c1-9(2)14(21)16-20(8-12-7-18-11(4)19-15(12)17)10(3)13(31-16)5-6-27-30(25,26)28-29(22,23)24/h7,9,14,21H,5-6,8H2,1-4H3,(H4-,17,18,19,22,23,24,25,26)/p+1",
+      "inchikey": "SSYCSHKTIOHFEZ-UHFFFAOYSA-O",
+      "iupac_name": "2-[3-[(4-amino-2-methylpyrimidin-5-yl)methyl]-2-(1-hydroxy-2-methylpropyl)-4-methyl-1,3-thiazol-3-ium-5-yl]ethyl phosphono hydrogen phosphate",
+      "molecular_formula": "C16H27N4O8P2S+"
+    }
+  ],
+  "pubchem_cid:5460643.0": [
+    {
+      "compound_id": "5460643",
+      "query": 5460643,
+      "search_namespace": "cid",
+      "isomeric_smiles": "CC1=C(SC(=[N+]1CC2=CN=C(N=C2N)C)C(CC(C)C)O)CCP(=O)(O)OP(=O)(O)O",
+      "canonical_smiles": "CC1=C(SC(=[N+]1CC2=CN=C(N=C2N)C)C(CC(C)C)O)CCP(=O)(O)OP(=O)(O)O",
+      "inchi": "InChI=1S/C17H28N4O7P2S/c1-10(2)7-14(22)17-21(9-13-8-19-12(4)20-16(13)18)11(3)15(31-17)5-6-29(23,24)28-30(25,26)27/h8,10,14,22H,5-7,9H2,1-4H3,(H4-,18,19,20,23,24,25,26,27)/p+1",
+      "inchikey": "FNWPWAAIDUNOEO-UHFFFAOYSA-O",
+      "iupac_name": "2-[3-[(4-amino-2-methylpyrimidin-5-yl)methyl]-2-(1-hydroxy-3-methylbutyl)-4-methyl-1,3-thiazol-3-ium-5-yl]ethyl-phosphonooxyphosphinic acid",
+      "molecular_formula": "C17H29N4O7P2S+"
+    }
+  ],
+  "pubchem_cid:5460645.0": [
+    {
+      "compound_id": "5460645",
+      "query": 5460645,
+      "search_namespace": "cid",
+      "isomeric_smiles": "CCC(C)C(C1=[N+](C(=C(S1)CCP(=O)(O)OP(=O)(O)O)C)CC2=CN=C(N=C2N)C)O",
+      "canonical_smiles": "CCC(C)C(C1=[N+](C(=C(S1)CCP(=O)(O)OP(=O)(O)O)C)CC2=CN=C(N=C2N)C)O",
+      "inchi": "InChI=1S/C17H28N4O7P2S/c1-5-10(2)15(22)17-21(9-13-8-19-12(4)20-16(13)18)11(3)14(31-17)6-7-29(23,24)28-30(25,26)27/h8,10,15,22H,5-7,9H2,1-4H3,(H4-,18,19,20,23,24,25,26,27)/p+1",
+      "inchikey": "MOEKSHHMFNQKPI-UHFFFAOYSA-O",
+      "iupac_name": "2-[3-[(4-amino-2-methylpyrimidin-5-yl)methyl]-2-(1-hydroxy-2-methylbutyl)-4-methyl-1,3-thiazol-3-ium-5-yl]ethyl-phosphonooxyphosphinic acid",
+      "molecular_formula": "C17H29N4O7P2S+"
+    }
+  ],
+  "pubchem_cid:14671060.0": [
+    {
+      "compound_id": "14671060",
+      "query": 14671060,
+      "search_namespace": "cid",
+      "isomeric_smiles": "CC(C)CCCC(C)CCCC(C)CCCC(C)C=O",
+      "canonical_smiles": "CC(C)CCCC(C)CCCC(C)CCCC(C)C=O",
+      "inchi": "InChI=1S/C19H38O/c1-16(2)9-6-10-17(3)11-7-12-18(4)13-8-14-19(5)15-20/h15-19H,6-14H2,1-5H3",
+      "inchikey": "IZJRIIWUSIGEAJ-UHFFFAOYSA-N",
+      "iupac_name": "2,6,10,14-tetramethylpentadecanal",
+      "molecular_formula": "C19H38O"
+    }
+  ],
+  "pubchem_cid:6398953.0": [
+    {
+      "compound_id": "6398953",
+      "query": 6398953,
+      "search_namespace": "cid",
+      "isomeric_smiles": "[SH-].[SH-].[SH-].[SH-].[Fe].[Fe].[Fe].[Fe]",
+      "canonical_smiles": "[SH-].[SH-].[SH-].[SH-].[Fe].[Fe].[Fe].[Fe]",
+      "inchi": "InChI=1S/4Fe.4H2S/h;;;;4*1H2/p-4",
+      "inchikey": "PTTXNOSMDBWCQD-UHFFFAOYSA-J",
+      "iupac_name": "iron;sulfanide",
+      "molecular_formula": "Fe4H4S4-4"
+    }
+  ],
+  "pubchem_cid:5460691.0": [
+    {
+      "compound_id": "5460691",
+      "query": 5460691,
+      "search_namespace": "cid",
+      "isomeric_smiles": "[SH-].[SH-].[Fe].[Fe+3]",
+      "canonical_smiles": "[SH-].[SH-].[Fe].[Fe+3]",
+      "inchi": "InChI=1S/2Fe.2H2S/h;;2*1H2/q;+3;;/p-2",
+      "inchikey": "ASRGRFCBJWADTH-UHFFFAOYSA-L",
+      "iupac_name": "iron;iron(3+);sulfanide",
+      "molecular_formula": "Fe2H2S2+"
+    }
+  ],
+  "pubchem_cid:44176418.0": [
+    {
+      "compound_id": "44176418",
+      "query": 44176418,
+      "search_namespace": "cid",
+      "isomeric_smiles": "C(CC(=O)N[C@@H](CSS)C(=O)NCC(=O)O)[C@@H](C(=O)O)N",
+      "canonical_smiles": "C(CC(=O)NC(CSS)C(=O)NCC(=O)O)C(C(=O)O)N",
+      "inchi": "InChI=1S/C10H17N3O6S2/c11-5(10(18)19)1-2-7(14)13-6(4-21-20)9(17)12-3-8(15)16/h5-6,20H,1-4,11H2,(H,12,17)(H,13,14)(H,15,16)(H,18,19)/t5-,6-/m0/s1",
+      "inchikey": "QBOLVLBSUGJHGB-WDSKDSINSA-N",
+      "iupac_name": "(2S)-2-amino-5-[[(2R)-1-(carboxymethylamino)-3-(disulfanyl)-1-oxopropan-2-yl]amino]-5-oxopentanoic acid",
+      "molecular_formula": "C10H17N3O6S2"
+    }
+  ]
+}

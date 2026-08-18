@@ -134,6 +134,17 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
             validator=None,
         ),
         OutputSpec(
+            "unfiltered_processed_expression_df",
+            data_type=DataFrame,
+            scaffold_location="artifacts",
+            save_file_name="unfiltered_processed_expression_df",
+            saver_args={
+                "with_index": True,
+            },
+            extension=".csv",
+            validator=None,
+        ),
+        OutputSpec(
             "missing_genes",
             data_type=list,
             scaffold_location="outputs",
@@ -205,7 +216,7 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
             | dict[str, dict[str, str | int | list[str] | list[DiagnosticOutputSpec]]]
             | dict[str, list[str]],
         ]
-        | dict[str, IdentifierTranslationResult]
+        | dict[str, IdentifierTranslationResult | DataFrame]
         | dict[
             str,
             dict[str, dict[str, str]]
@@ -364,6 +375,7 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
         if translation_result is not None:
             artifacts["identifier_translation_result"] = translation_result
 
+        artifacts["unfiltered_processed_expression_df"] = thresholded_df.copy()
         filtered_df = self.filter_expression_frame(thresholded_df, cobra_model)
         new_scaffold_objects = {
             "outputs": {
