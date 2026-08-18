@@ -14,7 +14,7 @@ from typing import Any
 import pandas as pd
 from cobra.core.model import Model
 from pubchempy import PubChemHTTPError, get_compounds
-from rdkit import Chem
+from rdkit import Chem, RDLogger
 
 from VmaxBuilder.utils.extra_utils import remove_compartment
 from VmaxBuilder.utils.lookup_cache import (
@@ -23,6 +23,7 @@ from VmaxBuilder.utils.lookup_cache import (
     smiles_cache_key,
 )
 
+RDLogger.DisableLog("rdApp.*")  # ty: ignore [unresolved-attribute]
 DEFAULT_SMILES_LENGTH_LIMIT = 218
 DEFAULT_PUBCHEM_NAMESPACE = "name"
 PUBCHEM_QUERY_CACHE_NAMESPACE = "smiles_pubchem_queries"
@@ -75,7 +76,9 @@ _COA_FRAGMENT = (
 )
 _ACP_FRAGMENT = "S"
 _ACP_FROM_COA_PATTERN = re.compile(r"SCCNC\(=O\)CCNC\(=O\)C\(C\(C\)\(C\)CO.*")
-_PROTONATION_PATTERN = re.compile(r"^(?P<base>.*?)(?:H(?P<hydrogen>\d+))?(?P<suffix>[+-]\d+)?$")
+_PROTONATION_PATTERN = re.compile(
+    r"^(?P<base>.*?)(?:H(?P<hydrogen>\d+))?(?P<suffix>[+-]\d+)?$"
+)
 
 
 @dataclass(slots=True)
@@ -98,7 +101,7 @@ class PubChemCandidate:
     """
 
     compound_id: str | None
-    query: str
+    query: str | int
     search_namespace: str
     isomeric_smiles: str | None = None
     canonical_smiles: str | None = None
@@ -347,9 +350,7 @@ def load_manually_curated_smiles_file(location: str | Path) -> pd.DataFrame:
         try:
             parsed_dataframe = pd.read_csv(path, sep=delimiter, dtype=str)
             if set(EXPECTED_MANUAL_SMILES_COLUMNS).issubset(parsed_dataframe.columns):
-                return parsed_dataframe[EXPECTED_MANUAL_SMILES_COLUMNS].reset_index(
-                    drop=True
-                )
+                return parsed_dataframe[EXPECTED_MANUAL_SMILES_COLUMNS].reset_index(drop=True)
         except Exception:
             pass
 
@@ -438,9 +439,9 @@ class PubChemLookupService:
         self,
         *,
         cache_dir: Path | None = None,
-        max_workers: int = 8,
+        max_workers: int = 5,
         retry_attempts: int = 3,
-        retry_sleep_seconds: float = 0.5,
+        retry_sleep_seconds: float = 3,
     ) -> None:
         self.cache_dir = cache_dir or get_default_cache_dir()
         self.max_workers = max_workers
@@ -449,7 +450,9 @@ class PubChemLookupService:
         self.query_cache = LookupCache(self.cache_dir, PUBCHEM_QUERY_CACHE_NAMESPACE)
         self.cid_cache = LookupCache(self.cache_dir, PUBCHEM_CID_CACHE_NAMESPACE)
 
-    def fetch_candidates(self, query_names: Sequence[str]) -> dict[str, list[PubChemCandidate]]:
+    def fetch_candidates(
+        self, query_names: Sequence[str]
+    ) -> dict[str, list[PubChemCandidate]]:
         """Generated: validation needed.
 
         Description:
@@ -462,7 +465,9 @@ class PubChemLookupService:
             dict[str, list[PubChemCandidate]]: Query name to candidate list mapping.
         """
 
-        unique_query_names = list(dict.fromkeys(query_name for query_name in query_names if query_name))
+        unique_query_names = list(
+            dict.fromkeys(query_name for query_name in query_names if query_name)
+        )
         if not unique_query_names:
             return {}
 
@@ -502,7 +507,9 @@ class PubChemLookupService:
             self.query_cache.set_many(cached_items)
         return results
 
-    def fetch_candidates_by_cid(self, compound_ids: Sequence[str]) -> dict[str, list[PubChemCandidate]]:
+    def fetch_candidates_by_cid(
+        self, compound_ids: Sequence[str]
+    ) -> dict[str, list[PubChemCandidate]]:
         """Generated: validation needed.
 
         Description:
@@ -515,7 +522,9 @@ class PubChemLookupService:
             dict[str, list[PubChemCandidate]]: PubChem CID to candidate list mapping.
         """
 
-        unique_compound_ids = list(dict.fromkeys(compound_id for compound_id in compound_ids if compound_id))
+        unique_compound_ids = list(
+            dict.fromkeys(compound_id for compound_id in compound_ids if compound_id)
+        )
         if not unique_compound_ids:
             return {}
 
@@ -568,8 +577,12 @@ class PubChemLookupService:
             list[PubChemCandidate]: Candidate compounds returned by PubChem.
         """
 
+        print(f"Fetching PubChem candidates for name: {query_name}")
         compounds = self._query_pubchem(query_name, namespace=DEFAULT_PUBCHEM_NAMESPACE)
-        return [self._compound_to_candidate(compound, query_name, DEFAULT_PUBCHEM_NAMESPACE) for compound in compounds]
+        return [
+            self._compound_to_candidate(compound, query_name, DEFAULT_PUBCHEM_NAMESPACE)
+            for compound in compounds
+        ]
 
     def _fetch_cid_candidates_uncached(self, compound_id: str) -> list[PubChemCandidate]:
         """Generated: validation needed.
@@ -584,37 +597,42 @@ class PubChemLookupService:
             list[PubChemCandidate]: Candidate compounds returned by PubChem.
         """
 
-        compounds = self._query_pubchem(compound_id, namespace="cid")
-        return [self._compound_to_candidate(compound, compound_id, "cid") for compound in compounds]
+        print(f"Fetching PubChem candidates for CID: {compound_id}")
+        # requires to be int
+        compound_id_int = int(float(compound_id))
+        compounds = self._query_pubchem(compound_id_int, namespace="cid")
+        return [
+            self._compound_to_candidate(compound, compound_id_int, "cid")
+            for compound in compounds
+        ]
 
-    def _query_pubchem(self, query_value: str, *, namespace: str) -> list[Any]:
-        """Generated: validation needed.
+    def _query_pubchem(self, query_value, namespace):
+        time.sleep(0.3)
 
-        Description:
-            Execute one PubChem query with retry handling for transient failures.
-
-        Args:
-            query_value (str): Query value to send to PubChem.
-            namespace (str): PubChem namespace.
-
-        Returns:
-            list[Any]: Raw PubChem compound objects.
-        """
-
-        for attempt_index in range(self.retry_attempts):
+        for attempt in range(self.retry_attempts):
             try:
                 return list(get_compounds(query_value, namespace=namespace))
-            except PubChemHTTPError as error:
-                if "PUGREST.ServerBusy" not in str(error):
-                    raise
-            except TimeoutError:
-                pass
-            if attempt_index + 1 < self.retry_attempts:
-                time.sleep(self.retry_sleep_seconds)
-        return []
+            except (PubChemHTTPError, Exception) as e:
+                if attempt < self.retry_attempts - 1:
+                    wait_time = self.retry_sleep_seconds * (attempt + 1)
+                    time.sleep(wait_time)
+                    print(
+                        f"Retrying PubChem query for {query_value} "
+                        f"in namespace {namespace} "
+                        f"(attempt {attempt + 1}/{self.retry_attempts}) after error: {e}"
+                    )
+                else:
+                    print(
+                        f"Failed to fetch PubChem candidates for "
+                        f"{query_value} in namespace {namespace} after "
+                        f"{self.retry_attempts} attempts. Error: {e}"
+                    )
+                    return []
 
     @staticmethod
-    def _compound_to_candidate(compound: Any, query: str, search_namespace: str) -> PubChemCandidate:
+    def _compound_to_candidate(
+        compound: Any, query: str | int, search_namespace: str
+    ) -> PubChemCandidate:
         """Generated: validation needed.
 
         Description:
@@ -633,11 +651,9 @@ class PubChemLookupService:
             compound_id=_normalise_optional_string(getattr(compound, "cid", None)),
             query=query,
             search_namespace=search_namespace,
-            isomeric_smiles=_normalise_optional_string(
-                getattr(compound, "isomeric_smiles", None)
-            ),
+            isomeric_smiles=_normalise_optional_string(getattr(compound, "smiles", None)),
             canonical_smiles=_normalise_optional_string(
-                getattr(compound, "canonical_smiles", None)
+                getattr(compound, "connectivity_smiles", None)
             ),
             inchi=_normalise_optional_string(getattr(compound, "inchi", None)),
             inchikey=_normalise_optional_string(getattr(compound, "inchikey", None)),
@@ -652,12 +668,15 @@ class SmilesRetrievalService:
     """Generated: validation needed.
 
     Description:
-        Resolve metabolite SMILES from local tables first, then cached threaded PubChem lookups.
+        Resolve metabolite SMILES from local tables first, then cached threaded PubChem
+        lookups.
 
     Args:
         logger (Any | None): Optional project logger.
-        pubchem_lookup_service (PubChemLookupService | None): Optional PubChem service override.
-        use_most_protonated_smiles (bool): Whether multi-hit PubChem matches prefer most protonated formula variant.
+        pubchem_lookup_service (PubChemLookupService | None): Optional PubChem service
+        override.
+        use_most_protonated_smiles (bool): Whether multi-hit PubChem matches prefer most
+        protonated formula variant.
         smiles_length_limit (int): Threshold used for UniKP input diagnostics.
     """
 
@@ -691,19 +710,23 @@ class SmilesRetrievalService:
         """Generated: validation needed.
 
         Description:
-            Build final SMILES dataframe for model metabolites using layered local and remote sources.
+            Build final SMILES dataframe for model metabolites using layered local and remote
+            sources.
 
         Args:
             cobra_model (Model): COBRA model containing metabolites and names.
             existing_smiles_df (pd.DataFrame | None): Previously saved SMILES table.
-            model_data_df (pd.DataFrame | None): Model metadata table, ideally Human-GEM `METS`.
+            model_data_df (pd.DataFrame | None): Model metadata table, ideally Human-GEM
+            `METS`.
             metabolites_df (pd.DataFrame | None): Human-GEM-style metabolites table.
             manually_curated_smiles_df (pd.DataFrame | None): Manual correction table.
-            metabolites_smiles_inchi_df (pd.DataFrame | None): Human-GEM provided SMILES/InChI table.
+            metabolites_smiles_inchi_df (pd.DataFrame | None): Human-GEM provided
+            SMILES/InChI table.
             metabolite_name_synonyms_df (pd.DataFrame | None): Optional synonym table.
             chebi_df (pd.DataFrame | None): ChEBI lookup table with SMILES values.
             chem_prop_df (pd.DataFrame | None): MetaNetX chemistry table.
-            recon3d_data (dict[str, Any] | list[dict[str, Any]] | None): Recon3D metabolite annotations.
+            recon3d_data (dict[str, Any] | list[dict[str, Any]] | None): Recon3D metabolite
+            annotations.
 
         Returns:
             SmilesGenerationResult: Final dataframe plus diagnostics and metadata.
@@ -722,7 +745,9 @@ class SmilesRetrievalService:
             new_SMILES_df=smiles_df,
         )
         diagnostics: dict[str, Any] = {
-            "new_or_unresolved_metabolites": lookup_only_df["id_without_compartment"].tolist(),
+            "new_or_unresolved_metabolites": lookup_only_df[
+                "id_without_compartment"
+            ].tolist(),
             "conflicts": {},
             "step_counts": {},
         }
@@ -772,14 +797,10 @@ class SmilesRetrievalService:
             smiles_df=smiles_df,
             metabolite_name_synonyms_df=metabolite_name_synonyms_df,
         )
-        diagnostics["step_counts"]["after_pubchem_synonyms"] = self._count_missing(
-            smiles_df
-        )
+        diagnostics["step_counts"]["after_pubchem_synonyms"] = self._count_missing(smiles_df)
 
         self._apply_coa_to_acp_fallback(smiles_df)
-        diagnostics["step_counts"]["after_coa_acp_fallback"] = self._count_missing(
-            smiles_df
-        )
+        diagnostics["step_counts"]["after_coa_acp_fallback"] = self._count_missing(smiles_df)
 
         final_smiles_df = self._finalise_smiles_dataframe(smiles_df)
         summary = {
@@ -816,7 +837,8 @@ class SmilesRetrievalService:
             cobra_model (Model): COBRA model instance.
 
         Returns:
-            dict[str, _MetaboliteRecord]: Record mapping keyed by no-compartment metabolite ID.
+            dict[str, _MetaboliteRecord]: Record mapping keyed by no-compartment metabolite
+            ID.
         """
 
         metabolite_records: dict[str, _MetaboliteRecord] = {}
@@ -876,7 +898,7 @@ class SmilesRetrievalService:
         previous_smiles_df = existing_smiles_df.copy()
         if "id_without_compartment" not in previous_smiles_df.columns:
             if "id" in previous_smiles_df.columns:
-                    previous_smiles_df["id_without_compartment"] = previous_smiles_df["id"].map(
+                previous_smiles_df["id_without_compartment"] = previous_smiles_df["id"].map(
                     _normalise_metabolite_identifier
                 )
             else:
@@ -892,9 +914,15 @@ class SmilesRetrievalService:
             "source_identifier",
         ):
             if column_name not in previous_smiles_df.columns:
-                if column_name == "isomeric_SMILES" and "isomeric SMILES" in previous_smiles_df.columns:
+                if (
+                    column_name == "isomeric_SMILES"
+                    and "isomeric SMILES" in previous_smiles_df.columns
+                ):
                     previous_smiles_df[column_name] = previous_smiles_df["isomeric SMILES"]
-                elif column_name == "canonical_SMILES" and "canonical SMILES" in previous_smiles_df.columns:
+                elif (
+                    column_name == "canonical_SMILES"
+                    and "canonical SMILES" in previous_smiles_df.columns
+                ):
                     previous_smiles_df[column_name] = previous_smiles_df["canonical SMILES"]
                 else:
                     previous_smiles_df[column_name] = None
@@ -955,7 +983,9 @@ class SmilesRetrievalService:
 
         if model_data_df is None or model_data_df.empty:
             return {}
-        lowered_columns = {str(column).strip().lower(): column for column in model_data_df.columns}
+        lowered_columns = {
+            str(column).strip().lower(): column for column in model_data_df.columns
+        }
         identifier_column = lowered_columns.get("id") or lowered_columns.get("replacement id")
         if identifier_column is None:
             return {}
@@ -1021,7 +1051,9 @@ class SmilesRetrievalService:
         metabolites_payload: list[dict[str, Any]]
         if isinstance(recon3d_data, dict):
             candidate_payload = recon3d_data.get("metabolites", [])
-            metabolites_payload = [entry for entry in candidate_payload if isinstance(entry, dict)]
+            metabolites_payload = [
+                entry for entry in candidate_payload if isinstance(entry, dict)
+            ]
         elif isinstance(recon3d_data, list):
             metabolites_payload = [entry for entry in recon3d_data if isinstance(entry, dict)]
         else:
@@ -1054,7 +1086,8 @@ class SmilesRetrievalService:
             manually_curated_smiles_df (pd.DataFrame | None): Manual corrections table.
 
         Returns:
-            dict[str, list[tuple[str, str]]]: Metabolite ID to `(source, inchi)` candidate pairs.
+            dict[str, list[tuple[str, str]]]: Metabolite ID to `(source, inchi)` candidate
+            pairs.
         """
 
         inchi_mapping: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -1067,8 +1100,15 @@ class SmilesRetrievalService:
                         break
 
         if metabolites_smiles_inchi_df is not None and not metabolites_smiles_inchi_df.empty:
-            identifier_column = "metsNoComp" if "metsNoComp" in metabolites_smiles_inchi_df.columns else "mets"
-            if identifier_column in metabolites_smiles_inchi_df.columns and "inchi" in metabolites_smiles_inchi_df.columns:
+            identifier_column = (
+                "metsNoComp"
+                if "metsNoComp" in metabolites_smiles_inchi_df.columns
+                else "mets"
+            )
+            if (
+                identifier_column in metabolites_smiles_inchi_df.columns
+                and "inchi" in metabolites_smiles_inchi_df.columns
+            ):
                 for _, row in metabolites_smiles_inchi_df.iterrows():
                     metabolite_id = _normalise_optional_string(row.get(identifier_column))
                     inchi_value = _normalise_optional_string(row.get("inchi"))
@@ -1115,8 +1155,15 @@ class SmilesRetrievalService:
 
         smiles_mapping: dict[str, tuple[str, str]] = {}
         if metabolites_smiles_inchi_df is not None and not metabolites_smiles_inchi_df.empty:
-            identifier_column = "metsNoComp" if "metsNoComp" in metabolites_smiles_inchi_df.columns else "mets"
-            if identifier_column in metabolites_smiles_inchi_df.columns and "SMILES" in metabolites_smiles_inchi_df.columns:
+            identifier_column = (
+                "metsNoComp"
+                if "metsNoComp" in metabolites_smiles_inchi_df.columns
+                else "mets"
+            )
+            if (
+                identifier_column in metabolites_smiles_inchi_df.columns
+                and "SMILES" in metabolites_smiles_inchi_df.columns
+            ):
                 for _, row in metabolites_smiles_inchi_df.iterrows():
                     metabolite_id = _normalise_optional_string(row.get(identifier_column))
                     smiles_value = _normalise_optional_string(row.get("SMILES"))
@@ -1162,7 +1209,9 @@ class SmilesRetrievalService:
         """
 
         for metabolite_id, source_values in inchi_mapping.items():
-            unique_inchis = list(dict.fromkeys(inchi_value for _, inchi_value in source_values))
+            unique_inchis = list(
+                dict.fromkeys(inchi_value for _, inchi_value in source_values)
+            )
             if not unique_inchis:
                 continue
             if len(unique_inchis) > 1:
@@ -1233,7 +1282,8 @@ class SmilesRetrievalService:
         Args:
             smiles_df (pd.DataFrame): Working SMILES dataframe.
             smiles_mapping (dict[str, tuple[str, str]]): Direct smiles lookup mapping.
-            source_name (str): Fallback source label used when mapping entry omits its own label.
+            source_name (str): Fallback source label used when mapping entry omits its own
+            label.
         """
 
         for metabolite_id, mapping_value in smiles_mapping.items():
@@ -1359,10 +1409,14 @@ class SmilesRetrievalService:
                         source_query=None,
                     )
                     break
-            if smiles_df.loc[
-                smiles_df["id_without_compartment"] == metabolite_id,
-                "isomeric_SMILES",
-            ].notna().any():
+            if (
+                smiles_df.loc[
+                    smiles_df["id_without_compartment"] == metabolite_id,
+                    "isomeric_SMILES",
+                ]
+                .notna()
+                .any()
+            ):
                 continue
             for metanetx_identifier in collected_identifiers["metanetx"]:
                 smiles_value = metanetx_mapping.get(metanetx_identifier)
@@ -1376,22 +1430,32 @@ class SmilesRetrievalService:
                         source_query=None,
                     )
                     break
-            if smiles_df.loc[
-                smiles_df["id_without_compartment"] == metabolite_id,
-                "isomeric_SMILES",
-            ].notna().any():
+            if (
+                smiles_df.loc[
+                    smiles_df["id_without_compartment"] == metabolite_id,
+                    "isomeric_SMILES",
+                ]
+                .notna()
+                .any()
+            ):
                 continue
             for pubchem_identifier in collected_identifiers["pubchem"]:
                 pubchem_identifier_tasks.setdefault(pubchem_identifier, metabolite_id)
 
-        pubchem_candidates_by_identifier = self.pubchem_lookup_service.fetch_candidates_by_cid(
-            list(pubchem_identifier_tasks.keys())
+        pubchem_candidates_by_identifier = (
+            self.pubchem_lookup_service.fetch_candidates_by_cid(
+                list(pubchem_identifier_tasks.keys())
+            )
         )
         for pubchem_identifier, metabolite_id in pubchem_identifier_tasks.items():
-            if smiles_df.loc[
-                smiles_df["id_without_compartment"] == metabolite_id,
-                "isomeric_SMILES",
-            ].notna().any():
+            if (
+                smiles_df.loc[
+                    smiles_df["id_without_compartment"] == metabolite_id,
+                    "isomeric_SMILES",
+                ]
+                .notna()
+                .any()
+            ):
                 continue
             selected_candidate = self._select_pubchem_candidate(
                 candidates=pubchem_candidates_by_identifier.get(pubchem_identifier, []),
@@ -1436,11 +1500,19 @@ class SmilesRetrievalService:
         if dataframe is None or dataframe.empty:
             return {}
         identifier_column = next(
-            (column_name for column_name in identifier_column_candidates if column_name in dataframe.columns),
+            (
+                column_name
+                for column_name in identifier_column_candidates
+                if column_name in dataframe.columns
+            ),
             None,
         )
         smiles_column = next(
-            (column_name for column_name in smiles_column_candidates if column_name in dataframe.columns),
+            (
+                column_name
+                for column_name in smiles_column_candidates
+                if column_name in dataframe.columns
+            ),
             None,
         )
         if identifier_column is None or smiles_column is None:
@@ -1492,9 +1564,13 @@ class SmilesRetrievalService:
                 _split_identifier_cell(metabolites_row.get(key_name))
             )
         for key_name in ("metPubChemID",):
-            identifiers["pubchem"].extend(_split_identifier_cell(metabolites_row.get(key_name)))
+            identifiers["pubchem"].extend(
+                _split_identifier_cell(metabolites_row.get(key_name))
+            )
 
-        for key_name, identifier_group in _parse_miriam_identifiers(model_data_row.get("MIRIAM")).items():
+        for key_name, identifier_group in _parse_miriam_identifiers(
+            model_data_row.get("MIRIAM")
+        ).items():
             if key_name == "chebi":
                 identifiers["chebi"].extend(identifier_group)
             elif key_name in {"metanetx.chemical", "metEHMNID"}:
@@ -1561,7 +1637,8 @@ class SmilesRetrievalService:
         """Generated: validation needed.
 
         Description:
-            Resolve remaining metabolites through synonym and transformed-name PubChem lookups.
+            Resolve remaining metabolites through synonym and transformed-name PubChem
+            lookups.
 
         Args:
             smiles_df (pd.DataFrame): Working SMILES dataframe.
@@ -1614,7 +1691,10 @@ class SmilesRetrievalService:
                     )
                     continue
                 transformed_smiles = self._transform_bound_smiles(
-                    smiles_value=(selected_candidate.isomeric_smiles or selected_candidate.canonical_smiles),
+                    smiles_value=(
+                        selected_candidate.isomeric_smiles
+                        or selected_candidate.canonical_smiles
+                    ),
                     bound_form=bound_form,
                 )
                 if transformed_smiles is None:
@@ -1647,10 +1727,14 @@ class SmilesRetrievalService:
         if metabolite_name_synonyms_df is None or metabolite_name_synonyms_df.empty:
             return {}
         renamed_df = metabolite_name_synonyms_df.copy()
-        lowered_columns = {str(column).strip().lower(): column for column in renamed_df.columns}
-        name_column = lowered_columns.get("# met name in the model") or lowered_columns.get(
-            "metabolite_name"
-        ) or lowered_columns.get("name")
+        lowered_columns = {
+            str(column).strip().lower(): column for column in renamed_df.columns
+        }
+        name_column = (
+            lowered_columns.get("# met name in the model")
+            or lowered_columns.get("metabolite_name")
+            or lowered_columns.get("name")
+        )
         synonym_column = lowered_columns.get("synonym")
         if name_column is None or synonym_column is None:
             return {}
@@ -1719,7 +1803,8 @@ class SmilesRetrievalService:
         """Generated: validation needed.
 
         Description:
-            Convert resolved CoA metabolite SMILES into ACP forms for unresolved ACP metabolites.
+            Convert resolved CoA metabolite SMILES into ACP forms for unresolved ACP
+            metabolites.
 
         Args:
             smiles_df (pd.DataFrame): Working SMILES dataframe.
@@ -1797,7 +1882,9 @@ class SmilesRetrievalService:
                 return exact_matches[0]
             if len(exact_matches) > 1:
                 filtered_candidates = exact_matches
-        return self._choose_protonation_candidate(filtered_candidates) or filtered_candidates[0]
+        return (
+            self._choose_protonation_candidate(filtered_candidates) or filtered_candidates[0]
+        )
 
     def _choose_protonation_candidate(
         self,
@@ -1812,7 +1899,8 @@ class SmilesRetrievalService:
             candidates (Sequence[PubChemCandidate]): Candidate compounds.
 
         Returns:
-            PubChemCandidate | None: Selected candidate, or None when formulas are unavailable.
+            PubChemCandidate | None: Selected candidate, or None when formulas are
+            unavailable.
         """
 
         comparable_candidates: list[tuple[int, PubChemCandidate]] = []
@@ -1878,7 +1966,9 @@ class SmilesRetrievalService:
             source_query=source_query,
         )
 
-    def _transform_bound_smiles(self, *, smiles_value: str | None, bound_form: str) -> str | None:
+    def _transform_bound_smiles(
+        self, *, smiles_value: str | None, bound_form: str
+    ) -> str | None:
         """Generated: validation needed.
 
         Description:
@@ -1940,19 +2030,21 @@ class SmilesRetrievalService:
         final_smiles_df["missing_smiles"] = final_smiles_df["isomeric_SMILES"].isna() | (
             final_smiles_df["isomeric_SMILES"] == ""
         )
-        final_smiles_df["smiles_longer_than_218"] = final_smiles_df[
-            "isomeric_SMILES"
-        ].map(
-            lambda smiles_value: len(str(smiles_value)) > self.smiles_length_limit
-            if _normalise_optional_string(smiles_value) is not None
-            else False
+        final_smiles_df["smiles_longer_than_218"] = final_smiles_df["isomeric_SMILES"].map(
+            lambda smiles_value: (
+                len(str(smiles_value)) > self.smiles_length_limit
+                if _normalise_optional_string(smiles_value) is not None
+                else False
+            )
         )
         for column_name in SMILES_OUTPUT_COLUMNS:
             if column_name not in final_smiles_df.columns:
                 final_smiles_df[column_name] = None
-        return final_smiles_df[SMILES_OUTPUT_COLUMNS].sort_values(
-            by=["id_without_compartment"]
-        ).reset_index(drop=True)
+        return (
+            final_smiles_df[SMILES_OUTPUT_COLUMNS]
+            .sort_values(by=["id_without_compartment"])
+            .reset_index(drop=True)
+        )
 
     @staticmethod
     def _count_missing(smiles_df: pd.DataFrame) -> int:
@@ -1994,7 +2086,11 @@ def _split_identifier_cell(value: Any) -> list[str]:
         return []
     sanitised_value = normalised_value.replace("[", "").replace("]", "")
     split_values = re.split(r"[;,]", sanitised_value)
-    return [entry for entry in (_normalise_optional_string(item) for item in split_values) if entry]
+    return [
+        entry
+        for entry in (_normalise_optional_string(item) for item in split_values)
+        if entry
+    ]
 
 
 def _parse_miriam_identifiers(value: Any) -> dict[str, list[str]]:
@@ -2028,7 +2124,8 @@ def _formula_matches(candidate_formula: str | None, reference_formula: str) -> b
     """Generated: validation needed.
 
     Description:
-        Determine whether candidate formula matches reference formula after light normalisation.
+        Determine whether candidate formula matches reference formula after light
+        normalisation.
 
     Args:
         candidate_formula (str | None): Candidate formula from external source.
@@ -2049,14 +2146,6 @@ def _formula_matches(candidate_formula: str | None, reference_formula: str) -> b
     reference_match = _PROTONATION_PATTERN.match(reference_formula)
     if candidate_match is None or reference_match is None:
         return False
-    return (
-        candidate_match.group("base") == reference_match.group("base")
-        and candidate_match.group("suffix") == reference_match.group("suffix")
-    )
-
-
-
-
-
-
-
+    return candidate_match.group("base") == reference_match.group(
+        "base"
+    ) and candidate_match.group("suffix") == reference_match.group("suffix")

@@ -512,6 +512,60 @@ class Orchestrator:
         pprint(custom_asdict(self.discovered_inputs))
         return self.discovered_inputs
 
+    def _discover_in_main_implementations(self, stage_name: str):
+        main_implementation = getattr(self, f"{stage_name}_stage").implementation
+        for implementation in _iter_implementations(main_implementation):
+            for input_spec in implementation.INPUTS:
+                discovered_input = self._discover_input(
+                    input_spec=input_spec,
+                    loading_info=self.loading_info[stage_name],
+                )
+                if discovered_input is not None:
+                    self.discovered_inputs[stage_name][input_spec.name] = discovered_input
+                    self.logger.valid(
+                        f"Discovered input '{input_spec.name}' for stage '{stage_name}': "
+                        f"{discovered_input.file_path}"
+                        f"(source: {discovered_input.source})"
+                    )
+                else:
+                    if input_spec.name in self._attempted_discovered_inputs:
+                        continue
+                    self._attempted_discovered_inputs[input_spec.name] = input_spec
+                    self.logger.warning(
+                        f"Input '{input_spec.name}' for stage '{stage_name}' "
+                        "could not be discovered."
+                    )
+
+    def _discover_in_additional_implementations(self, stage_name: str):
+        additional_implementation_cls = getattr(
+            getattr(self, f"{stage_name}_stage"), "additional_implementations", {}
+        )
+
+        if not additional_implementation_cls:
+            return
+
+        for additional_implementation in additional_implementation_cls.values():
+            for input_spec in additional_implementation.INPUTS:
+                discovered_input = self._discover_input(
+                    input_spec=input_spec,
+                    loading_info=self.loading_info[stage_name],
+                )
+                if discovered_input is not None:
+                    self.discovered_inputs[stage_name][input_spec.name] = discovered_input
+                    self.logger.valid(
+                        f"Discovered input '{input_spec.name}' for stage '{stage_name}': "
+                        f"{discovered_input.file_path}"
+                        f"(source: {discovered_input.source})"
+                    )
+                else:
+                    if input_spec.name in self._attempted_discovered_inputs:
+                        continue
+                    self._attempted_discovered_inputs[input_spec.name] = input_spec
+                    self.logger.warning(
+                        f"Input '{input_spec.name}' for stage '{stage_name}' "
+                        "could not be discovered."
+                    )
+
     def _discover_user_submitted_paths(self, stage_name: str | None = None):
         if stage_name is not None:
             self.discovered_inputs[stage_name] = {}
@@ -528,28 +582,9 @@ class Orchestrator:
                     "Skipping input discovery for this stage."
                 )
                 continue
-            main_implementation = getattr(self, f"{stage_name}_stage").implementation
-            for implementation in _iter_implementations(main_implementation):
-                for input_spec in implementation.INPUTS:
-                    discovered_input = self._discover_input(
-                        input_spec=input_spec,
-                        loading_info=self.loading_info[stage_name],
-                    )
-                    if discovered_input is not None:
-                        self.discovered_inputs[stage_name][input_spec.name] = discovered_input
-                        self.logger.valid(
-                            f"Discovered input '{input_spec.name}' for stage '{stage_name}': "
-                            f"{discovered_input.file_path}"
-                            f"(source: {discovered_input.source})"
-                        )
-                    else:
-                        if input_spec.name in self._attempted_discovered_inputs:
-                            continue
-                        self._attempted_discovered_inputs[input_spec.name] = input_spec
-                        self.logger.warning(
-                            f"Input '{input_spec.name}' for stage '{stage_name}' "
-                            "could not be discovered."
-                        )
+
+            self._discover_in_main_implementations(stage_name)
+            self._discover_in_additional_implementations(stage_name)
 
     def _discover_input(self, input_spec, loading_info) -> DiscoveredInput | None:
         explicit_path = None
@@ -686,7 +721,7 @@ class Orchestrator:
 if __name__ == "__main__":
     base_dir = Path("~/git/SWAPAM/data/for_SWAMP/")
     models_dir = base_dir / "models"
-    model_name = "model_inhouse_v7_human"
+    model_name = "Human-GEM-2.0.0"
     model_dir = models_dir / model_name
     model_path = model_dir
 

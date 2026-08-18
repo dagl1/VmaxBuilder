@@ -30,6 +30,7 @@ from VmaxBuilder.utils.file_loading import (
     load_parquet,
     load_pickle,
     load_rds,
+    load_tsv,
     load_xlsx,
 )
 from VmaxBuilder.utils.file_saving import (
@@ -66,6 +67,7 @@ LOADERS = {
     "feather": load_feather,
     "parquet": load_parquet,
     "rds": load_rds,
+    "tsv": load_tsv,
 }
 COBRA_LOADERS = {
     "json": load_cobra_model,
@@ -78,7 +80,7 @@ COBRA_LOADERS = {
 TYPE_INFO = {
     "dataframe": TypeInfo(
         pd.DataFrame,
-        ("csv", "json", "xlsx", "feather", "parquet", "pkl"),
+        ("csv", "tsv", "json", "xlsx", "feather", "parquet", "pkl"),
     ),
     "series": TypeInfo(
         pd.Series,

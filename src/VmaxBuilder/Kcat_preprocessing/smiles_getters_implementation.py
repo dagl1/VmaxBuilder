@@ -8,47 +8,27 @@ import pandas as pd
 from cobra.core.model import Model
 from cobra.io.json import load_json_model
 
-from VmaxBuilder.base.classes import BaseImplementation, ImplementationConfig
-from VmaxBuilder.base.configs import FullConfig, InputSpec, OutputSpec, Scaffold
+from VmaxBuilder.base.classes import (
+    RealImplementation,
+)
+from VmaxBuilder.base.configs import InputSpec, OutputSpec, Scaffold
 from VmaxBuilder.database_retrieval import IdentifierTranslationService
+from VmaxBuilder.Kcat_preprocessing.config import (
+    TranscriptSmilesGetterConfig,
+    TranscriptSmilesGetterConfigProtocol,
+)
 from VmaxBuilder.Kcat_preprocessing.gene_substrate_preprocessing import (
     get_gene_substrate_mapping,
 )
 from VmaxBuilder.Kcat_preprocessing.smiles_retrieval import (
-    DEFAULT_SMILES_LENGTH_LIMIT,
     SmilesRetrievalService,
     function_for_identifying_novel_found_SMILES_and_only_doing_those,
-    inchi_to_smiles,
     load_manually_curated_smiles_file,
     load_model_data_frame,
-    smiles_to_inchi,
 )
 
 
-@dataclass(slots=True)
-class TranscriptSmilesGetterConfig(ImplementationConfig):
-    """Generated: validation needed.
-
-    Description:
-        Runtime options controlling model-stage SMILES retrieval behaviour.
-
-    Args:
-        use_most_protonated_smiles (bool): Whether multi-hit PubChem matches prefer
-            most protonated compatible formula variant.
-        smiles_length_limit (int): Length threshold used for UniKP diagnostics.
-        retrieve_transcript_metadata (bool): Whether missing transcript metadata should
-            be retrieved automatically from identifier translation providers.
-        retrieve_alternative_transcripts (bool): Whether transcript lookup should retain
-            alternative transcript rows in addition to canonical rows.
-    """
-
-    use_most_protonated_smiles: bool = True
-    smiles_length_limit: int = DEFAULT_SMILES_LENGTH_LIMIT
-    retrieve_transcript_metadata: bool = True
-    retrieve_alternative_transcripts: bool = False
-
-
-class TranscriptSMILESGetter(BaseImplementation[FullConfig]):
+class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProtocol]):
     """Generated: validation needed.
 
     Description:
@@ -72,6 +52,7 @@ class TranscriptSMILESGetter(BaseImplementation[FullConfig]):
             prefix="model_data",  # for SysBioChalmers models (Human1 etc. ) this is
             # often a .xlsx file with multiple sheets. Rename it to avoid confusion
             extensions=[".csv", ".xlsx"],
+            optional=True,
         ),
         InputSpec(
             name="genes_df",
@@ -87,6 +68,7 @@ class TranscriptSMILESGetter(BaseImplementation[FullConfig]):
             prefix="model_metabolites",  # for SysBioChalmers models (Human1 etc. ) this is
             # often a .xlsx file with multiple sheets. Rename it to avoid confusion
             extensions=[".tsv", ".csv", ".xlsx"],
+            optional=True,
         ),
         InputSpec(
             name="SMILES_df",
@@ -96,6 +78,7 @@ class TranscriptSMILESGetter(BaseImplementation[FullConfig]):
         InputSpec(
             name="manually_curated_SMILES_df",
             data_type=pd.DataFrame,
+            prefix="manually_curated_SMILES",
             loader=load_manually_curated_smiles_file,
             optional=True,
         ),
@@ -103,6 +86,7 @@ class TranscriptSMILESGetter(BaseImplementation[FullConfig]):
             name="metabolites_SMILES_Inchi_df",
             data_type=pd.DataFrame,
             optional=True,
+            prefix="metabolites_SMILES_Inchi",
             extensions=[
                 ".tsv",
             ],
@@ -279,14 +263,9 @@ class TranscriptSMILESGetter(BaseImplementation[FullConfig]):
         scaffold.inputs["transcript_df"] = transcript_df
         scaffold.artifacts.update(transcript_artifacts)
 
-        metadata = {
-            "smiles": {
-                "implementation": type(self).__name__,
-                "elapsed_time_seconds": elapsed_time,
-                "params": self.get_implementation_config_params(),
-                **smiles_result.metadata,
-            }
-        }
+        metadata = self.create_metadata(
+            elapsed_time=elapsed_time,
+        )
         diagnostics = {
             "transcript_df": transcript_df,
             "gene_substrate_mapping": gene_substrate_mapping,
@@ -316,6 +295,18 @@ class TranscriptSMILESGetter(BaseImplementation[FullConfig]):
             "metadata": metadata,
             "diagnostics": diagnostics,
         }
+
+    def create_metadata(self, elapsed_time: float, **kwargs) -> dict[str, Any]:
+        metadata = {
+            "model": {
+                "implementation": type(self).__name__,
+                "elapsed_time_seconds": elapsed_time,
+                "status": "smiles_transcript_artifacts_built",
+                "date_created": pd.Timestamp.now().isoformat(),
+                "params": self.get_implementation_config_params(),
+            }
+        }
+        return metadata
 
     def _get_or_build_transcript_artifacts(
         self,
@@ -436,9 +427,9 @@ class TranscriptSMILESGetter(BaseImplementation[FullConfig]):
             gene_to_transcript_mapping = (
                 transcript_df.groupby("gene_id")["transcript_id"].agg(list).to_dict()
             )
-            protein_coding_transcripts = transcript_df[
-                transcript_df["is_protein_coding"]
-            ]["transcript_id"].tolist()
+            protein_coding_transcripts = transcript_df[transcript_df["is_protein_coding"]][
+                "transcript_id"
+            ].tolist()
             canonical_transcripts = transcript_df[transcript_df["is_canonical"]][
                 "transcript_id"
             ].tolist()

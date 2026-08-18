@@ -3,6 +3,9 @@ from dataclasses import dataclass
 from VmaxBuilder.base.classes import BaseImplementation, BaseStage
 from VmaxBuilder.base.configs import FullConfig, OutputSpec, Scaffold
 from VmaxBuilder.GPR.gpr_implementation import DefaultGPRImplementation
+from VmaxBuilder.Kcat_preprocessing.smiles_getters_implementation import (
+    TranscriptSMILESGetter,
+)
 
 
 @dataclass(slots=True)
@@ -25,7 +28,7 @@ class ModelStage(BaseStage):
     DIAGNOSTICS = []
     OUTPUTS = []
     CORE_CONFIG_CLASS = ModelCoreConfig
-    ADDITIONAL_IMPLEMENTATIONS = [DefaultGPRImplementation]
+    ADDITIONAL_IMPLEMENTATIONS = [DefaultGPRImplementation, TranscriptSMILESGetter]
     STAGE_NAME = "model"
 
     def __init__(self, implementation: BaseImplementation, full_config: FullConfig):
@@ -33,6 +36,8 @@ class ModelStage(BaseStage):
 
     def run_additional_processes(self, scaffold: Scaffold):
         gpr_implementation = self.additional_implementations["DefaultGPRImplementation"]
+        transcript_smiles_getter = self.additional_implementations["TranscriptSMILESGetter"]
         scaffold = gpr_implementation.run(scaffold)
+        scaffold = transcript_smiles_getter.run(scaffold)
 
         return scaffold

@@ -19,6 +19,11 @@ def load_csv(location: Path, context: LoadContext) -> pd.DataFrame:
     return pd.read_csv(location, index_col=index_col)
 
 
+def load_tsv(location: Path, context: LoadContext) -> pd.DataFrame:
+    index_col = context.index_col
+    return pd.read_csv(location, sep="\t", index_col=index_col)
+
+
 def load_json(location: Path, context: LoadContext) -> object:
     with open(location, "r", encoding="utf-8") as json_file:
         data = json.load(json_file)

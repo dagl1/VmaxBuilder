@@ -344,7 +344,6 @@ def setup_vmaxbuilder_dependencies() -> None:  # Noqa C901
 
         if not prot_t5_zip.exists():
             print("\nFetching ProtT5-XL-UniRef50.")
-            print("WARNING: This download is approximately 5.3 GB.")
 
             try:
                 _download_file(
