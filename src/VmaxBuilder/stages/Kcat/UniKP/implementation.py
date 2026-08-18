@@ -4,7 +4,37 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from VmaxBuilder.stages.Kcat.UniKP.mock import mock_infer_kcats
 from VmaxBuilder.utils.file_handling import get_project_root
+
+external_dir = get_project_root() / "external"
+submodule_dir = external_dir / "UniKP"
+target_file = submodule_dir / "infer_Kcats.py"
+if str(submodule_dir.resolve()) not in sys.path:
+    sys.path.insert(0, str(submodule_dir.resolve()))
+try:
+    print(f"[VmaxBuilder] Attempting to import UniKP from {submodule_dir}")
+    import infer_Kcats
+
+    infer_kcats = infer_Kcats.run_kcat_inference_lean
+
+    print(f"[VmaxBuilder] Successfully imported UniKP from {submodule_dir}")
+except (ImportError, ModuleNotFoundError):
+    import traceback
+
+    traceback.print_exc()
+
+    print(
+        f"[VmaxBuilder] Failed to import UniKP from {submodule_dir}. "
+        "Using mock implementation instead."
+    )
+    # diagnose, ensure filepath exist etc.
+    print(f"[VmaxBuilder] Checking if {target_file} exists...")
+    print(f"[VmaxBuilder] Path exists: {target_file.exists()}")
+    print(f"[VmaxBuilder] Path is file: {target_file.is_file()}")
+    print(f"[VmaxBuilder] Path is dir: {target_file.is_dir()}")
+
+    infer_Kcats = mock_infer_kcats
 
 
 def _download_file(  # noqa C901
@@ -500,4 +530,5 @@ def setup_vmaxbuilder_dependencies():
 
 # Call initialization early in code execution setup
 if __name__ == "__main__":
-    setup_vmaxbuilder_dependencies()
+    # setup_vmaxbuilder_dependencies()
+    pass
