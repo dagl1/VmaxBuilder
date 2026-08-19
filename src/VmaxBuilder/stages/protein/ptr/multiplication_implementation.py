@@ -34,6 +34,16 @@ class SimplePTRMultiplicationImplementation(RealImplementation[PTRInputConfigPro
             in_scaffold=True,
         ),
         InputSpec(
+            name="fully_imputed_PTR_df_all_genes",
+            data_type=pd.DataFrame,
+            in_scaffold=True,
+        ),
+        InputSpec(
+            name="unfiltered_processed_expression_df",
+            data_type=pd.DataFrame,
+            in_scaffold=True,
+        ),
+        InputSpec(
             name="sample_type_map",
             data_type=(dict, pd.DataFrame, str),
             optional=True,
@@ -57,6 +67,17 @@ class SimplePTRMultiplicationImplementation(RealImplementation[PTRInputConfigPro
             extension=".csv",
             validator=None,
         ),
+        OutputSpec(
+            name="all_genes_protein_abundance_df",
+            data_type=pd.DataFrame,
+            scaffold_location="outputs",
+            save_file_name="protein_abundance_df",
+            saver_args={
+                "with_index": True,
+            },
+            extension=".csv",
+            validator=None,
+        ),
     ]
     DIAGNOSTICS = []
 
@@ -66,6 +87,12 @@ class SimplePTRMultiplicationImplementation(RealImplementation[PTRInputConfigPro
     def generate_outputs(self, scaffold: Scaffold) -> dict[str, Any]:
         processed_expression_df = cast(
             pd.DataFrame, scaffold.get_scaffold_value("processed_expression_df")
+        )
+        all_genes_imputed_ptr_df = cast(
+            pd.DataFrame, scaffold.get_scaffold_value("fully_imputed_PTR_df_all_genes")
+        )
+        all_genes_expression_df = cast(
+            pd.DataFrame, scaffold.get_scaffold_value("unfiltered_processed_expression_df")
         )
         imputed_ptr_df = cast(pd.DataFrame, scaffold.get_scaffold_value("imputed_PTR_df"))
         sample_type_map = scaffold.get_scaffold_value("sample_type_map")
@@ -88,7 +115,14 @@ class SimplePTRMultiplicationImplementation(RealImplementation[PTRInputConfigPro
             ptr_df=imputed_ptr_df,
             sample_type_map=ptr_validated_sample_type_map,
         )
-        metadata = self.create_metadata(elapsed_time=elapsed_time)
+        elapsed_time_2, all_genes_protein_abundance_df = self.get_time_decorator(
+            self.combine_expression_with_ptr
+        )(
+            expression_df=all_genes_expression_df,
+            ptr_df=all_genes_imputed_ptr_df,
+            sample_type_map=ptr_validated_sample_type_map,
+        )
+        metadata = self.create_metadata(elapsed_time=elapsed_time + elapsed_time_2)
         # todo: add base diagnostics
         new_scaffold_objects = {
             "outputs": {
@@ -96,7 +130,9 @@ class SimplePTRMultiplicationImplementation(RealImplementation[PTRInputConfigPro
             },
             "diagnostics": {},
             "metadata": metadata,
-            "artifacts": {},
+            "artifacts": {
+                "all_genes_protein_abundance_df": all_genes_protein_abundance_df,
+            },
         }
 
         return new_scaffold_objects

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Generic, Iterator, ParamSpec, TypeVar
 import pandas as pd
 
 from VmaxBuilder.base.exceptions import ImplementationConfigConflictError
+from VmaxBuilder.base.protocols import DependencyChecker
 from VmaxBuilder.utils.custom_logging import CustomLogger, custom_asdict
 from VmaxBuilder.utils.file_handling import save_with_tries
 from VmaxBuilder.utils.iterables import make_json_serializable
@@ -275,6 +276,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
 
     CHILD_IMPLEMENTATIONS: list[type["BaseImplementation"]] = []
 
+    OPTIONAL_DEPENDENCIES: list[DependencyChecker] = []
     DIAGNOSTICS: list[type["BaseImplementationDiagnostics"]] = []
 
     def __init__(
@@ -869,16 +871,11 @@ class BaseImplementation(Generic[ConfigType], ABC):
                 **filtered_saver_args,
             )
             return
-        try:
-            from VmaxBuilder.stages.Kcat.Kcat_utils import (
-                GeneMainSubstratePrediction,
-                GeneSubstratePrediction,
-                ReactionMainSubstratePrediction,
-            )
-        except ModuleNotFoundError:
-            GeneMainSubstratePrediction = None
-            GeneSubstratePrediction = None
-            ReactionMainSubstratePrediction = None
+        from VmaxBuilder.stages.Kcat.Kcat_utils import (
+            GeneMainSubstratePrediction,
+            GeneSubstratePrediction,
+            ReactionMainSubstratePrediction,
+        )
 
         if ReactionMainSubstratePrediction is not None and isinstance(
             diagnostic_value, ReactionMainSubstratePrediction

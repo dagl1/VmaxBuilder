@@ -25,6 +25,7 @@ from VmaxBuilder.Kcat_preprocessing.smiles_retrieval import (
     load_manually_curated_smiles_file,
     load_model_data_frame,
 )
+from VmaxBuilder.utils.iterables import make_json_serializable
 
 
 class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProtocol]):
@@ -144,7 +145,7 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
         OutputSpec(
             "gene_substrate_mapping",
             data_type=dict[str, set[str]],
-            scaffold_location="diagnostics",
+            scaffold_location="artifacts",
             save_file_name="gene_substrate_mapping",
             extension=".json",
         ),
@@ -260,7 +261,6 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
         )
         diagnostics = {
             "transcript_df": transcript_df,
-            "gene_substrate_mapping": gene_substrate_mapping,
             "smiles_summary": smiles_result.summary,
             "smiles_diagnostics": smiles_result.diagnostics,
             "novel_lookup_targets": novel_lookup_targets,
@@ -282,6 +282,7 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
             "artifacts": {
                 "SMILES_df": smiles_result.smiles_df,
                 "transcript_df": transcript_df,
+                "gene_substrate_mapping": gene_substrate_mapping,
                 **transcript_artifacts,
             },
             "metadata": metadata,
@@ -343,6 +344,7 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
             return self._build_transcript_artifact_payload(self._empty_transcript_dataframe())
 
         translation_service = IdentifierTranslationService()
+        # todo: this doesnt actually give us the AA sequence
         transcript_df = translation_service.build_gene_transcript_dataframe(
             genes_in_model,
             gene_id_type=gene_id_type,
@@ -568,6 +570,16 @@ if __name__ == "__main__":
     recon3d_file = model_dir / "Recon3D.json"
 
     cobra_model = load_json_model(model_file)
+    gene_substrate_mapping = get_gene_substrate_mapping(cobra_model=cobra_model)
+    # save in base_dir/artifacts/model_stage/gene_substrate_mapping.json
+    # with open(
+    #     base_dir / "artifacts" / "model_stage" / "gene_substrate_mapping.json", "w"
+    # ) as f:
+    #     import json
+    #
+    #     json.dump(make_json_serializable(gene_substrate_mapping), f, indent=4)
+    print("Number of genes in model:", len(gene_substrate_mapping))
+
     model_data_df = load_model_data_frame(model_data_file)
     metabolites_df = pd.read_csv(metabolites_file, sep="\t")
     manually_curated_smiles_df = load_manually_curated_smiles_file(

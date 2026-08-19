@@ -1,8 +1,7 @@
-from dataclasses import dataclass
+from typing import Protocol
 
 
-@dataclass
-class UniKPConfig:
+class UniKPMainSubstrateImplementationConfigProtocol(Protocol):
     chunk_size: int = 200
     embedding_batch_size: int = 50
     embedding_cache_save_every_batches: int = 1

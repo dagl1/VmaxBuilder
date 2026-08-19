@@ -63,3 +63,4 @@ class TranscriptSmilesGetterConfig(ImplementationConfig):
     include_cdna_sequence: bool = False
     enrich_existing_transcript_df_with_sequences: bool = True
 
+

@@ -25,7 +25,7 @@ class KcatPaths:
 def mock_infer_kcats(
     smiles_df: pd.DataFrame,
     transcript_df: pd.DataFrame,
-    gene_substrate_paris: dict[str, set[str]],
+    gene_substrate_pairs: dict[str, set[str]],
     chunk_size: int = 200,
     embedding_batch_size: int = 50,
     embedding_cache_save_every_batches: int = 1,
@@ -36,6 +36,9 @@ def mock_infer_kcats(
     root = get_project_root()
     external = root / "external"
 
+    raise NotImplementedError(
+        "This is a mock function. Please implement the actual kcat inference logic."
+    )
     return (
         KcatPaths(
             output_dir=external / "kcat_predictions",
