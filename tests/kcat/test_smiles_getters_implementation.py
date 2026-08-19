@@ -16,6 +16,7 @@ from VmaxBuilder.base.configs import (
 )
 from VmaxBuilder.Kcat_preprocessing.smiles_retrieval import (
     PubChemCandidate,
+    PubChemLookupService,
     function_for_identifying_novel_found_SMILES_and_only_doing_those,
     load_manually_curated_smiles_file,
 )
@@ -112,6 +113,23 @@ def _make_gene_model() -> Model:
     return model
 
 
+class _CaptureLogger:
+    def __init__(self) -> None:
+        self.messages: list[tuple[str, str, int]] = []
+
+    def info(self, message: str, print_level: int = 3, *args, **kwargs) -> None:
+        _ = args, kwargs
+        self.messages.append(("info", message, print_level))
+
+    def warning(self, message: str, print_level: int = 2, *args, **kwargs) -> None:
+        _ = args, kwargs
+        self.messages.append(("warning", message, print_level))
+
+    def error(self, message: str, print_level: int = 1, *args, **kwargs) -> None:
+        _ = args, kwargs
+        self.messages.append(("error", message, print_level))
+
+
 @pytest.mark.unit
 def test_load_manually_curated_smiles_file_recovers_unquoted_commas(tmp_path: Path) -> None:
     input_file = tmp_path / "manual.csv"
@@ -149,6 +167,44 @@ def test_identify_only_new_or_unresolved_smiles_rows() -> None:
     )
 
     assert lookup_df["id_without_compartment"].tolist() == ["missing_met", "brand_new_met"]
+
+
+@pytest.mark.unit
+def test_pubchem_lookup_service_reports_progress_to_logger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    logger = _CaptureLogger()
+    service = PubChemLookupService(logger=logger)
+
+    def fake_fetch_name_candidates_uncached(self, query_name: str) -> list[PubChemCandidate]:
+        _ = self, query_name
+        return [
+            PubChemCandidate(
+                compound_id="1",
+                query=query_name,
+                search_namespace="name",
+                isomeric_smiles="C",
+                canonical_smiles="C",
+            )
+        ]
+
+    monkeypatch.setattr(
+        PubChemLookupService,
+        "_fetch_name_candidates_uncached",
+        fake_fetch_name_candidates_uncached,
+    )
+
+    results = service.fetch_candidates(["alpha", "beta"])
+
+    assert set(results) == {"alpha", "beta"}
+    assert any(
+        message.startswith("Starting pubchem_name_lookup")
+        for _, message, _ in logger.messages
+    )
+    assert any(
+        message.endswith("100% (2/2)")
+        for _, message, _ in logger.messages
+    )
 
 
 @pytest.mark.integration

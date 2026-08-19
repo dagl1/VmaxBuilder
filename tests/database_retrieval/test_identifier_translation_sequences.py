@@ -24,6 +24,23 @@ class _FakeResponse:
         return self.payload
 
 
+class _CaptureLogger:
+    def __init__(self) -> None:
+        self.messages: list[tuple[str, str, int]] = []
+
+    def info(self, message: str, print_level: int = 3, *args, **kwargs) -> None:
+        _ = args, kwargs
+        self.messages.append(("info", message, print_level))
+
+    def warning(self, message: str, print_level: int = 2, *args, **kwargs) -> None:
+        _ = args, kwargs
+        self.messages.append(("warning", message, print_level))
+
+    def error(self, message: str, print_level: int = 1, *args, **kwargs) -> None:
+        _ = args, kwargs
+        self.messages.append(("error", message, print_level))
+
+
 @pytest.mark.integration
 def test_enrich_transcript_dataframe_with_sequences_fetches_all_transcript_aa(
     monkeypatch: pytest.MonkeyPatch,
@@ -57,13 +74,22 @@ def test_enrich_transcript_dataframe_with_sequences_fetches_all_transcript_aa(
         lambda: tmp_path,
     )
 
-    service = IdentifierTranslationService()
+    logger = _CaptureLogger()
+    service = IdentifierTranslationService(logger=logger)
     enriched_df = service.enrich_transcript_dataframe_with_sequences(transcript_df)
 
     assert enriched_df["transcript_id"].tolist() == ["ENST_CANONICAL", "ENST_ALT"]
     assert enriched_df["translation_id"].tolist() == ["ENSP_CANONICAL", "ENSP_ALT"]
     assert enriched_df["peptide_seq"].tolist() == ["MPEPTIDE", "MALT"]
     assert enriched_df["peptide_len"].tolist() == [8, 4]
+    assert any(
+        message.startswith("Starting ensembl_transcript_sequence_lookup")
+        for _, message, _ in logger.messages
+    )
+    assert any(
+        message.endswith("100% (2/2)")
+        for _, message, _ in logger.messages
+    )
 
 
 @pytest.mark.integration
@@ -126,7 +152,8 @@ def test_build_gene_transcript_dataframe_enriches_sequences_from_ensembl(
         lambda: tmp_path,
     )
 
-    service = IdentifierTranslationService()
+    logger = _CaptureLogger()
+    service = IdentifierTranslationService(logger=logger)
     transcript_df = service.build_gene_transcript_dataframe(
         ["ENSG001"],
         gene_id_type="ensembl_gene_id",
@@ -137,4 +164,12 @@ def test_build_gene_transcript_dataframe_enriches_sequences_from_ensembl(
     assert transcript_df["is_canonical"].tolist() == [True, False]
     assert transcript_df["peptide_seq"].tolist() == ["MPEPTIDE", "MALT"]
     assert transcript_df["peptide_len"].tolist() == [8, 4]
+    assert any(
+        message.startswith("Starting mygene_transcript_metadata")
+        for _, message, _ in logger.messages
+    )
+    assert any(
+        message.endswith("100% (1/1)")
+        for _, message, _ in logger.messages
+    )
 

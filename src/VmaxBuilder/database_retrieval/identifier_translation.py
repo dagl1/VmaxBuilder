@@ -59,6 +59,21 @@ class IdentifierTranslationService:
     }
     _ENSEMBL_REST_BASE = "https://rest.ensembl.org"
 
+    def __init__(self, logger: Any | None = None) -> None:
+        """Generated: validation needed.
+
+        Description:
+            Create identifier translation service with optional project logger.
+
+        Args:
+            logger (Any | None): Optional logger receiving batch progress updates.
+
+        Modifies:
+            self.logger
+        """
+
+        self.logger = logger
+
     def translate_identifiers(
         self,
         identifiers: Sequence[str],
@@ -260,6 +275,12 @@ class IdentifierTranslationService:
 
         worker_count = min(max_workers, len(chunks))
         rows: list[dict[str, Any]] = []
+        self._report_progress_start(
+            batch_name="mygene_transcript_metadata",
+            total_items=len(chunks),
+        )
+        completed_chunks = 0
+        next_percent_threshold = 10
 
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = [
@@ -275,6 +296,13 @@ class IdentifierTranslationService:
             for future in as_completed(futures):
                 for hit in future.result():
                     rows.extend(self._extract_transcript_rows_from_hit(hit))
+                completed_chunks += 1
+                next_percent_threshold = self._report_progress_tick(
+                    batch_name="mygene_transcript_metadata",
+                    completed_items=completed_chunks,
+                    total_items=len(chunks),
+                    next_percent_threshold=next_percent_threshold,
+                )
 
         transcript_df = pd.DataFrame(
             rows,
@@ -721,7 +749,13 @@ class IdentifierTranslationService:
                 missing_transcript_ids.append(transcript_id)
 
         if missing_transcript_ids:
+            self._report_progress_start(
+                batch_name="ensembl_transcript_sequence_lookup",
+                total_items=len(missing_transcript_ids),
+            )
             worker_count = max(1, min(max_workers, len(missing_transcript_ids)))
+            completed_items = 0
+            next_percent_threshold = 10
             with ThreadPoolExecutor(max_workers=worker_count) as executor:
                 futures = {
                     executor.submit(
@@ -738,6 +772,13 @@ class IdentifierTranslationService:
                     cache_key = f"{transcript_id}:{cache_suffix}"
                     cache.set(cache_key, fetched_row)
                     cached_rows.append(fetched_row)
+                    completed_items += 1
+                    next_percent_threshold = self._report_progress_tick(
+                        batch_name="ensembl_transcript_sequence_lookup",
+                        completed_items=completed_items,
+                        total_items=len(missing_transcript_ids),
+                        next_percent_threshold=next_percent_threshold,
+                    )
 
         return cached_rows
 
@@ -838,4 +879,64 @@ class IdentifierTranslationService:
                     return payload
                 return None
         return None
+
+    def _report_progress_start(self, *, batch_name: str, total_items: int) -> None:
+        """Generated: validation needed.
+
+        Description:
+            Emit progress start message for long-running lookup batches.
+
+        Args:
+            batch_name (str): Batch identifier.
+            total_items (int): Number of queued items.
+
+        Requires:
+            self.logger: Optional logger receiving progress updates.
+        """
+
+        message = f"Starting {batch_name}: {total_items} items"
+        if self.logger is not None:
+            self.logger.info(message, print_level=2)
+            return
+        print(message)
+
+    def _report_progress_tick(
+        self,
+        batch_name: str,
+        *,
+        completed_items: int,
+        total_items: int,
+        next_percent_threshold: int,
+    ) -> int:
+        """Generated: validation needed.
+
+        Description:
+            Emit 10-percent progress updates and return next threshold.
+
+        Args:
+            batch_name (str): Batch identifier.
+            completed_items (int): Number of completed items.
+            total_items (int): Number of queued items.
+            next_percent_threshold (int): Next percentage milestone.
+
+        Requires:
+            self.logger: Optional logger receiving progress updates.
+
+        Returns:
+            int: Updated percentage milestone.
+        """
+
+        if total_items < 1:
+            return 100
+
+        progress_percent = int((completed_items / total_items) * 100)
+        milestone_percent = min(100, (progress_percent // 10) * 10)
+        if milestone_percent >= next_percent_threshold:
+            message = f"{batch_name}: {milestone_percent}% ({completed_items}/{total_items})"
+            if self.logger is not None:
+                self.logger.info(message, print_level=2)
+            else:
+                print(message)
+            next_percent_threshold = milestone_percent + 10
+        return next_percent_threshold
 

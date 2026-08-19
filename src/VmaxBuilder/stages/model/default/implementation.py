@@ -126,7 +126,7 @@ class DefaultIrreversibleModelImplementation(RealImplementation[DefaultModelConf
     def __init__(self, full_config: FullConfig):
         super().__init__(full_config)
         self._translation_service: TranscriptMetadataServiceProtocol = (
-            IdentifierTranslationService()
+            IdentifierTranslationService(logger=self.logger)
         )
 
     def create_metadata(

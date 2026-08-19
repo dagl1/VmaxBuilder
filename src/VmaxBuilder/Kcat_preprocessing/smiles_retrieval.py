@@ -5,7 +5,7 @@ import csv
 import re
 import time
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -433,6 +433,7 @@ class PubChemLookupService:
         max_workers (int): Maximum worker threads for batched lookups.
         retry_attempts (int): Number of retry attempts per request.
         retry_sleep_seconds (float): Sleep duration between retries.
+        logger (Any | None): Optional logger receiving batch progress updates.
     """
 
     def __init__(
@@ -442,11 +443,13 @@ class PubChemLookupService:
         max_workers: int = 5,
         retry_attempts: int = 3,
         retry_sleep_seconds: float = 3,
+        logger: Any | None = None,
     ) -> None:
         self.cache_dir = cache_dir or get_default_cache_dir()
         self.max_workers = max_workers
         self.retry_attempts = retry_attempts
         self.retry_sleep_seconds = retry_sleep_seconds
+        self.logger = logger
         self.query_cache = LookupCache(self.cache_dir, PUBCHEM_QUERY_CACHE_NAMESPACE)
         self.cid_cache = LookupCache(self.cache_dir, PUBCHEM_CID_CACHE_NAMESPACE)
 
@@ -488,8 +491,15 @@ class PubChemLookupService:
         if not queries_to_fetch:
             return results
 
+        self._report_batch_start(
+            batch_name="pubchem_name_lookup",
+            total_items=len(queries_to_fetch),
+        )
+
         worker_count = min(self.max_workers, len(queries_to_fetch))
         cached_items: dict[str, list[dict[str, Any]]] = {}
+        completed_items = 0
+        next_percent_threshold = 10
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = {
                 executor.submit(self._fetch_name_candidates_uncached, query_name): query_name
@@ -502,6 +512,13 @@ class PubChemLookupService:
                 cached_items[smiles_cache_key("pubchem_name", query_name.casefold())] = [
                     candidate.to_dict() for candidate in candidates
                 ]
+                completed_items += 1
+                next_percent_threshold = self._report_batch_progress(
+                    batch_name="pubchem_name_lookup",
+                    completed_items=completed_items,
+                    total_items=len(queries_to_fetch),
+                    next_percent_threshold=next_percent_threshold,
+                )
 
         if cached_items:
             self.query_cache.set_many(cached_items)
@@ -545,8 +562,15 @@ class PubChemLookupService:
         if not compound_ids_to_fetch:
             return results
 
+        self._report_batch_start(
+            batch_name="pubchem_cid_lookup",
+            total_items=len(compound_ids_to_fetch),
+        )
+
         worker_count = min(self.max_workers, len(compound_ids_to_fetch))
         cached_items: dict[str, list[dict[str, Any]]] = {}
+        completed_items = 0
+        next_percent_threshold = 10
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = {
                 executor.submit(self._fetch_cid_candidates_uncached, compound_id): compound_id
@@ -559,10 +583,74 @@ class PubChemLookupService:
                 cached_items[smiles_cache_key("pubchem_cid", compound_id)] = [
                     candidate.to_dict() for candidate in candidates
                 ]
+                completed_items += 1
+                next_percent_threshold = self._report_batch_progress(
+                    batch_name="pubchem_cid_lookup",
+                    completed_items=completed_items,
+                    total_items=len(compound_ids_to_fetch),
+                    next_percent_threshold=next_percent_threshold,
+                )
 
         if cached_items:
             self.cid_cache.set_many(cached_items)
         return results
+
+    def _report_batch_start(self, *, batch_name: str, total_items: int) -> None:
+        """Generated: validation needed.
+
+        Description:
+            Emit a start message for long-running threaded lookup batches.
+
+        Args:
+            batch_name (str): Human-readable batch identifier.
+            total_items (int): Number of items scheduled for lookup.
+        """
+
+        message = f"Starting {batch_name}: {total_items} items"
+        if self.logger is not None:
+            self.logger.info(message, print_level=2)
+            return
+        print(message)
+
+    def _report_batch_progress(
+        self,
+        *,
+        batch_name: str,
+        completed_items: int,
+        total_items: int,
+        next_percent_threshold: int,
+    ) -> int:
+        """Generated: validation needed.
+
+        Description:
+            Emit 10-percent progress updates for threaded lookup batches.
+
+        Args:
+            batch_name (str): Human-readable batch identifier.
+            completed_items (int): Number of completed futures.
+            total_items (int): Total futures in the batch.
+            next_percent_threshold (int): Next percentage milestone to emit.
+
+        Returns:
+            int: Next percentage milestone.
+        """
+
+        if total_items < 1:
+            return 100
+
+        progress_percent = int((completed_items / total_items) * 100)
+        milestone_percent = min(100, (progress_percent // 10) * 10)
+        if milestone_percent >= next_percent_threshold:
+            message = (
+                f"{batch_name}: {milestone_percent}% "
+                f"({completed_items}/{total_items})"
+            )
+            if self.logger is not None:
+                self.logger.info(message, print_level=2)
+            else:
+                print(message)
+            next_percent_threshold = milestone_percent + 10
+        return next_percent_threshold
 
     def _fetch_name_candidates_uncached(self, query_name: str) -> list[PubChemCandidate]:
         """Generated: validation needed.
@@ -577,7 +665,11 @@ class PubChemLookupService:
             list[PubChemCandidate]: Candidate compounds returned by PubChem.
         """
 
-        print(f"Fetching PubChem candidates for name: {query_name}")
+        message = f"Fetching PubChem candidates for name: {query_name}"
+        if self.logger is not None:
+            self.logger.info(message, print_level=2)
+        else:
+            print(message)
         compounds = self._query_pubchem(query_name, namespace=DEFAULT_PUBCHEM_NAMESPACE)
         return [
             self._compound_to_candidate(compound, query_name, DEFAULT_PUBCHEM_NAMESPACE)
@@ -597,7 +689,11 @@ class PubChemLookupService:
             list[PubChemCandidate]: Candidate compounds returned by PubChem.
         """
 
-        print(f"Fetching PubChem candidates for CID: {compound_id}")
+        message = f"Fetching PubChem candidates for CID: {compound_id}"
+        if self.logger is not None:
+            self.logger.info(message, print_level=2)
+        else:
+            print(message)
         # requires to be int
         compound_id_int = int(float(compound_id))
         compounds = self._query_pubchem(compound_id_int, namespace="cid")
@@ -616,17 +712,25 @@ class PubChemLookupService:
                 if attempt < self.retry_attempts - 1:
                     wait_time = self.retry_sleep_seconds * (attempt + 1)
                     time.sleep(wait_time)
-                    print(
+                    message = (
                         f"Retrying PubChem query for {query_value} "
                         f"in namespace {namespace} "
                         f"(attempt {attempt + 1}/{self.retry_attempts}) after error: {e}"
                     )
+                    if self.logger is not None:
+                        self.logger.warning(message, print_level=2)
+                    else:
+                        print(message)
                 else:
-                    print(
+                    message = (
                         f"Failed to fetch PubChem candidates for "
                         f"{query_value} in namespace {namespace} after "
                         f"{self.retry_attempts} attempts. Error: {e}"
                     )
+                    if self.logger is not None:
+                        self.logger.error(message, print_level=1)
+                    else:
+                        print(message)
                     return []
 
     @staticmethod
@@ -689,7 +793,9 @@ class SmilesRetrievalService:
         smiles_length_limit: int = DEFAULT_SMILES_LENGTH_LIMIT,
     ) -> None:
         self.logger = logger
-        self.pubchem_lookup_service = pubchem_lookup_service or PubChemLookupService()
+        self.pubchem_lookup_service = pubchem_lookup_service or PubChemLookupService(
+            logger=logger
+        )
         self.use_most_protonated_smiles = use_most_protonated_smiles
         self.smiles_length_limit = smiles_length_limit
 

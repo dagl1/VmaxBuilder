@@ -158,7 +158,7 @@ class DefaultExpressionImplementation(RealImplementation[ExpressionConfig]):
     def __init__(self, full_config: FullConfig):
         super().__init__(full_config)
         self._translation_service: TranscriptMetadataServiceProtocol = (
-            IdentifierTranslationService()
+            IdentifierTranslationService(logger=self.logger)
         )
 
     def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:

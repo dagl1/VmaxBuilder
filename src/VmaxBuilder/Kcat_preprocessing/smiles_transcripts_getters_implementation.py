@@ -323,9 +323,11 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
         transcript_df = self._get_dataframe_value(scaffold, "transcript_df")
         if transcript_df is not None:
             if self.config.enrich_existing_transcript_df_with_sequences:
-                translation_service = IdentifierTranslationService()
+                identifier_translation_service = IdentifierTranslationService(
+                    logger=self.logger
+                )
                 transcript_df = (
-                    translation_service.enrich_transcript_dataframe_with_sequences(
+                    identifier_translation_service.enrich_transcript_dataframe_with_sequences(
                         transcript_df,
                         include_cdna_sequence=self.config.include_cdna_sequence,
                         max_workers=(
@@ -343,9 +345,8 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
         if not genes_in_model or gene_id_type is None:
             return self._build_transcript_artifact_payload(self._empty_transcript_dataframe())
 
-        translation_service = IdentifierTranslationService()
-        # todo: this doesnt actually give us the AA sequence
-        transcript_df = translation_service.build_gene_transcript_dataframe(
+        identifier_translation_service = IdentifierTranslationService(logger=self.logger)
+        transcript_df = identifier_translation_service.build_gene_transcript_dataframe(
             genes_in_model,
             gene_id_type=gene_id_type,
             species=self.full_config.transcripts.id_translation_species,
