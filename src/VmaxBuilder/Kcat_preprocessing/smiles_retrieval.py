@@ -9,7 +9,7 @@ from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 from cobra.core.model import Model
@@ -227,7 +227,7 @@ def _normalise_optional_string(value: Any) -> str | None:
     return string_value
 
 
-def _normalise_metabolite_identifier(metabolite_id: Any) -> Any:
+def _normalise_metabolite_identifier(metabolite_id: Any) -> str:
     """Generated: validation needed.
 
     Description:
@@ -295,7 +295,7 @@ def smiles_to_inchi(smiles: Any) -> str | None:
     molecule = Chem.MolFromSmiles(normalised_smiles)
     if molecule is None:
         return None
-    return Chem.MolToInchi(molecule)
+    return Chem.MolToInchi(molecule)  # ty:ignore
 
 
 def load_model_data_frame(location: str | Path) -> pd.DataFrame:
@@ -365,8 +365,8 @@ def load_manually_curated_smiles_file(location: str | Path) -> pd.DataFrame:
                 extra_fields = len(row) - len(EXPECTED_MANUAL_SMILES_COLUMNS) + 1
                 name = delimiter.join(row[:extra_fields])
                 row = [name, *row[extra_fields:]]
-            row += [None] * (len(EXPECTED_MANUAL_SMILES_COLUMNS) - len(row))
-            rows.append(row[: len(EXPECTED_MANUAL_SMILES_COLUMNS)])
+            row += [None] * (len(EXPECTED_MANUAL_SMILES_COLUMNS) - len(row))  # ty:ignore
+            rows.append(row[: len(EXPECTED_MANUAL_SMILES_COLUMNS)])  # ty:ignore
     return pd.DataFrame(rows, columns=EXPECTED_MANUAL_SMILES_COLUMNS).reset_index(drop=True)
 
 
@@ -994,7 +994,8 @@ class SmilesRetrievalService:
             metabolite_id = _normalise_optional_string(row.get(identifier_column))
             if metabolite_id is None:
                 continue
-            index[_normalise_metabolite_identifier(metabolite_id)] = row.to_dict()
+            row_to_dict = cast(dict[str, Any], row.to_dict())
+            index[_normalise_metabolite_identifier(metabolite_id)] = row_to_dict
         return index
 
     def _build_metabolites_index(
@@ -1027,7 +1028,8 @@ class SmilesRetrievalService:
             metabolite_id = _normalise_optional_string(row.get(identifier_column))
             if metabolite_id is None:
                 continue
-            index[_normalise_metabolite_identifier(metabolite_id)] = row.to_dict()
+            row_to_dict = cast(dict[str, Any], row.to_dict())
+            index[_normalise_metabolite_identifier(metabolite_id)] = row_to_dict
         return index
 
     def _build_recon3d_index(
@@ -1237,7 +1239,7 @@ class SmilesRetrievalService:
         metabolite_id: str,
         inchi_value: str,
         source_name: str,
-        source_identifier: str,
+        source_identifier: str | int,
     ) -> None:
         """Generated: validation needed.
 
@@ -1339,7 +1341,7 @@ class SmilesRetrievalService:
 
         isomeric_smiles = Chem.MolToSmiles(molecule, isomericSmiles=True)
         canonical_smiles = Chem.MolToSmiles(molecule, isomericSmiles=False)
-        inchi_value = Chem.MolToInchi(molecule)
+        inchi_value = str(Chem.MolToInchi(molecule))
         inchi_key = Chem.InchiToInchiKey(inchi_value) if inchi_value else None
 
         smiles_df.loc[row_mask, "InChI"] = inchi_value

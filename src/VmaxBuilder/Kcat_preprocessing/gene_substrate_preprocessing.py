@@ -26,7 +26,7 @@ def get_gene_substrate_mapping(
             continue
         if not reaction.gene_reaction_rule.strip():
             continue
-        if not reaction.gene_reaction_rule.strip().lower() == "none":
+        if reaction.gene_reaction_rule.strip().lower() == "none":
             continue
         if len(reaction.genes) < 1:  # . genes is not a true list regular if .genes is dubious
             continue
@@ -44,6 +44,11 @@ def get_gene_substrate_mapping(
                 gene_substrate_mapping[gene.id] = set()
             for substrate in substrates:
                 gene_substrate_mapping[gene.id].add(substrate)
+    # sort and sort set
+    gene_substrate_mapping = {
+        gene: set(sorted(substrates)) for gene, substrates in gene_substrate_mapping.items()
+    }
+    gene_substrate_mapping = dict(sorted(gene_substrate_mapping.items()))
 
     return gene_substrate_mapping
 
