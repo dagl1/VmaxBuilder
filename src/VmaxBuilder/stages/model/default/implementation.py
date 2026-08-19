@@ -38,6 +38,8 @@ class TranscriptMetadataServiceProtocol(Protocol):
         provider: str,
         max_workers: int,
         batch_size: int,
+        include_sequence_metadata: bool = True,
+        include_cdna_sequence: bool = False,
     ) -> DataFrame:
         """Generated: validation needed.
 
@@ -51,6 +53,10 @@ class TranscriptMetadataServiceProtocol(Protocol):
             provider (str): Translation provider key.
             max_workers (int): Maximum worker thread count.
             batch_size (int): Query batch size.
+            include_sequence_metadata (bool): Whether amino-acid sequence metadata
+                should be populated for transcript rows.
+            include_cdna_sequence (bool): Whether cDNA sequence metadata should be
+                populated for transcript rows.
 
         Returns:
             pd.DataFrame: Transcript metadata dataframe.

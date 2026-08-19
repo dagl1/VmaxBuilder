@@ -324,6 +324,7 @@ def _build_transcript_artifacts_for_model(
                 "gene_id",
                 "is_protein_coding",
                 "is_canonical",
+                "translation_id",
                 "peptide_len",
                 "cdna_len",
                 "peptide_seq",
@@ -338,7 +339,25 @@ def _build_transcript_artifacts_for_model(
             provider=config.transcripts.id_translation_provider,
             max_workers=config.transcripts.id_translation_max_workers,
             batch_size=config.transcripts.id_translation_batch_size,
+            include_sequence_metadata=True,
+            include_cdna_sequence=config.transcripts.include_cdna_sequence,
         )
+
+    if (
+        config.transcripts.protein_coding_only
+        and "is_protein_coding" in transcript_df.columns
+    ):
+        protein_coding_mask = transcript_df["is_protein_coding"].fillna(False)
+        transcript_df = transcript_df.loc[protein_coding_mask].reset_index(drop=True)
+
+    if (
+        not config.transcripts.retrieve_alternative_transcripts
+        and "is_canonical" in transcript_df.columns
+    ):
+        canonical_mask = transcript_df["is_canonical"].fillna(False)
+        canonical_transcript_df = transcript_df.loc[canonical_mask].reset_index(drop=True)
+        if not canonical_transcript_df.empty:
+            transcript_df = canonical_transcript_df
 
     transcript_to_gene_mapping = transcript_df.set_index("transcript_id")["gene_id"].to_dict()
     gene_to_transcript_mapping = (
@@ -352,24 +371,12 @@ def _build_transcript_artifacts_for_model(
     canonical_transcripts = transcript_df[transcript_df["is_canonical"]][
         "transcript_id"
     ].tolist()
-    transcript_sequences = transcript_df[
-        [
-            "transcript_id",
-            "gene_id",
-            "peptide_len",
-            "cdna_len",
-            "peptide_seq",
-            "cdna_seq",
-        ]
-    ]
-
     return {
         "gene_transcript_mapping": transcript_df,
         "transcript_to_gene_mapping": transcript_to_gene_mapping,
         "gene_to_transcript_mapping": gene_to_transcript_mapping,
         "protein_coding_transcripts": protein_coding_transcripts,
         "canonical_transcripts": canonical_transcripts,
-        "transcript_sequences": transcript_sequences,
         "genes_in_model": genes_in_model,
     }
 

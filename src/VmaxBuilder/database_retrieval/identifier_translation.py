@@ -14,6 +14,9 @@ from typing import Any
 
 import mygene
 import pandas as pd
+import requests
+
+from VmaxBuilder.utils.lookup_cache import LookupCache, get_default_cache_dir
 
 
 @dataclass(slots=True)
@@ -54,6 +57,7 @@ class IdentifierTranslationService:
         "ensembl_gene_id": "ensembl.gene,ensemblgene",
         "ensembl_transcript_id": "ensembl.transcript",
     }
+    _ENSEMBL_REST_BASE = "https://rest.ensembl.org"
 
     def translate_identifiers(
         self,
@@ -166,7 +170,7 @@ class IdentifierTranslationService:
         ]
         return pd.DataFrame(rows, columns=["transcript_id", "gene_id"])
 
-    def build_gene_transcript_dataframe(
+    def build_gene_transcript_dataframe(  # noqa: C901
         self,
         gene_ids: Sequence[str],
         *,
@@ -175,6 +179,8 @@ class IdentifierTranslationService:
         provider: str = "auto",
         max_workers: int = 8,
         batch_size: int = 500,
+        include_sequence_metadata: bool = True,
+        include_cdna_sequence: bool = False,
     ) -> pd.DataFrame:
         """Generated: validation needed.
 
@@ -189,6 +195,10 @@ class IdentifierTranslationService:
             provider (str): Translation provider key. Supported values: auto, mygene.
             max_workers (int): Maximum number of parallel worker threads.
             batch_size (int): Number of identifiers per provider query chunk.
+            include_sequence_metadata (bool): Whether to enrich transcript rows with
+                amino-acid sequence metadata using Ensembl REST lookup.
+            include_cdna_sequence (bool): Whether to request cDNA sequence/length in
+                addition to amino-acid sequence metadata.
 
         Returns:
             pd.DataFrame: Transcript metadata table with columns:
@@ -207,6 +217,7 @@ class IdentifierTranslationService:
                     "gene_id",
                     "is_protein_coding",
                     "is_canonical",
+                    "translation_id",
                     "peptide_len",
                     "cdna_len",
                     "peptide_seq",
@@ -224,7 +235,10 @@ class IdentifierTranslationService:
         if provider != "mygene":
             raise ValueError("Unsupported provider.")
 
-        fields = "ensembl.gene,ensembl.transcript,ensembl.canonical_transcript,type_of_gene"
+        fields = (
+            "ensembl.gene,ensembl.transcript,ensembl.translation,"
+            "ensembl.canonical_transcript,type_of_gene"
+        )
         chunks = [
             list(deduplicated_gene_ids[index : index + batch_size])
             for index in range(0, len(deduplicated_gene_ids), batch_size)
@@ -236,6 +250,7 @@ class IdentifierTranslationService:
                     "gene_id",
                     "is_protein_coding",
                     "is_canonical",
+                    "translation_id",
                     "peptide_len",
                     "cdna_len",
                     "peptide_seq",
@@ -268,6 +283,7 @@ class IdentifierTranslationService:
                 "gene_id",
                 "is_protein_coding",
                 "is_canonical",
+                "translation_id",
                 "peptide_len",
                 "cdna_len",
                 "peptide_seq",
@@ -280,7 +296,101 @@ class IdentifierTranslationService:
         transcript_df["transcript_id"] = transcript_df["transcript_id"].astype(str)
         transcript_df["gene_id"] = transcript_df["gene_id"].astype(str)
         transcript_df = transcript_df.drop_duplicates(subset=["transcript_id", "gene_id"])
+        if include_sequence_metadata:
+            transcript_df = self.enrich_transcript_dataframe_with_sequences(
+                transcript_df,
+                include_cdna_sequence=include_cdna_sequence,
+                max_workers=max_workers,
+            )
         return transcript_df.reset_index(drop=True)
+
+    def enrich_transcript_dataframe_with_sequences(  # noqa: C901
+        self,
+        transcript_df: pd.DataFrame,
+        *,
+        include_cdna_sequence: bool = False,
+        max_workers: int = 8,
+    ) -> pd.DataFrame:
+        """Generated: validation needed.
+
+        Description:
+            Enrich transcript metadata rows with amino-acid sequence information,
+            lengths, and optional cDNA sequence metadata using Ensembl REST.
+
+        Args:
+            transcript_df (pd.DataFrame): Transcript metadata dataframe containing
+                transcript_id column.
+            include_cdna_sequence (bool): Whether cDNA sequence/length should be fetched.
+            max_workers (int): Maximum number of worker threads for Ensembl requests.
+
+        Returns:
+            pd.DataFrame: Enriched transcript dataframe.
+        """
+
+        if transcript_df.empty or "transcript_id" not in transcript_df.columns:
+            return transcript_df
+
+        enriched_transcript_df = transcript_df.copy()
+        for column in [
+            "translation_id",
+            "peptide_seq",
+            "peptide_len",
+            "cdna_seq",
+            "cdna_len",
+        ]:
+            if column not in enriched_transcript_df.columns:
+                enriched_transcript_df[column] = None
+
+        cache = LookupCache(get_default_cache_dir(), "ensembl_transcript_sequences")
+        transcript_ids = [
+            str(transcript_id)
+            for transcript_id in enriched_transcript_df["transcript_id"].dropna().unique()
+            if str(transcript_id).strip()
+        ]
+        if not transcript_ids:
+            return enriched_transcript_df
+
+        fetched_rows = self._fetch_transcript_sequence_rows(
+            transcript_ids,
+            include_cdna_sequence=include_cdna_sequence,
+            max_workers=max_workers,
+            cache=cache,
+        )
+
+        if not fetched_rows:
+            return enriched_transcript_df
+
+        lookup = {row["transcript_id"]: row for row in fetched_rows}
+
+        for row_index, transcript_id in enriched_transcript_df["transcript_id"].items():
+            transcript_key = str(transcript_id)
+            fetched = lookup.get(transcript_key)
+            if fetched is None:
+                continue
+            for column in [
+                "translation_id",
+                "peptide_seq",
+                "peptide_len",
+                "cdna_seq",
+                "cdna_len",
+            ]:
+                current_value = enriched_transcript_df.at[row_index, column]
+                if pd.isna(current_value) or current_value in (None, ""):
+                    enriched_transcript_df.at[row_index, column] = fetched.get(column)
+
+            peptide_seq = enriched_transcript_df.at[row_index, "peptide_seq"]
+            peptide_len = enriched_transcript_df.at[row_index, "peptide_len"]
+            if (pd.isna(peptide_len) or peptide_len in (None, "")) and isinstance(
+                peptide_seq, str
+            ):
+                enriched_transcript_df.at[row_index, "peptide_len"] = len(peptide_seq)
+
+            cdna_seq = enriched_transcript_df.at[row_index, "cdna_seq"]
+            cdna_len = enriched_transcript_df.at[row_index, "cdna_len"]
+            if (pd.isna(cdna_len) or cdna_len in (None, "")) and isinstance(cdna_seq, str):
+                enriched_transcript_df.at[row_index, "cdna_len"] = len(cdna_seq)
+
+        return enriched_transcript_df
 
     @staticmethod
     def _deduplicate_identifiers(identifiers: Sequence[str]) -> list[str]:
@@ -512,6 +622,13 @@ class IdentifierTranslationService:
             if not transcript_id or not gene_id:
                 continue
 
+            translation_payload = entry.get("translation")
+            translation_id = None
+            if isinstance(translation_payload, str):
+                translation_id = translation_payload
+            elif isinstance(translation_payload, dict):
+                translation_id = translation_payload.get("id")
+
             peptide_seq = entry.get("peptide_seq")
             cdna_seq = entry.get("cdna_seq")
             peptide_len = entry.get("peptide_len")
@@ -530,6 +647,7 @@ class IdentifierTranslationService:
                         canonical_transcript is not None
                         and str(transcript_id) == canonical_transcript
                     ),
+                    "translation_id": translation_id,
                     "peptide_len": peptide_len,
                     "cdna_len": cdna_len,
                     "peptide_seq": peptide_seq,
@@ -565,3 +683,159 @@ class IdentifierTranslationService:
             if isinstance(candidate, str) and candidate.strip():
                 return candidate.strip()
         return None
+
+    def _fetch_transcript_sequence_rows(
+        self,
+        transcript_ids: list[str],
+        *,
+        include_cdna_sequence: bool,
+        max_workers: int,
+        cache: LookupCache,
+    ) -> list[dict[str, Any]]:
+        """Generated: validation needed.
+
+        Description:
+            Fetch transcript sequence metadata through cache-aware threaded Ensembl
+            REST lookups.
+
+        Args:
+            transcript_ids (list[str]): Transcript identifiers to resolve.
+            include_cdna_sequence (bool): Whether to request cDNA sequence.
+            max_workers (int): Maximum number of worker threads.
+            cache (LookupCache): Disk-backed lookup cache.
+
+        Returns:
+            list[dict[str, Any]]: Sequence metadata rows keyed by transcript_id.
+        """
+
+        cached_rows: list[dict[str, Any]] = []
+        missing_transcript_ids: list[str] = []
+        cache_suffix = "with_cdna" if include_cdna_sequence else "aa_only"
+
+        for transcript_id in transcript_ids:
+            cache_key = f"{transcript_id}:{cache_suffix}"
+            cached_entry = cache.get(cache_key)
+            if isinstance(cached_entry, dict):
+                cached_rows.append(cached_entry)
+            else:
+                missing_transcript_ids.append(transcript_id)
+
+        if missing_transcript_ids:
+            worker_count = max(1, min(max_workers, len(missing_transcript_ids)))
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                futures = {
+                    executor.submit(
+                        self._fetch_single_transcript_sequence_row,
+                        transcript_id,
+                        include_cdna_sequence=include_cdna_sequence,
+                    ): transcript_id
+                    for transcript_id in missing_transcript_ids
+                }
+
+                for future in as_completed(futures):
+                    transcript_id = futures[future]
+                    fetched_row = future.result()
+                    cache_key = f"{transcript_id}:{cache_suffix}"
+                    cache.set(cache_key, fetched_row)
+                    cached_rows.append(fetched_row)
+
+        return cached_rows
+
+    def _fetch_single_transcript_sequence_row(
+        self,
+        transcript_id: str,
+        *,
+        include_cdna_sequence: bool,
+    ) -> dict[str, Any]:
+        """Generated: validation needed.
+
+        Description:
+            Fetch sequence metadata for one transcript from Ensembl REST.
+
+        Args:
+            transcript_id (str): Ensembl transcript identifier.
+            include_cdna_sequence (bool): Whether to request cDNA sequence.
+
+        Returns:
+            dict[str, Any]: Sequence metadata payload for transcript.
+        """
+
+        normalised_transcript_id = transcript_id.split(".")[0]
+        lookup_url = (
+            f"{self._ENSEMBL_REST_BASE}/lookup/id/"
+            f"{normalised_transcript_id}?expand=1"
+        )
+        lookup_record = self._ensembl_get_json(lookup_url)
+
+        translation_id = None
+        if isinstance(lookup_record, dict):
+            translation_payload = lookup_record.get("Translation")
+            if isinstance(translation_payload, dict):
+                translation_id = translation_payload.get("id")
+
+        peptide_seq = None
+        if translation_id:
+            protein_url = (
+                f"{self._ENSEMBL_REST_BASE}/sequence/id/{translation_id}?type=protein"
+            )
+            protein_record = self._ensembl_get_json(protein_url)
+            if isinstance(protein_record, dict):
+                peptide_seq = protein_record.get("seq")
+
+        cdna_seq = None
+        if include_cdna_sequence:
+            cdna_url = (
+                f"{self._ENSEMBL_REST_BASE}/sequence/id/{normalised_transcript_id}?type=cdna"
+            )
+            cdna_record = self._ensembl_get_json(cdna_url)
+            if isinstance(cdna_record, dict):
+                cdna_seq = cdna_record.get("seq")
+
+        return {
+            "transcript_id": transcript_id,
+            "translation_id": translation_id,
+            "peptide_seq": peptide_seq,
+            "peptide_len": len(peptide_seq) if isinstance(peptide_seq, str) else None,
+            "cdna_seq": cdna_seq,
+            "cdna_len": len(cdna_seq) if isinstance(cdna_seq, str) else None,
+        }
+
+    @staticmethod
+    def _ensembl_get_json(
+        url: str,
+        retries: int = 3,
+        timeout: int = 30,
+    ) -> dict[str, Any] | None:
+        """Generated: validation needed.
+
+        Description:
+            Execute GET request against Ensembl REST API with retry behaviour.
+
+        Args:
+            url (str): Request URL.
+            retries (int): Maximum number of attempts.
+            timeout (int): Request timeout in seconds.
+
+        Returns:
+            dict[str, Any] | None: Parsed JSON payload when successful.
+        """
+
+        headers = {"Accept": "application/json"}
+        for _ in range(max(1, retries)):
+            try:
+                response = requests.get(url, headers=headers, timeout=timeout)
+            except requests.RequestException:
+                continue
+
+            if response.status_code == 429:
+                continue
+            if response.ok:
+                try:
+                    payload = response.json()
+                except ValueError:
+                    return None
+                if isinstance(payload, dict):
+                    return payload
+                return None
+        return None
+

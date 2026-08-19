@@ -280,6 +280,10 @@ class TranscriptProcessingConfig:
     Args:
         protein_coding_only (bool): Whether transcript->gene aggregation should keep
             only transcript rows marked as protein-coding when annotation is available.
+        retrieve_alternative_transcripts (bool): Whether transcript workflows should
+            retain alternative transcript rows in addition to canonical rows.
+        include_cdna_sequence (bool): Whether transcript retrieval should include
+            cDNA sequence metadata in addition to amino-acid metadata.
         id_translation_provider (str): Translation provider key used when building
             model gene->transcript metadata.
         id_translation_species (str | None): Optional species hint for transcript lookup.
@@ -288,6 +292,8 @@ class TranscriptProcessingConfig:
     """
 
     protein_coding_only: bool = False
+    retrieve_alternative_transcripts: bool = False
+    include_cdna_sequence: bool = False
     id_translation_provider: str = "auto"
     id_translation_species: str | None = None
     id_translation_max_workers: int = 8

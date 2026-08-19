@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from VmaxBuilder.base.classes import BaseImplementation, BaseStage
 from VmaxBuilder.base.configs import FullConfig, OutputSpec, Scaffold
 from VmaxBuilder.GPR.gpr_implementation import DefaultGPRImplementation
-from VmaxBuilder.Kcat_preprocessing.smiles_getters_implementation import (
+from VmaxBuilder.Kcat_preprocessing.smiles_transcripts_getters_implementation import (
     TranscriptSMILESGetter,
 )
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -154,13 +153,6 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
             data_type=pd.DataFrame,
             scaffold_location="artifacts",
             save_file_name="gene_transcript_mapping",
-            extension=".csv",
-        ),
-        OutputSpec(
-            name="transcript_sequences",
-            data_type=pd.DataFrame,
-            scaffold_location="artifacts",
-            save_file_name="transcript_sequences",
             extension=".csv",
         ),
         OutputSpec(
@@ -329,6 +321,17 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
 
         transcript_df = self._get_dataframe_value(scaffold, "transcript_df")
         if transcript_df is not None:
+            if self.config.enrich_existing_transcript_df_with_sequences:
+                translation_service = IdentifierTranslationService()
+                transcript_df = (
+                    translation_service.enrich_transcript_dataframe_with_sequences(
+                        transcript_df,
+                        include_cdna_sequence=self.config.include_cdna_sequence,
+                        max_workers=(
+                            self.full_config.transcripts.id_translation_max_workers
+                        ),
+                    )
+                )
             return self._build_transcript_artifact_payload(transcript_df)
 
         if not self.config.retrieve_transcript_metadata:
@@ -347,6 +350,8 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
             provider=self.full_config.transcripts.id_translation_provider,
             max_workers=self.full_config.transcripts.id_translation_max_workers,
             batch_size=self.full_config.transcripts.id_translation_batch_size,
+            include_sequence_metadata=True,
+            include_cdna_sequence=self.config.include_cdna_sequence,
         )
         transcript_df = self._filter_transcript_dataframe(transcript_df)
         return self._build_transcript_artifact_payload(transcript_df)
@@ -366,15 +371,14 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
         """
 
         if transcript_df.empty:
-            return transcript_df
+            return transcript_df.reset_index(drop=True)
 
         filtered_transcript_df = transcript_df.copy()
         if self.full_config.transcripts.protein_coding_only and (
             "is_protein_coding" in filtered_transcript_df.columns
         ):
-            filtered_transcript_df = filtered_transcript_df[
-                filtered_transcript_df["is_protein_coding"]
-            ]
+            protein_coding_mask = filtered_transcript_df["is_protein_coding"].fillna(False)
+            filtered_transcript_df = filtered_transcript_df.loc[protein_coding_mask]
 
         if self.config.retrieve_alternative_transcripts:
             return filtered_transcript_df.reset_index(drop=True)
@@ -382,9 +386,8 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
         if "is_canonical" not in filtered_transcript_df.columns:
             return filtered_transcript_df.reset_index(drop=True)
 
-        canonical_transcript_df = filtered_transcript_df[
-            filtered_transcript_df["is_canonical"]
-        ]
+        canonical_mask = filtered_transcript_df["is_canonical"].fillna(False)
+        canonical_transcript_df = filtered_transcript_df.loc[canonical_mask]
         if canonical_transcript_df.empty:
             return filtered_transcript_df.reset_index(drop=True)
         return canonical_transcript_df.reset_index(drop=True)
@@ -410,39 +413,25 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
             gene_to_transcript_mapping: dict[str, list[str]] = {}
             protein_coding_transcripts: list[str] = []
             canonical_transcripts: list[str] = []
-            transcript_sequences = self._empty_transcript_dataframe()[
-                [
-                    "transcript_id",
-                    "gene_id",
-                    "peptide_len",
-                    "cdna_len",
-                    "peptide_seq",
-                    "cdna_seq",
-                ]
-            ]
         else:
+            working_transcript_df = transcript_df.copy()
+            if "is_protein_coding" not in working_transcript_df.columns:
+                working_transcript_df["is_protein_coding"] = False
+            if "is_canonical" not in working_transcript_df.columns:
+                working_transcript_df["is_canonical"] = False
+
             transcript_to_gene_mapping = transcript_df.set_index("transcript_id")[
                 "gene_id"
             ].to_dict()
             gene_to_transcript_mapping = (
                 transcript_df.groupby("gene_id")["transcript_id"].agg(list).to_dict()
             )
-            protein_coding_transcripts = transcript_df[transcript_df["is_protein_coding"]][
-                "transcript_id"
-            ].tolist()
-            canonical_transcripts = transcript_df[transcript_df["is_canonical"]][
-                "transcript_id"
-            ].tolist()
-            transcript_sequences = transcript_df[
-                [
-                    "transcript_id",
-                    "gene_id",
-                    "peptide_len",
-                    "cdna_len",
-                    "peptide_seq",
-                    "cdna_seq",
-                ]
-            ].reset_index(drop=True)
+            protein_coding_transcripts = working_transcript_df[
+                working_transcript_df["is_protein_coding"].fillna(False)
+            ]["transcript_id"].tolist()
+            canonical_transcripts = working_transcript_df[
+                working_transcript_df["is_canonical"].fillna(False)
+            ]["transcript_id"].tolist()
 
         return {
             "gene_transcript_mapping": transcript_df.reset_index(drop=True),
@@ -450,7 +439,6 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
             "gene_to_transcript_mapping": gene_to_transcript_mapping,
             "protein_coding_transcripts": protein_coding_transcripts,
             "canonical_transcripts": canonical_transcripts,
-            "transcript_sequences": transcript_sequences,
         }
 
     def _infer_gene_id_type(self) -> str | None:
@@ -506,6 +494,7 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
                 "gene_id",
                 "is_protein_coding",
                 "is_canonical",
+                "translation_id",
                 "peptide_len",
                 "cdna_len",
                 "peptide_seq",
