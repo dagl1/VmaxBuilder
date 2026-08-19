@@ -27,8 +27,8 @@ from VmaxBuilder.stages.allocation.FairAllocation.implementation import (
     FairAllocationImplementation,
 )
 from VmaxBuilder.stages.Kcat.Kcat import KcatStage
-from VmaxBuilder.stages.Kcat.main_substrate.main_substrate_implementation import (
-    MainSubstrateImplementation,
+from VmaxBuilder.stages.Kcat.UniKPMainSubstrate.implementation import (
+    UniKPMainSubstrateImplementation,
 )
 from VmaxBuilder.stages.model.default.implementation import (
     DefaultIrreversibleModelImplementation,
@@ -227,13 +227,16 @@ class Orchestrator:
                             f"{implementation.__class__.__name__}..."
                         )
                         for dependency in optional_dependencies:
-                            installed_something = dependency()
+                            installed_something = dependency()()
                             if installed_something:
                                 installed_one_or_more_dependencies = True
         if installed_one_or_more_dependencies:
-            self.logger.info(
-                "One or more optional dependencies were installed. "
-                "Please rerun the orchestrator to ensure all dependencies are loaded."
+            self.logger.attention(
+                (
+                    "One or more optional dependencies were installed. "
+                    "Please rerun the orchestrator to ensure all dependencies are loaded."
+                ),
+                print_level=1,
             )
             # exit the program
             sys.exit(0)
@@ -781,7 +784,7 @@ if __name__ == "__main__":
         MvalueTrimmingExpressionPTRImplementation
     )
     allocation = orchestrator.set_allocation_implementation(FairAllocationImplementation)
-    Kcat = orchestrator.set_Kcat_implementation(MainSubstrateImplementation)
+    Kcat = orchestrator.set_Kcat_implementation(UniKPMainSubstrateImplementation)
     Vmax = orchestrator.set_Vmax_implementation(DefaultVmaxReactionResolving)
 
     protein.config.expression_sample_type_map = {idx: "heart" for idx in range(1, 1000)}

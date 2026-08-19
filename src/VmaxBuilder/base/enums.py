@@ -32,6 +32,7 @@ class StageName(str, Enum):
     MODEL = "model"
     GPR = "gpr"
     PROTEIN = "protein"
+    KCAT = "kcat"
     ALLOCATION = "allocation"
     VMAX = "vmax"
 
