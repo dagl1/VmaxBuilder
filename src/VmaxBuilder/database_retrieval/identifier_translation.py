@@ -7,6 +7,7 @@ Description:
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -358,7 +359,12 @@ class IdentifierTranslationService:
         if transcript_df.empty or "transcript_id" not in transcript_df.columns:
             return transcript_df
 
-        enriched_transcript_df = transcript_df.copy()
+        enriched_transcript_df = self._explode_transcript_identifier_rows(
+            transcript_df.copy()
+        )
+        if enriched_transcript_df.empty:
+            return enriched_transcript_df
+
         for column in [
             "translation_id",
             "peptide_seq",
@@ -371,9 +377,9 @@ class IdentifierTranslationService:
 
         cache = LookupCache(get_default_cache_dir(), "ensembl_transcript_sequences")
         transcript_ids = [
-            str(transcript_id)
+            transcript_id
             for transcript_id in enriched_transcript_df["transcript_id"].dropna().unique()
-            if str(transcript_id).strip()
+            if isinstance(transcript_id, str) and transcript_id.strip()
         ]
         if not transcript_ids:
             return enriched_transcript_df
@@ -438,6 +444,84 @@ class IdentifierTranslationService:
         return list(
             dict.fromkeys(identifier for identifier in cleaned_identifiers if identifier)
         )
+
+    @staticmethod
+    def _normalise_transcript_identifiers(value: Any) -> list[str]:
+        """Generated: validation needed.
+
+        Description:
+            Normalize transcript identifier payload into flat list of transcript IDs.
+
+        Args:
+            value (Any): Raw transcript identifier payload from dataframe or API.
+
+        Returns:
+            list[str]: Parsed transcript identifiers.
+        """
+
+        if value is None:
+            return []
+        if isinstance(value, str):
+            stripped_value = value.strip()
+            if not stripped_value:
+                return []
+            if stripped_value.startswith("[") and stripped_value.endswith("]"):
+                try:
+                    parsed_value = ast.literal_eval(stripped_value)
+                except (SyntaxError, ValueError):
+                    return [stripped_value]
+                return IdentifierTranslationService._normalise_transcript_identifiers(
+                    parsed_value
+                )
+            return [stripped_value]
+        if isinstance(value, (list, tuple, set)):
+            identifiers: list[str] = []
+            for nested_value in value:
+                identifiers.extend(
+                    IdentifierTranslationService._normalise_transcript_identifiers(
+                        nested_value
+                    )
+                )
+            return list(dict.fromkeys(identifier for identifier in identifiers if identifier))
+        return [str(value).strip()] if str(value).strip() else []
+
+    def _explode_transcript_identifier_rows(
+        self, transcript_df: pd.DataFrame
+    ) -> pd.DataFrame:
+        """Generated: validation needed.
+
+        Description:
+            Expand rows containing multiple transcript identifiers into one row per
+            transcript identifier.
+
+        Args:
+            transcript_df (pd.DataFrame): Transcript metadata dataframe with
+                transcript_id column.
+
+        Returns:
+            pd.DataFrame: Dataframe with normalized single transcript_id per row.
+        """
+
+        if transcript_df.empty or "transcript_id" not in transcript_df.columns:
+            return transcript_df
+
+        exploded_rows: list[dict[str, Any]] = []
+        for _, row in transcript_df.iterrows():
+            row_dict = row.to_dict()
+            transcript_ids = self._normalise_transcript_identifiers(
+                row_dict.get("transcript_id")
+            )
+            if not transcript_ids:
+                continue
+            for transcript_id in transcript_ids:
+                new_row = dict(row_dict)
+                new_row["transcript_id"] = transcript_id
+                exploded_rows.append(new_row)
+
+        if not exploded_rows:
+            return pd.DataFrame(columns=transcript_df.columns)
+        exploded_df = pd.DataFrame(exploded_rows)
+        return exploded_df.drop_duplicates().reset_index(drop=True)
 
     def _translate_with_mygene(
         self,
@@ -616,7 +700,9 @@ class IdentifierTranslationService:
                 return normalised_candidate
         return None
 
-    def _extract_transcript_rows_from_hit(self, hit: dict[str, Any]) -> list[dict[str, Any]]:
+    def _extract_transcript_rows_from_hit(  # noqa: C901
+        self, hit: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         """Generated: validation needed.
 
         Description:
@@ -645,9 +731,9 @@ class IdentifierTranslationService:
             entries = [entry for entry in ensembl_payload if isinstance(entry, dict)]
 
         for entry in entries:
-            transcript_id = entry.get("transcript")
+            transcript_ids = self._normalise_transcript_identifiers(entry.get("transcript"))
             gene_id = entry.get("gene") or fallback_gene_id
-            if not transcript_id or not gene_id:
+            if not transcript_ids or not gene_id:
                 continue
 
             translation_payload = entry.get("translation")
@@ -666,22 +752,23 @@ class IdentifierTranslationService:
             if cdna_len is None and isinstance(cdna_seq, str):
                 cdna_len = len(cdna_seq)
 
-            transcript_rows.append(
-                {
-                    "transcript_id": str(transcript_id),
-                    "gene_id": str(gene_id),
-                    "is_protein_coding": bool(gene_is_protein_coding),
-                    "is_canonical": bool(
-                        canonical_transcript is not None
-                        and str(transcript_id) == canonical_transcript
-                    ),
-                    "translation_id": translation_id,
-                    "peptide_len": peptide_len,
-                    "cdna_len": cdna_len,
-                    "peptide_seq": peptide_seq,
-                    "cdna_seq": cdna_seq,
-                }
-            )
+            for transcript_id in transcript_ids:
+                transcript_rows.append(
+                    {
+                        "transcript_id": str(transcript_id),
+                        "gene_id": str(gene_id),
+                        "is_protein_coding": bool(gene_is_protein_coding),
+                        "is_canonical": bool(
+                            canonical_transcript is not None
+                            and str(transcript_id) == canonical_transcript
+                        ),
+                        "translation_id": translation_id,
+                        "peptide_len": peptide_len,
+                        "cdna_len": cdna_len,
+                        "peptide_seq": peptide_seq,
+                        "cdna_seq": cdna_seq,
+                    }
+                )
 
         return transcript_rows
 
