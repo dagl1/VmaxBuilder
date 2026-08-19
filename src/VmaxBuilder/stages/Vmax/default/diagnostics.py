@@ -1,3 +1,10 @@
+from typing import Any
+
+import pandas as pd
+
+from VmaxBuilder.base.classes import BaseImplementationDiagnostics
+from VmaxBuilder.base.configs import FullConfig, Scaffold
+
 # todo:
 # we want to be able to do the following plots;
 # so we need to generate this data:
@@ -23,3 +30,49 @@
 # todo:
 # plot at each level what happens if we would substitute abundance or kcat with
 # a static value
+
+
+class VmaxDiagnostics(BaseImplementationDiagnostics):
+    """Generated: validation needed.
+
+    Description:
+        Model-stage diagnostics for preparing reaction alluvial data.
+    """
+
+    DIAGNOSTICS_NAME = "Vmax"
+
+    def __init__(self, full_config: FullConfig):
+        """Generated: validation needed.
+
+        Description:
+            Initialise model diagnostics state and logger.
+
+        Args:
+            full_config (FullConfig): Full pipeline configuration.
+
+        Modifies:
+            Internal diagnostics cache and base logger state.
+        """
+        super().__init__(full_config)
+
+    def before_run(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
+        return {"outputs": {}, "diagnostics": {}, "metadata": {}, "artifacts": {}}
+
+    def after_run(
+        self,
+        scaffold_objects: dict[str, dict[str, Any]],
+        scaffold: Scaffold,
+    ) -> dict[str, dict[str, Any]]:
+        # add in flux transformation
+        # overlaid histograms
+        # overlaid cdfs for different samples
+        # trimming vs non_trimming
+
+        diagnostics = {"Vmax": []}
+        new_scaffold_objects = {
+            "outputs": {},
+            "diagnostics": diagnostics,
+            "metadata": {},
+            "artifacts": {},
+        }
+        return new_scaffold_objects

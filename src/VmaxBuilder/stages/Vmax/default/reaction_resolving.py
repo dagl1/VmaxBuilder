@@ -135,6 +135,21 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
                 cobra_model,
             )
         )
+        if self.full_config.protein.trim_enable:
+            (
+                time_elapsed,
+                (
+                    reaction_capacity_df_without_trimming,
+                    IFP_sample_abundance_dict_without_trimming,
+                ),
+            ) = self.get_time_decorator(self.resolve_reaction_capacity)(
+                IFP_abundance_df,
+                per_reaction_per_gene_Kcats,
+                trimming_output,
+                reaction_to_IFP_mapping,
+                gene_to_IFP_mapping,
+                cobra_model,
+            )
 
         metadata = self.create_metadata(time_elapsed)
 
