@@ -330,9 +330,7 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
                     identifier_translation_service.enrich_transcript_dataframe_with_sequences(
                         transcript_df,
                         include_cdna_sequence=self.config.include_cdna_sequence,
-                        max_workers=(
-                            self.full_config.transcripts.id_translation_max_workers
-                        ),
+                        max_workers=(self.full_config.transcripts.id_translation_max_workers),
                     )
                 )
             return self._build_transcript_artifact_payload(transcript_df)
@@ -581,6 +579,7 @@ if __name__ == "__main__":
     #     json.dump(make_json_serializable(gene_substrate_mapping), f, indent=4)
     print("Number of genes in model:", len(gene_substrate_mapping))
 
+    transcript_df_path = base_dir / "artifacts" / "model_stage" / "transcript_df.csv"
     model_data_df = load_model_data_frame(model_data_file)
     metabolites_df = pd.read_csv(metabolites_file, sep="\t")
     manually_curated_smiles_df = load_manually_curated_smiles_file(
@@ -626,3 +625,22 @@ if __name__ == "__main__":
         "Number of rows with smiles longer than 218 characters:",
         smiles_result.summary["smiles_longer_than_218"],
     )
+    identifier_translation_service = IdentifierTranslationService(logger=None)
+
+    genes_in_model = [str(gene.id) for gene in cobra_model.genes if str(gene.id).strip()]
+    genes_in_model = list(set(genes_in_model))[:10]
+    transcript_df = identifier_translation_service.build_gene_transcript_dataframe(
+        genes_in_model,
+        gene_id_type="ensembl_gene_id",
+        # species=self.full_config.transcripts.id_translation_species,
+        # provider=self.full_config.transcripts.id_translation_provider,
+        # max_workers=self.full_config.transcripts.id_translation_max_workers,
+        # batch_size=self.full_config.transcripts.id_translation_batch_size,
+        provider="auto",
+        max_workers=6,
+        batch_size=100,
+        include_sequence_metadata=True,
+        include_cdna_sequence=True,
+    )
+    # save it as transcript_df.csv in base_dir/artifacts/model_stage/transcript_df.csv
+    transcript_df.to_csv(transcript_df_path, index=False)

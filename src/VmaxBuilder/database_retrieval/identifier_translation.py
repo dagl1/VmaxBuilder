@@ -8,6 +8,7 @@ Description:
 from __future__ import annotations
 
 import ast
+import time
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -191,6 +192,7 @@ class IdentifierTranslationService:
         gene_ids: Sequence[str],
         *,
         gene_id_type: str,
+        target_type: str = "gene",
         species: str | None = None,
         provider: str = "auto",
         max_workers: int = 8,
@@ -700,8 +702,28 @@ class IdentifierTranslationService:
                 return normalised_candidate
         return None
 
+    def _fetch_canonical_transcript_id(
+        self,
+        gene_id: str,
+    ) -> str | None:
+        normalised_gene_id = gene_id.split(".")[0]
+
+        lookup_url = f"{self._ENSEMBL_REST_BASE}/lookup/id/{normalised_gene_id}?expand=1"
+
+        lookup_record = self._ensembl_get_json(lookup_url)
+
+        if not isinstance(lookup_record, dict):
+            return None
+
+        canonical = lookup_record.get("canonical_transcript")
+
+        if isinstance(canonical, str) and canonical.strip():
+            return canonical.strip()
+
+        return None
+
     def _extract_transcript_rows_from_hit(  # noqa: C901
-        self, hit: dict[str, Any]
+        self, hit: dict[str, Any], target_type: str = "gene"
     ) -> list[dict[str, Any]]:
         """Generated: validation needed.
 
@@ -733,8 +755,12 @@ class IdentifierTranslationService:
         for entry in entries:
             transcript_ids = self._normalise_transcript_identifiers(entry.get("transcript"))
             gene_id = entry.get("gene") or fallback_gene_id
-            if not transcript_ids or not gene_id:
-                continue
+            canonical_transcript = self._fetch_canonical_transcript_id(gene_id)
+            print(f"Canonical transcript for gene_id {gene_id}: {canonical_transcript}")
+            # normalise canonical_transcript
+            canonical_transcript = (
+                canonical_transcript.split(".")[0] if canonical_transcript else None
+            )
 
             translation_payload = entry.get("translation")
             translation_id = None
@@ -753,6 +779,8 @@ class IdentifierTranslationService:
                 cdna_len = len(cdna_seq)
 
             for transcript_id in transcript_ids:
+                if target_type == "gene" and canonical_transcript != transcript_id:
+                    continue
                 transcript_rows.append(
                     {
                         "transcript_id": str(transcript_id),
@@ -869,6 +897,41 @@ class IdentifierTranslationService:
 
         return cached_rows
 
+    def _fetch_single_transcript_sequence_row_with_retry(
+        self,
+        transcript_id: str,
+        *,
+        include_cdna_sequence: bool,
+        max_retries: int = 4,
+        retry_delay: float = 1.0,
+    ) -> dict[str, Any]:
+        _last_error: Exception | None = None
+
+        for attempt in range(max_retries):
+            try:
+                result = self._fetch_single_transcript_sequence_row(
+                    transcript_id,
+                    include_cdna_sequence=include_cdna_sequence,
+                )
+
+                # Don't accept an empty protein lookup as a successful result.
+                if result.get("peptide_seq"):
+                    return result
+
+                if result.get("translation_id"):
+                    return result
+
+                raise RuntimeError(
+                    f"No translation/protein sequence returned for {transcript_id}"
+                )
+
+            except Exception as exc:
+                _last_error = exc
+
+                if attempt < max_retries - 1:
+                    delay = retry_delay * (2**attempt)
+                    time.sleep(delay)
+
     def _fetch_single_transcript_sequence_row(
         self,
         transcript_id: str,
@@ -890,8 +953,7 @@ class IdentifierTranslationService:
 
         normalised_transcript_id = transcript_id.split(".")[0]
         lookup_url = (
-            f"{self._ENSEMBL_REST_BASE}/lookup/id/"
-            f"{normalised_transcript_id}?expand=1"
+            f"{self._ENSEMBL_REST_BASE}/lookup/id/{normalised_transcript_id}?expand=1"
         )
         lookup_record = self._ensembl_get_json(lookup_url)
 
@@ -1026,4 +1088,3 @@ class IdentifierTranslationService:
                 print(message)
             next_percent_threshold = milestone_percent + 10
         return next_percent_threshold
-
