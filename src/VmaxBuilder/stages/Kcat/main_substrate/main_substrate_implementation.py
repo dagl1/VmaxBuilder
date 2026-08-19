@@ -110,6 +110,60 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
         super().__init__(full_config)
         # Additional initialization if needed
 
+    def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
+        # Load inputs
+        adjusted_irreversible_cobra_model: Model = cast(
+            Model, scaffold.get_scaffold_value("adjusted_irreversible_cobra_model")
+        )
+        gene_substrate_predictions: pd.DataFrame = cast(
+            pd.DataFrame, scaffold.get_scaffold_value("gene_substrate_predictions")
+        )
+
+        (
+            elapsed_time,
+            (
+                main_substrate_per_gene_per_reaction,
+                imputed_main_substrate_per_gene_per_reaction,
+                gene_substrate_prediction_dict,
+                imputed_gene_substrate_prediction_dict,
+            ),
+        ) = self.get_time_decorator(self.aggregate_main_substrate_predictions)(
+            adjusted_irreversible_cobra_model=adjusted_irreversible_cobra_model,
+            gene_substrate_predictions=gene_substrate_predictions,
+        )
+        metadata = self.create_metadata(elapsed_time=elapsed_time)
+
+        return {
+            "outputs": {
+                "imputed_per_gene_per_"
+                "reaction_main_substrate_"
+                "predictions": imputed_main_substrate_per_gene_per_reaction
+            },
+            "artifacts": {
+                "before_imputation_per_gene_per_"
+                "reaction_main_substrate_predictions": main_substrate_per_gene_per_reaction,
+                "before_imputation_gene_"
+                "substrate_predictions": gene_substrate_prediction_dict,
+                "imputed_gene_substrate_predictions": imputed_gene_substrate_prediction_dict,
+            },
+            "diagnostics": {},  # todo: implement diagnostics for main substrate aggregation
+            "metadata": metadata,
+        }
+
+    def create_metadata(self, elapsed_time: float, **kwargs) -> dict[str, Any]:
+        metadata = {
+            "Kcat": {
+                "implementation": type(self).__name__,
+                "elapsed_time_seconds": elapsed_time,
+                "status": (
+                    "All Kcat predictions imputed and aggregated to dominant (main) substrate"
+                ),
+                "date_created": pd.Timestamp.now().isoformat(),
+                "params": self.get_implementation_config_params(),
+            }
+        }
+        return metadata
+
     def aggregate_main_substrate_predictions(
         self,
         adjusted_irreversible_cobra_model: Model,
@@ -236,46 +290,6 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                     )
 
         return reaction_predictions
-
-    def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
-        # Load inputs
-        adjusted_irreversible_cobra_model: Model = cast(
-            Model, scaffold.get_scaffold_value("adjusted_irreversible_cobra_model")
-        )
-        gene_substrate_predictions: pd.DataFrame = cast(
-            pd.DataFrame, scaffold.get_scaffold_value("gene_substrate_predictions")
-        )
-
-        (
-            elapsed_time,
-            (
-                main_substrate_per_gene_per_reaction,
-                imputed_main_substrate_per_gene_per_reaction,
-                gene_substrate_prediction_dict,
-                imputed_gene_substrate_prediction_dict,
-            ),
-        ) = self.get_time_decorator(self.aggregate_main_substrate_predictions)(
-            adjusted_irreversible_cobra_model=adjusted_irreversible_cobra_model,
-            gene_substrate_predictions=gene_substrate_predictions,
-        )
-        metadata = self.create_metadata(elapsed_time=elapsed_time)
-
-        return {
-            "outputs": {
-                "imputed_per_gene_per_"
-                "reaction_main_substrate_"
-                "predictions": imputed_main_substrate_per_gene_per_reaction
-            },
-            "artifacts": {
-                "before_imputation_per_gene_per_"
-                "reaction_main_substrate_predictions": main_substrate_per_gene_per_reaction,
-                "before_imputation_gene_"
-                "substrate_predictions": gene_substrate_prediction_dict,
-                "imputed_gene_substrate_predictions": imputed_gene_substrate_prediction_dict,
-            },
-            "diagnostics": {},  # todo: implement diagnostics for main substrate aggregation
-            "metadata": metadata,
-        }
 
     def _convert_predictions_to_log10_scale(
         self, gene_substrate_prediction_dict: dict[str, dict[str, GeneSubstratePrediction]]
@@ -612,20 +626,6 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
             imputed_gene_substrate_prediction_dict[gene_id] = imputed_gene_predictions
 
         return imputed_gene_substrate_prediction_dict
-
-    def create_metadata(self, elapsed_time: float, **kwargs) -> dict[str, Any]:
-        metadata = {
-            "Kcat": {
-                "implementation": type(self).__name__,
-                "elapsed_time_seconds": elapsed_time,
-                "status": (
-                    "All Kcat predictions imputed and aggregated to dominant (main) substrate"
-                ),
-                "date_created": pd.Timestamp.now().isoformat(),
-                "params": self.get_implementation_config_params(),
-            }
-        }
-        return metadata
 
 
 if __name__ == "__main__":
