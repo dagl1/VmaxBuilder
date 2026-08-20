@@ -60,6 +60,17 @@ class IdentifierTranslationService:
         "ensembl_transcript_id": "ensembl.transcript",
     }
     _ENSEMBL_REST_BASE = "https://rest.ensembl.org"
+    _TRANSCRIPT_METADATA_COLUMNS: list[str] = [
+        "transcript_id",
+        "gene_id",
+        "is_protein_coding",
+        "is_canonical",
+        "translation_id",
+        "peptide_len",
+        "cdna_len",
+        "peptide_seq",
+        "cdna_seq",
+    ]
 
     def __init__(self, logger: Any | None = None) -> None:
         """Generated: validation needed.
@@ -72,9 +83,11 @@ class IdentifierTranslationService:
 
         Modifies:
             self.logger
+            self.last_sequence_lookup_summary
         """
 
         self.logger = logger
+        self.last_sequence_lookup_summary = self._empty_sequence_lookup_summary()
 
     def translate_identifiers(
         self,
@@ -209,6 +222,8 @@ class IdentifierTranslationService:
         Args:
             gene_ids (Sequence[str]): Model gene identifiers.
             gene_id_type (str): Gene identifier namespace.
+            target_type (str): Retrieval mode. "gene" returns canonical transcript per
+                gene; "transcript" returns all protein-coding transcripts.
             species (str | None): Optional species hint forwarded to provider.
             provider (str): Translation provider key. Supported values: auto, mygene.
             max_workers (int): Maximum number of parallel worker threads.
@@ -224,24 +239,16 @@ class IdentifierTranslationService:
                 peptide_len, cdna_len, peptide_seq, cdna_seq.
 
         Raises:
-            ValueError: If provider or gene identifier namespace is unsupported.
+            ValueError: If provider, target type, or gene identifier namespace is unsupported.
         """
 
         deduplicated_gene_ids = self._deduplicate_identifiers(gene_ids)
         if not deduplicated_gene_ids:
-            return pd.DataFrame(
-                columns=[
-                    "transcript_id",
-                    "gene_id",
-                    "is_protein_coding",
-                    "is_canonical",
-                    "translation_id",
-                    "peptide_len",
-                    "cdna_len",
-                    "peptide_seq",
-                    "cdna_seq",
-                ]
-            )
+            return pd.DataFrame(columns=self._TRANSCRIPT_METADATA_COLUMNS)
+
+        if target_type not in {"gene", "transcript"}:
+            raise ValueError("target_type must be 'gene' or 'transcript'.")
+        self.last_sequence_lookup_summary = self._empty_sequence_lookup_summary()
 
         source_scope = self._SOURCE_SCOPE_BY_ID_TYPE.get(gene_id_type)
         if source_scope is None:
@@ -262,19 +269,7 @@ class IdentifierTranslationService:
             for index in range(0, len(deduplicated_gene_ids), batch_size)
         ]
         if not chunks:
-            return pd.DataFrame(
-                columns=[
-                    "transcript_id",
-                    "gene_id",
-                    "is_protein_coding",
-                    "is_canonical",
-                    "translation_id",
-                    "peptide_len",
-                    "cdna_len",
-                    "peptide_seq",
-                    "cdna_seq",
-                ]
-            )
+            return pd.DataFrame(columns=self._TRANSCRIPT_METADATA_COLUMNS)
 
         worker_count = min(max_workers, len(chunks))
         rows: list[dict[str, Any]] = []
@@ -298,7 +293,9 @@ class IdentifierTranslationService:
             ]
             for future in as_completed(futures):
                 for hit in future.result():
-                    rows.extend(self._extract_transcript_rows_from_hit(hit))
+                    rows.extend(
+                        self._extract_transcript_rows_from_hit(hit, target_type=target_type)
+                    )
                 completed_chunks += 1
                 next_percent_threshold = self._report_progress_tick(
                     batch_name="mygene_transcript_metadata",
@@ -309,29 +306,39 @@ class IdentifierTranslationService:
 
         transcript_df = pd.DataFrame(
             rows,
-            columns=[
-                "transcript_id",
-                "gene_id",
-                "is_protein_coding",
-                "is_canonical",
-                "translation_id",
-                "peptide_len",
-                "cdna_len",
-                "peptide_seq",
-                "cdna_seq",
-            ],
+            columns=self._TRANSCRIPT_METADATA_COLUMNS,
         )
         if transcript_df.empty:
             return transcript_df
         transcript_df = transcript_df.dropna(subset=["transcript_id", "gene_id"])
-        transcript_df["transcript_id"] = transcript_df["transcript_id"].astype(str)
+        transcript_df["transcript_id"] = (
+            transcript_df["transcript_id"].astype(str).map(self._normalise_identifier_version)
+        )
         transcript_df["gene_id"] = transcript_df["gene_id"].astype(str)
+        transcript_df = self._filter_transcript_rows_for_target_type(
+            transcript_df,
+            target_type,
+        )
         transcript_df = transcript_df.drop_duplicates(subset=["transcript_id", "gene_id"])
         if include_sequence_metadata:
             transcript_df = self.enrich_transcript_dataframe_with_sequences(
                 transcript_df,
                 include_cdna_sequence=include_cdna_sequence,
                 max_workers=max_workers,
+            )
+            transcript_df = self._filter_transcript_rows_for_target_type(
+                transcript_df,
+                target_type,
+                require_resolved_protein=True,
+            )
+            transcript_df = self._finalise_transcript_flags(
+                transcript_df,
+                target_type=target_type,
+            )
+        else:
+            self.last_sequence_lookup_summary = self._build_sequence_flag_summary(
+                transcript_df,
+                target_type=target_type,
             )
         return transcript_df.reset_index(drop=True)
 
@@ -702,26 +709,6 @@ class IdentifierTranslationService:
                 return normalised_candidate
         return None
 
-    def _fetch_canonical_transcript_id(
-        self,
-        gene_id: str,
-    ) -> str | None:
-        normalised_gene_id = gene_id.split(".")[0]
-
-        lookup_url = f"{self._ENSEMBL_REST_BASE}/lookup/id/{normalised_gene_id}?expand=1"
-
-        lookup_record = self._ensembl_get_json(lookup_url)
-
-        if not isinstance(lookup_record, dict):
-            return None
-
-        canonical = lookup_record.get("canonical_transcript")
-
-        if isinstance(canonical, str) and canonical.strip():
-            return canonical.strip()
-
-        return None
-
     def _extract_transcript_rows_from_hit(  # noqa: C901
         self, hit: dict[str, Any], target_type: str = "gene"
     ) -> list[dict[str, Any]]:
@@ -740,8 +727,9 @@ class IdentifierTranslationService:
         if hit.get("notfound"):
             return []
 
-        canonical_transcript = self._extract_canonical_transcript_identifier(hit)
-        gene_is_protein_coding = str(hit.get("type_of_gene", "")).lower() == "protein-coding"
+        canonical_transcript = self._normalise_identifier_version(
+            self._extract_canonical_transcript_identifier(hit)
+        )
         fallback_gene_id = self._extract_ensembl_gene_identifier(hit)
 
         transcript_rows: list[dict[str, Any]] = []
@@ -753,21 +741,22 @@ class IdentifierTranslationService:
             entries = [entry for entry in ensembl_payload if isinstance(entry, dict)]
 
         for entry in entries:
-            transcript_ids = self._normalise_transcript_identifiers(entry.get("transcript"))
+            transcript_ids = [
+                self._normalise_identifier_version(transcript_id)
+                for transcript_id in self._normalise_transcript_identifiers(
+                    entry.get("transcript")
+                )
+            ]
+            transcript_ids = self._deduplicate_identifiers(transcript_ids)
             gene_id = entry.get("gene") or fallback_gene_id
-            canonical_transcript = self._fetch_canonical_transcript_id(gene_id)
-            print(f"Canonical transcript for gene_id {gene_id}: {canonical_transcript}")
-            # normalise canonical_transcript
-            canonical_transcript = (
-                canonical_transcript.split(".")[0] if canonical_transcript else None
-            )
-
             translation_payload = entry.get("translation")
             translation_id = None
             if isinstance(translation_payload, str):
                 translation_id = translation_payload
             elif isinstance(translation_payload, dict):
                 translation_id = translation_payload.get("id")
+
+            has_translation = isinstance(translation_id, str) and bool(translation_id.strip())
 
             peptide_seq = entry.get("peptide_seq")
             cdna_seq = entry.get("cdna_seq")
@@ -779,13 +768,11 @@ class IdentifierTranslationService:
                 cdna_len = len(cdna_seq)
 
             for transcript_id in transcript_ids:
-                if target_type == "gene" and canonical_transcript != transcript_id:
-                    continue
                 transcript_rows.append(
                     {
                         "transcript_id": str(transcript_id),
                         "gene_id": str(gene_id),
-                        "is_protein_coding": bool(gene_is_protein_coding),
+                        "is_protein_coding": bool(has_translation),
                         "is_canonical": bool(
                             canonical_transcript is not None
                             and str(transcript_id) == canonical_transcript
@@ -798,7 +785,42 @@ class IdentifierTranslationService:
                     }
                 )
 
-        return transcript_rows
+        if target_type != "gene":
+            return transcript_rows
+
+        if not transcript_rows:
+            return []
+
+        if canonical_transcript is not None:
+            canonical_rows = [
+                row
+                for row in transcript_rows
+                if self._normalise_identifier_version(row["transcript_id"])
+                == canonical_transcript
+            ]
+            if canonical_rows:
+                if canonical_rows[0]["is_protein_coding"]:
+                    return [canonical_rows[0]]
+
+        protein_coding_rows = [
+            row for row in transcript_rows if bool(row.get("is_protein_coding"))
+        ]
+        if protein_coding_rows:
+            fallback_row = dict(protein_coding_rows[0])
+            fallback_row["is_canonical"] = False
+            return [fallback_row]
+
+        if canonical_transcript is not None:
+            canonical_rows = [
+                row
+                for row in transcript_rows
+                if self._normalise_identifier_version(row["transcript_id"])
+                == canonical_transcript
+            ]
+            if canonical_rows:
+                return [canonical_rows[0]]
+
+        return [transcript_rows[0]]
 
     @staticmethod
     def _extract_canonical_transcript_identifier(hit: dict[str, Any]) -> str | None:
@@ -827,7 +849,7 @@ class IdentifierTranslationService:
                 return candidate.strip()
         return None
 
-    def _fetch_transcript_sequence_rows(
+    def _fetch_transcript_sequence_rows(  # noqa: C901
         self,
         transcript_ids: list[str],
         *,
@@ -851,51 +873,129 @@ class IdentifierTranslationService:
             list[dict[str, Any]]: Sequence metadata rows keyed by transcript_id.
         """
 
-        cached_rows: list[dict[str, Any]] = []
+        cached_rows_by_transcript: dict[str, dict[str, Any]] = {}
         missing_transcript_ids: list[str] = []
         cache_suffix = "with_cdna" if include_cdna_sequence else "aa_only"
 
         for transcript_id in transcript_ids:
             cache_key = f"{transcript_id}:{cache_suffix}"
             cached_entry = cache.get(cache_key)
-            if isinstance(cached_entry, dict):
-                cached_rows.append(cached_entry)
+            if isinstance(cached_entry, dict) and self._is_sequence_row_usable(cached_entry):
+                cached_rows_by_transcript[transcript_id] = cached_entry
             else:
+                if isinstance(cached_entry, dict):
+                    cache.invalidate(cache_key)
                 missing_transcript_ids.append(transcript_id)
 
-        if missing_transcript_ids:
+        fetched_rows_by_transcript: dict[str, dict[str, Any]] = {}
+        unresolved_transcript_ids = missing_transcript_ids
+
+        if unresolved_transcript_ids:
             self._report_progress_start(
                 batch_name="ensembl_transcript_sequence_lookup",
-                total_items=len(missing_transcript_ids),
+                total_items=len(unresolved_transcript_ids),
             )
-            worker_count = max(1, min(max_workers, len(missing_transcript_ids)))
-            completed_items = 0
-            next_percent_threshold = 10
-            with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                futures = {
-                    executor.submit(
-                        self._fetch_single_transcript_sequence_row,
-                        transcript_id,
-                        include_cdna_sequence=include_cdna_sequence,
-                    ): transcript_id
-                    for transcript_id in missing_transcript_ids
-                }
+            worker_count = max(1, min(max_workers, len(unresolved_transcript_ids)))
 
-                for future in as_completed(futures):
-                    transcript_id = futures[future]
-                    fetched_row = future.result()
-                    cache_key = f"{transcript_id}:{cache_suffix}"
-                    cache.set(cache_key, fetched_row)
-                    cached_rows.append(fetched_row)
-                    completed_items += 1
-                    next_percent_threshold = self._report_progress_tick(
-                        batch_name="ensembl_transcript_sequence_lookup",
-                        completed_items=completed_items,
-                        total_items=len(missing_transcript_ids),
-                        next_percent_threshold=next_percent_threshold,
-                    )
+            def fetch_rows(
+                pending_transcript_ids: list[str],
+                *,
+                batch_name: str,
+                max_retries: int,
+            ) -> tuple[dict[str, dict[str, Any]], list[str], list[str]]:
+                resolved_rows: dict[str, dict[str, Any]] = {}
+                unresolved_ids: list[str] = []
+                non_protein_coding_ids: list[str] = []
+                with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                    futures = {
+                        executor.submit(
+                            self._fetch_single_transcript_sequence_row_with_retry,
+                            transcript_id,
+                            include_cdna_sequence=include_cdna_sequence,
+                            max_retries=max_retries,
+                        ): transcript_id
+                        for transcript_id in pending_transcript_ids
+                    }
 
-        return cached_rows
+                    local_completed_items = 0
+                    local_next_percent_threshold = 10
+                    for future in as_completed(futures):
+                        transcript_id = futures[future]
+                        fetched_row = future.result()
+                        if self._is_sequence_row_usable(fetched_row):
+                            resolved_rows[transcript_id] = fetched_row
+                        elif fetched_row.get("status") == "non_protein_coding":
+                            non_protein_coding_ids.append(transcript_id)
+                        else:
+                            unresolved_ids.append(transcript_id)
+
+                        local_completed_items += 1
+                        local_next_percent_threshold = self._report_progress_tick(
+                            batch_name=batch_name,
+                            completed_items=local_completed_items,
+                            total_items=len(pending_transcript_ids),
+                            next_percent_threshold=local_next_percent_threshold,
+                        )
+                return resolved_rows, unresolved_ids, non_protein_coding_ids
+
+            (
+                first_pass_rows,
+                unresolved_transcript_ids,
+                non_protein_coding_ids,
+            ) = fetch_rows(
+                unresolved_transcript_ids,
+                batch_name="ensembl_transcript_sequence_lookup",
+                max_retries=3,
+            )
+            fetched_rows_by_transcript.update(first_pass_rows)
+
+            if unresolved_transcript_ids:
+                self._report_progress_start(
+                    batch_name="ensembl_transcript_sequence_retry",
+                    total_items=len(unresolved_transcript_ids),
+                )
+                (
+                    retry_rows,
+                    unresolved_transcript_ids,
+                    retry_non_protein_coding_ids,
+                ) = fetch_rows(
+                    unresolved_transcript_ids,
+                    batch_name="ensembl_transcript_sequence_retry",
+                    max_retries=5,
+                )
+                fetched_rows_by_transcript.update(retry_rows)
+                non_protein_coding_ids.extend(retry_non_protein_coding_ids)
+
+            if non_protein_coding_ids:
+                non_protein_coding_count = len(set(non_protein_coding_ids))
+                self._report_progress_info(
+                    "ensembl_transcript_sequence_lookup: "
+                    f"skipped {non_protein_coding_count} non-protein-coding transcripts"
+                )
+
+            if unresolved_transcript_ids:
+                unresolved_count = len(set(unresolved_transcript_ids))
+                unresolved_examples = ", ".join(sorted(set(unresolved_transcript_ids))[:5])
+                self._report_progress_warning(
+                    "ensembl_transcript_sequence_lookup: "
+                    f"unresolved {unresolved_count} transcripts after retry "
+                    f"(examples: {unresolved_examples})"
+                )
+
+            resolved_count = len(fetched_rows_by_transcript)
+            total_count = len(transcript_ids)
+            self._report_progress_info(
+                "ensembl_transcript_sequence_lookup: "
+                f"resolved {resolved_count} / {total_count} transcripts"
+            )
+
+            for transcript_id, fetched_row in fetched_rows_by_transcript.items():
+                cache_key = f"{transcript_id}:{cache_suffix}"
+                cache.set(cache_key, fetched_row)
+
+        merged_rows = dict(cached_rows_by_transcript)
+        merged_rows.update(fetched_rows_by_transcript)
+        return list(merged_rows.values())
 
     def _fetch_single_transcript_sequence_row_with_retry(
         self,
@@ -905,6 +1005,22 @@ class IdentifierTranslationService:
         max_retries: int = 4,
         retry_delay: float = 1.0,
     ) -> dict[str, Any]:
+        """Generated: validation needed.
+
+        Description:
+            Fetch transcript sequence metadata with exponential-backoff retries and
+            return best-effort payload on persistent failures.
+
+        Args:
+            transcript_id (str): Ensembl transcript identifier.
+            include_cdna_sequence (bool): Whether to request cDNA sequence.
+            max_retries (int): Maximum number of fetch attempts.
+            retry_delay (float): Base retry delay in seconds.
+
+        Returns:
+            dict[str, Any]: Sequence metadata payload for transcript.
+        """
+
         _last_error: Exception | None = None
 
         for attempt in range(max_retries):
@@ -914,11 +1030,11 @@ class IdentifierTranslationService:
                     include_cdna_sequence=include_cdna_sequence,
                 )
 
-                # Don't accept an empty protein lookup as a successful result.
-                if result.get("peptide_seq"):
+                if result.get("status") == "non_protein_coding":
                     return result
 
-                if result.get("translation_id"):
+                # Don't accept an empty protein lookup as a successful result.
+                if result.get("peptide_seq"):
                     return result
 
                 raise RuntimeError(
@@ -931,6 +1047,18 @@ class IdentifierTranslationService:
                 if attempt < max_retries - 1:
                     delay = retry_delay * (2**attempt)
                     time.sleep(delay)
+
+        if _last_error is not None:
+            _ = _last_error
+
+        return {
+            "transcript_id": transcript_id,
+            "translation_id": None,
+            "peptide_seq": None,
+            "peptide_len": None,
+            "cdna_seq": None,
+            "cdna_len": None,
+        }
 
     def _fetch_single_transcript_sequence_row(
         self,
@@ -958,19 +1086,57 @@ class IdentifierTranslationService:
         lookup_record = self._ensembl_get_json(lookup_url)
 
         translation_id = None
+        transcript_parent_gene_id = None
+        transcript_biotype = None
         if isinstance(lookup_record, dict):
             translation_payload = lookup_record.get("Translation")
             if isinstance(translation_payload, dict):
                 translation_id = translation_payload.get("id")
+            transcript_parent_gene_id = lookup_record.get("Parent")
+            transcript_biotype = lookup_record.get("biotype")
 
-        peptide_seq = None
-        if translation_id:
-            protein_url = (
-                f"{self._ENSEMBL_REST_BASE}/sequence/id/{translation_id}?type=protein"
+        translation_id, peptide_seq = self._resolve_transcript_protein_sequence(
+            transcript_id=normalised_transcript_id,
+            translation_id=translation_id,
+        )
+
+        if (
+            self._is_non_protein_coding_biotype(transcript_biotype)
+            and (not isinstance(peptide_seq, str) or not peptide_seq.strip())
+            and isinstance(transcript_parent_gene_id, str)
+            and transcript_parent_gene_id.strip()
+        ):
+            fallback_translation_id, fallback_peptide_seq = (
+                self._resolve_gene_level_fallback_protein_sequence(transcript_parent_gene_id)
             )
-            protein_record = self._ensembl_get_json(protein_url)
-            if isinstance(protein_record, dict):
-                peptide_seq = protein_record.get("seq")
+            if isinstance(fallback_peptide_seq, str) and fallback_peptide_seq.strip():
+                translation_id = fallback_translation_id
+                peptide_seq = fallback_peptide_seq
+
+        if self._is_non_protein_coding_biotype(transcript_biotype) and (
+            not isinstance(peptide_seq, str) or not peptide_seq.strip()
+        ):
+            return {
+                "transcript_id": transcript_id,
+                "translation_id": None,
+                "peptide_seq": None,
+                "peptide_len": None,
+                "cdna_seq": None,
+                "cdna_len": None,
+                "status": "non_protein_coding",
+            }
+
+        if (
+            (not isinstance(peptide_seq, str) or not peptide_seq.strip())
+            and isinstance(transcript_parent_gene_id, str)
+            and transcript_parent_gene_id.strip()
+        ):
+            fallback_translation_id, fallback_peptide_seq = (
+                self._resolve_gene_level_fallback_protein_sequence(transcript_parent_gene_id)
+            )
+            if isinstance(fallback_peptide_seq, str) and fallback_peptide_seq.strip():
+                translation_id = fallback_translation_id
+                peptide_seq = fallback_peptide_seq
 
         cdna_seq = None
         if include_cdna_sequence:
@@ -981,6 +1147,11 @@ class IdentifierTranslationService:
             if isinstance(cdna_record, dict):
                 cdna_seq = cdna_record.get("seq")
 
+        resolved_status = (
+            "resolved"
+            if isinstance(peptide_seq, str) and peptide_seq.strip()
+            else "unresolved"
+        )
         return {
             "transcript_id": transcript_id,
             "translation_id": translation_id,
@@ -988,6 +1159,7 @@ class IdentifierTranslationService:
             "peptide_len": len(peptide_seq) if isinstance(peptide_seq, str) else None,
             "cdna_seq": cdna_seq,
             "cdna_len": len(cdna_seq) if isinstance(cdna_seq, str) else None,
+            "status": resolved_status,
         }
 
     @staticmethod
@@ -1011,13 +1183,21 @@ class IdentifierTranslationService:
         """
 
         headers = {"Accept": "application/json"}
-        for _ in range(max(1, retries)):
+        for attempt in range(max(1, retries)):
             try:
                 response = requests.get(url, headers=headers, timeout=timeout)
             except requests.RequestException:
+                if attempt < max(1, retries) - 1:
+                    time.sleep(0.5 * (2**attempt))
                 continue
 
             if response.status_code == 429:
+                if attempt < max(1, retries) - 1:
+                    retry_after = response.headers.get("Retry-After")
+                    if retry_after and retry_after.isdigit():
+                        time.sleep(float(retry_after))
+                    else:
+                        time.sleep(0.5 * (2**attempt))
                 continue
             if response.ok:
                 try:
@@ -1028,6 +1208,396 @@ class IdentifierTranslationService:
                     return payload
                 return None
         return None
+
+    @staticmethod
+    def _normalise_identifier_version(identifier: str | None) -> str | None:
+        """Generated: validation needed.
+
+        Description:
+            Remove version suffix from Ensembl-like identifier values.
+
+        Args:
+            identifier (str | None): Raw identifier value.
+
+        Returns:
+            str | None: Identifier without version suffix.
+        """
+
+        if not isinstance(identifier, str):
+            return None
+        stripped_identifier = identifier.strip()
+        if not stripped_identifier:
+            return None
+        return stripped_identifier.split(".")[0]
+
+    def _filter_transcript_rows_for_target_type(
+        self,
+        transcript_df: pd.DataFrame,
+        target_type: str,
+        *,
+        require_resolved_protein: bool = False,
+    ) -> pd.DataFrame:
+        """Generated: validation needed.
+
+        Description:
+            Filter transcript metadata rows to requested target granularity.
+
+        Args:
+            transcript_df (pd.DataFrame): Transcript metadata table.
+            target_type (str): Target retrieval mode, gene or transcript.
+            require_resolved_protein (bool): Whether rows must include resolved
+                protein sequence metadata.
+
+        Returns:
+            pd.DataFrame: Filtered transcript metadata table.
+        """
+
+        if transcript_df.empty:
+            return transcript_df
+
+        filtered_transcript_df = transcript_df.copy()
+        if target_type == "gene":
+            if "is_canonical" in filtered_transcript_df.columns:
+                canonical_mask = filtered_transcript_df["is_canonical"].fillna(False)
+                canonical_rows = filtered_transcript_df.loc[canonical_mask]
+                if not canonical_rows.empty:
+                    filtered_transcript_df = canonical_rows
+            filtered_transcript_df = filtered_transcript_df.drop_duplicates(
+                subset=["gene_id"]
+            )
+
+        if target_type == "transcript":
+            pass
+
+        if require_resolved_protein:
+            peptide_mask = filtered_transcript_df["peptide_seq"].apply(
+                lambda value: isinstance(value, str) and bool(value.strip())
+            )
+            filtered_transcript_df = filtered_transcript_df.loc[peptide_mask]
+
+        return filtered_transcript_df
+
+    def _finalise_transcript_flags(
+        self,
+        transcript_df: pd.DataFrame,
+        *,
+        target_type: str,
+    ) -> pd.DataFrame:
+        """Generated: validation needed.
+
+        Description:
+            Reconcile transcript annotation flags with resolved sequence evidence.
+
+        Args:
+            transcript_df (pd.DataFrame): Transcript metadata table.
+            target_type (str): Target retrieval mode, gene or transcript.
+
+        Returns:
+            pd.DataFrame: Transcript metadata table with updated flags.
+        """
+
+        if transcript_df.empty:
+            self.last_sequence_lookup_summary = self._empty_sequence_lookup_summary()
+            return transcript_df
+
+        finalised_transcript_df = transcript_df.copy()
+        if "is_protein_coding" not in finalised_transcript_df.columns:
+            finalised_transcript_df["is_protein_coding"] = False
+        if "is_canonical" not in finalised_transcript_df.columns:
+            finalised_transcript_df["is_canonical"] = False
+
+        initial_protein_coding_mask = finalised_transcript_df[
+            "is_protein_coding"
+        ].fillna(False)
+        initial_canonical_mask = finalised_transcript_df["is_canonical"].fillna(False)
+
+        peptide_mask = finalised_transcript_df["peptide_seq"].apply(
+            lambda value: isinstance(value, str) and bool(value.strip())
+        )
+        finalised_transcript_df.loc[peptide_mask, "is_protein_coding"] = True
+
+        if target_type == "gene":
+            # In gene mode we emit one selected representative AA sequence per gene.
+            finalised_transcript_df.loc[peptide_mask, "is_canonical"] = True
+
+        self.last_sequence_lookup_summary = self._build_sequence_flag_summary(
+            finalised_transcript_df,
+            target_type=target_type,
+            initial_protein_coding_mask=initial_protein_coding_mask,
+            initial_canonical_mask=initial_canonical_mask,
+        )
+
+        return finalised_transcript_df
+
+    @staticmethod
+    def _empty_sequence_lookup_summary() -> dict[str, int | str]:
+        """Generated: validation needed.
+
+        Description:
+            Build default sequence-lookup diagnostics payload.
+
+        Returns:
+            dict[str, int | str]: Empty diagnostics summary.
+        """
+
+        return {
+            "target_type": "unknown",
+            "rows_with_sequence_evidence": 0,
+            "protein_coding_flags_corrected": 0,
+            "canonical_flags_corrected": 0,
+            "flags_corrected_from_sequence_evidence": 0,
+        }
+
+    @staticmethod
+    def _build_sequence_flag_summary(
+        transcript_df: pd.DataFrame,
+        *,
+        target_type: str,
+        initial_protein_coding_mask: pd.Series | None = None,
+        initial_canonical_mask: pd.Series | None = None,
+    ) -> dict[str, int | str]:
+        """Generated: validation needed.
+
+        Description:
+            Build diagnostics describing annotation flag corrections driven by
+            resolved amino-acid sequence evidence.
+
+        Args:
+            transcript_df (pd.DataFrame): Transcript metadata table.
+            target_type (str): Target retrieval mode, gene or transcript.
+            initial_protein_coding_mask (pd.Series | None): Optional pre-correction
+                protein-coding flags.
+            initial_canonical_mask (pd.Series | None): Optional pre-correction
+                canonical flags.
+
+        Returns:
+            dict[str, int | str]: Diagnostics summary for sequence-based corrections.
+        """
+
+        if transcript_df.empty:
+            return {
+                "target_type": target_type,
+                "rows_with_sequence_evidence": 0,
+                "protein_coding_flags_corrected": 0,
+                "canonical_flags_corrected": 0,
+                "flags_corrected_from_sequence_evidence": 0,
+            }
+
+        peptide_mask = transcript_df["peptide_seq"].apply(
+            lambda value: isinstance(value, str) and bool(value.strip())
+        )
+        if initial_protein_coding_mask is None:
+            initial_protein_coding_mask = transcript_df["is_protein_coding"].fillna(False)
+        if initial_canonical_mask is None:
+            initial_canonical_mask = transcript_df["is_canonical"].fillna(False)
+
+        protein_coding_flags_corrected = int(
+            (peptide_mask & ~initial_protein_coding_mask).sum()
+        )
+        canonical_flags_corrected = 0
+        if target_type == "gene":
+            canonical_flags_corrected = int((peptide_mask & ~initial_canonical_mask).sum())
+
+        return {
+            "target_type": target_type,
+            "rows_with_sequence_evidence": int(peptide_mask.sum()),
+            "protein_coding_flags_corrected": protein_coding_flags_corrected,
+            "canonical_flags_corrected": canonical_flags_corrected,
+            "flags_corrected_from_sequence_evidence": (
+                protein_coding_flags_corrected + canonical_flags_corrected
+            ),
+        }
+
+    @staticmethod
+    def _is_sequence_row_usable(sequence_row: dict[str, Any]) -> bool:
+        """Generated: validation needed.
+
+        Description:
+            Validate transcript sequence payload for downstream use and caching.
+
+        Args:
+            sequence_row (dict[str, Any]): Sequence metadata payload.
+
+        Returns:
+            bool: True when amino-acid sequence is present.
+        """
+
+        peptide_seq = sequence_row.get("peptide_seq")
+        return isinstance(peptide_seq, str) and bool(peptide_seq.strip())
+
+    def _resolve_transcript_protein_sequence(
+        self,
+        *,
+        transcript_id: str,
+        translation_id: str | None,
+    ) -> tuple[str | None, str | None]:
+        """Generated: validation needed.
+
+        Description:
+            Resolve protein sequence from Ensembl translation endpoint and fall back
+            to transcript protein endpoint when necessary.
+
+        Args:
+            transcript_id (str): Normalised Ensembl transcript identifier.
+            translation_id (str | None): Translation identifier from transcript lookup.
+
+        Returns:
+            tuple[str | None, str | None]: Resolved translation identifier and peptide
+                sequence.
+        """
+
+        peptide_seq: str | None = None
+        resolved_translation_id = translation_id
+
+        if resolved_translation_id:
+            protein_url = (
+                f"{self._ENSEMBL_REST_BASE}/sequence/id/{resolved_translation_id}?type=protein"
+            )
+            protein_record = self._ensembl_get_json(protein_url)
+            if isinstance(protein_record, dict):
+                candidate_sequence = protein_record.get("seq")
+                if isinstance(candidate_sequence, str) and candidate_sequence.strip():
+                    peptide_seq = candidate_sequence
+
+        if peptide_seq:
+            return resolved_translation_id, peptide_seq
+
+        transcript_protein_url = (
+            f"{self._ENSEMBL_REST_BASE}/sequence/id/{transcript_id}?type=protein"
+        )
+        transcript_protein_record = self._ensembl_get_json(transcript_protein_url)
+        if isinstance(transcript_protein_record, dict):
+            candidate_sequence = transcript_protein_record.get("seq")
+            if isinstance(candidate_sequence, str) and candidate_sequence.strip():
+                peptide_seq = candidate_sequence
+            if not resolved_translation_id:
+                candidate_translation_id = transcript_protein_record.get("id")
+                if isinstance(candidate_translation_id, str) and candidate_translation_id:
+                    resolved_translation_id = candidate_translation_id
+
+        return resolved_translation_id, peptide_seq
+
+    def _report_progress_warning(self, message: str) -> None:
+        """Generated: validation needed.
+
+        Description:
+            Emit warning message through logger when available, otherwise stdout.
+
+        Args:
+            message (str): Warning text.
+
+        Requires:
+            self.logger: Optional logger receiving progress updates.
+        """
+
+        if self.logger is not None:
+            self.logger.warning(message, print_level=2)
+            return
+        print(message)
+
+    def _report_progress_info(self, message: str) -> None:
+        """Generated: validation needed.
+
+        Description:
+            Emit info message through logger when available, otherwise stdout.
+
+        Args:
+            message (str): Info text.
+
+        Requires:
+            self.logger: Optional logger receiving progress updates.
+        """
+
+        if self.logger is not None:
+            self.logger.info(message, print_level=2)
+            return
+        print(message)
+
+    @staticmethod
+    def _is_non_protein_coding_biotype(biotype: Any) -> bool:
+        """Generated: validation needed.
+
+        Description:
+            Determine whether Ensembl transcript biotype is non-protein-coding.
+
+        Args:
+            biotype (Any): Transcript biotype value from Ensembl lookup payload.
+
+        Returns:
+            bool: True when biotype clearly indicates non-protein-coding transcript.
+        """
+
+        if not isinstance(biotype, str) or not biotype.strip():
+            return False
+        normalised_biotype = biotype.strip().lower().replace("-", "_")
+        return normalised_biotype != "protein_coding"
+
+    def _resolve_gene_level_fallback_protein_sequence(  # noqa: C901
+        self,
+        parent_gene_id: str,
+    ) -> tuple[str | None, str | None]:
+        """Generated: validation needed.
+
+        Description:
+            Resolve fallback protein sequence from parent gene when requested
+            transcript has no protein sequence.
+
+        Args:
+            parent_gene_id (str): Parent Ensembl gene identifier.
+
+        Returns:
+            tuple[str | None, str | None]: Fallback translation identifier and
+                peptide sequence.
+        """
+
+        normalised_gene_id = parent_gene_id.split(".")[0]
+        lookup_url = f"{self._ENSEMBL_REST_BASE}/lookup/id/{normalised_gene_id}?expand=1"
+        gene_lookup_record = self._ensembl_get_json(lookup_url)
+        if not isinstance(gene_lookup_record, dict):
+            return None, None
+
+        transcript_payload = gene_lookup_record.get("Transcript")
+        if not isinstance(transcript_payload, list):
+            return None, None
+
+        candidate_entries: list[dict[str, Any]] = [
+            entry for entry in transcript_payload if isinstance(entry, dict)
+        ]
+        if not candidate_entries:
+            return None, None
+
+        canonical_transcript_id = self._normalise_identifier_version(
+            gene_lookup_record.get("canonical_transcript")
+        )
+        protein_candidates: list[tuple[str, str | None, bool]] = []
+        for entry in candidate_entries:
+            transcript_id = self._normalise_identifier_version(entry.get("id"))
+            if transcript_id is None:
+                continue
+            if self._is_non_protein_coding_biotype(entry.get("biotype")):
+                continue
+            translation_payload = entry.get("Translation")
+            translation_id = None
+            if isinstance(translation_payload, dict):
+                translation_id = translation_payload.get("id")
+            is_canonical = transcript_id == canonical_transcript_id
+            protein_candidates.append((transcript_id, translation_id, is_canonical))
+
+        if not protein_candidates:
+            return None, None
+
+        ordered_candidates = sorted(
+            protein_candidates,
+            key=lambda candidate: (not candidate[2], candidate[0]),
+        )
+        for fallback_transcript_id, fallback_translation_id, _ in ordered_candidates:
+            resolved_translation_id, peptide_seq = self._resolve_transcript_protein_sequence(
+                transcript_id=fallback_transcript_id,
+                translation_id=fallback_translation_id,
+            )
+            if isinstance(peptide_seq, str) and peptide_seq.strip():
+                return resolved_translation_id, peptide_seq
+        return None, None
 
     def _report_progress_start(self, *, batch_name: str, total_items: int) -> None:
         """Generated: validation needed.

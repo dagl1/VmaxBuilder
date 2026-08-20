@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 from cobra.core.model import Model
@@ -25,7 +25,6 @@ from VmaxBuilder.Kcat_preprocessing.smiles_retrieval import (
     load_manually_curated_smiles_file,
     load_model_data_frame,
 )
-from VmaxBuilder.utils.iterables import make_json_serializable
 
 
 class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProtocol]):
@@ -274,7 +273,16 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
                 )
                 if "is_canonical" in transcript_df.columns and not transcript_df.empty
                 else False,
+                "flags_corrected_from_sequence_evidence": int(
+                    transcript_artifacts["transcript_sequence_flag_summary"].get(
+                        "flags_corrected_from_sequence_evidence",
+                        0,
+                    )
+                ),
             },
+            "transcript_sequence_flag_summary": transcript_artifacts[
+                "transcript_sequence_flag_summary"
+            ],
         }
 
         return {
@@ -321,6 +329,13 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
         """
 
         transcript_df = self._get_dataframe_value(scaffold, "transcript_df")
+        sequence_flag_summary = {
+            "target_type": "unknown",
+            "rows_with_sequence_evidence": 0,
+            "protein_coding_flags_corrected": 0,
+            "canonical_flags_corrected": 0,
+            "flags_corrected_from_sequence_evidence": 0,
+        }
         if transcript_df is not None:
             if self.config.enrich_existing_transcript_df_with_sequences:
                 identifier_translation_service = IdentifierTranslationService(
@@ -333,7 +348,13 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
                         max_workers=(self.full_config.transcripts.id_translation_max_workers),
                     )
                 )
-            return self._build_transcript_artifact_payload(transcript_df)
+                sequence_flag_summary = dict(
+                    identifier_translation_service.last_sequence_lookup_summary
+                )
+            return self._build_transcript_artifact_payload(
+                transcript_df,
+                sequence_flag_summary=sequence_flag_summary,
+            )
 
         if not self.config.retrieve_transcript_metadata:
             return self._build_transcript_artifact_payload(self._empty_transcript_dataframe())
@@ -344,9 +365,11 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
             return self._build_transcript_artifact_payload(self._empty_transcript_dataframe())
 
         identifier_translation_service = IdentifierTranslationService(logger=self.logger)
+        target_type = "transcript" if self.config.retrieve_alternative_transcripts else "gene"
         transcript_df = identifier_translation_service.build_gene_transcript_dataframe(
             genes_in_model,
             gene_id_type=gene_id_type,
+            target_type=target_type,
             species=self.full_config.transcripts.id_translation_species,
             provider=self.full_config.transcripts.id_translation_provider,
             max_workers=self.full_config.transcripts.id_translation_max_workers,
@@ -355,7 +378,13 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
             include_cdna_sequence=self.config.include_cdna_sequence,
         )
         transcript_df = self._filter_transcript_dataframe(transcript_df)
-        return self._build_transcript_artifact_payload(transcript_df)
+        sequence_flag_summary = dict(
+            identifier_translation_service.last_sequence_lookup_summary
+        )
+        return self._build_transcript_artifact_payload(
+            transcript_df,
+            sequence_flag_summary=sequence_flag_summary,
+        )
 
     def _filter_transcript_dataframe(self, transcript_df: pd.DataFrame) -> pd.DataFrame:
         """Generated: validation needed.
@@ -372,30 +401,38 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
         """
 
         if transcript_df.empty:
-            return transcript_df.reset_index(drop=True)
+            return cast(pd.DataFrame, transcript_df.reset_index(drop=True))
 
         filtered_transcript_df = transcript_df.copy()
         if self.full_config.transcripts.protein_coding_only and (
             "is_protein_coding" in filtered_transcript_df.columns
         ):
-            protein_coding_mask = filtered_transcript_df["is_protein_coding"].fillna(False)
-            filtered_transcript_df = filtered_transcript_df.loc[protein_coding_mask]
+            protein_coding_mask = (
+                filtered_transcript_df["is_protein_coding"].fillna(False).astype(bool)
+            )
+            filtered_transcript_df = filtered_transcript_df.loc[protein_coding_mask].copy()
+            if not isinstance(filtered_transcript_df, pd.DataFrame):
+                return transcript_df.reset_index(drop=True)
 
         if self.config.retrieve_alternative_transcripts:
-            return filtered_transcript_df.reset_index(drop=True)
+            return cast(pd.DataFrame, filtered_transcript_df.reset_index(drop=True))
 
         if "is_canonical" not in filtered_transcript_df.columns:
-            return filtered_transcript_df.reset_index(drop=True)
+            return cast(pd.DataFrame, filtered_transcript_df.reset_index(drop=True))
 
         canonical_mask = filtered_transcript_df["is_canonical"].fillna(False)
-        canonical_transcript_df = filtered_transcript_df.loc[canonical_mask]
+        canonical_transcript_df = filtered_transcript_df.loc[canonical_mask].copy()
+        if not isinstance(canonical_transcript_df, pd.DataFrame):
+            return cast(pd.DataFrame, filtered_transcript_df.reset_index(drop=True))
         if canonical_transcript_df.empty:
-            return filtered_transcript_df.reset_index(drop=True)
-        return canonical_transcript_df.reset_index(drop=True)
+            return cast(pd.DataFrame, filtered_transcript_df.reset_index(drop=True))
+        return cast(pd.DataFrame, canonical_transcript_df.reset_index(drop=True))
 
     def _build_transcript_artifact_payload(
         self,
         transcript_df: pd.DataFrame,
+        *,
+        sequence_flag_summary: dict[str, int | str] | None = None,
     ) -> dict[str, Any]:
         """Generated: validation needed.
 
@@ -404,6 +441,8 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
 
         Args:
             transcript_df (pd.DataFrame): Transcript metadata dataframe.
+            sequence_flag_summary (dict[str, int | str] | None): Optional
+                diagnostics summary for sequence-based flag corrections.
 
         Returns:
             dict[str, Any]: Transcript artifacts used by downstream transcript-aware logic.
@@ -440,6 +479,15 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
             "gene_to_transcript_mapping": gene_to_transcript_mapping,
             "protein_coding_transcripts": protein_coding_transcripts,
             "canonical_transcripts": canonical_transcripts,
+            "transcript_sequence_flag_summary": sequence_flag_summary
+            if sequence_flag_summary is not None
+            else {
+                "target_type": "unknown",
+                "rows_with_sequence_evidence": 0,
+                "protein_coding_flags_corrected": 0,
+                "canonical_flags_corrected": 0,
+                "flags_corrected_from_sequence_evidence": 0,
+            },
         }
 
     def _infer_gene_id_type(self) -> str | None:
@@ -552,83 +600,87 @@ class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProt
 
 
 if __name__ == "__main__":
-    base_dir = Path(
-        "/home/p70088775/git/VmaxBuilder/data/run_example_output/NCI_60_human_run/"
-    )
-    swapam_data_dir = Path("/home/p70088775/git/SWAPAM/data/for_SWAMP/")
-    model_dir = swapam_data_dir / "models" / "Human-GEM-2.0.0"
+    # base_dir = Path(
+    #     "/home/p70088775/git/VmaxBuilder/data/run_example_output/NCI_60_human_run/"
+    # )
+    swapam_data_dir = Path("E:/git/SWAPAM/data/for_SWAMP/")
+    model_dir = swapam_data_dir / "models" / "HumanGEM_2"
 
-    model_file = model_dir / "model_Human-GEM.json"
-    metabolites_file = model_dir / "model_metabolites.tsv"
-    model_data_file = model_dir / "model_data_Human-GEM.xlsx"
-    manually_curated_smiles_file = model_dir / "manually_curated_SMILES.csv"
-    metabolites_smiles_inchi_file = model_dir / "metabolites_SMILES_Inchi.tsv"
-    metabolite_name_synonyms_file = model_dir / "metabolite_name_synonyms.tsv"
-    chebi_file = model_dir / "chebi_id_SMILES.csv"
-    chem_prop_file = model_dir / "chem_prop.tsv"
-    recon3d_file = model_dir / "Recon3D.json"
-
+    model_file = model_dir / "model_HumanGEM_2.json"
+    # model_file = model_dir / "model_Human-GEM.json"
+    # metabolites_file = model_dir / "model_metabolites.tsv"
+    # model_data_file = model_dir / "model_data_Human-GEM.xlsx"
+    # manually_curated_smiles_file = model_dir / "manually_curated_SMILES.csv"
+    # metabolites_smiles_inchi_file = model_dir / "metabolites_SMILES_Inchi.tsv"
+    # metabolite_name_synonyms_file = model_dir / "metabolite_name_synonyms.tsv"
+    # chebi_file = model_dir / "chebi_id_SMILES.csv"
+    # chem_prop_file = model_dir / "chem_prop.tsv"
+    # recon3d_file = model_dir / "Recon3D.json"
+    #
     cobra_model = load_json_model(model_file)
-    gene_substrate_mapping = get_gene_substrate_mapping(cobra_model=cobra_model)
-    # save in base_dir/artifacts/model_stage/gene_substrate_mapping.json
-    # with open(
-    #     base_dir / "artifacts" / "model_stage" / "gene_substrate_mapping.json", "w"
-    # ) as f:
+    # gene_substrate_mapping = get_gene_substrate_mapping(cobra_model=cobra_model)
+    # # save in base_dir/artifacts/model_stage/gene_substrate_mapping.json
+    # # with open(
+    # #     base_dir / "artifacts" / "model_stage" / "gene_substrate_mapping.json", "w"
+    # # ) as f:
+    # #     import json
+    # #
+    # #     json.dump(make_json_serializable(gene_substrate_mapping), f, indent=4)
+    # print("Number of genes in model:", len(gene_substrate_mapping))
+    #
+    # transcript_df_path = base_dir / "artifacts" / "model_stage" / "transcript_df.csv"
+    transcript_df_path = model_dir / "transcript_df.csv"
+    # model_data_df = load_model_data_frame(model_data_file)
+    # metabolites_df = pd.read_csv(metabolites_file, sep="\t")
+    # manually_curated_smiles_df = load_manually_curated_smiles_file(
+    #     manually_curated_smiles_file
+    # )
+    # metabolites_smiles_inchi_df = pd.read_csv(
+    #     metabolites_smiles_inchi_file,
+    #     sep="\t",
+    #     dtype=str,
+    # )
+    # metabolite_name_synonyms_df = pd.read_csv(
+    #     metabolite_name_synonyms_file,
+    #     sep="\t",
+    #     dtype=str,
+    # ) if metabolite_name_synonyms_file.exists() else None
+    # chebi_df = pd.read_csv(chebi_file, dtype=str) if chebi_file.exists() else None
+    # chem_prop_df = (
+    #     pd.read_csv(chem_prop_file, sep="\t", dtype=str)
+    #     if chem_prop_file.exists()
+    #     else None
+    # )
+    # recon3d_data = None
+    # if recon3d_file.exists():
     #     import json
     #
-    #     json.dump(make_json_serializable(gene_substrate_mapping), f, indent=4)
-    print("Number of genes in model:", len(gene_substrate_mapping))
-
-    transcript_df_path = base_dir / "artifacts" / "model_stage" / "transcript_df.csv"
-    model_data_df = load_model_data_frame(model_data_file)
-    metabolites_df = pd.read_csv(metabolites_file, sep="\t")
-    manually_curated_smiles_df = load_manually_curated_smiles_file(
-        manually_curated_smiles_file
-    )
-    metabolites_smiles_inchi_df = pd.read_csv(
-        metabolites_smiles_inchi_file,
-        sep="\t",
-        dtype=str,
-    )
-    metabolite_name_synonyms_df = (
-        pd.read_csv(metabolite_name_synonyms_file, sep="\t", dtype=str)
-        if metabolite_name_synonyms_file.exists()
-        else None
-    )
-    chebi_df = pd.read_csv(chebi_file, dtype=str) if chebi_file.exists() else None
-    chem_prop_df = (
-        pd.read_csv(chem_prop_file, sep="\t", dtype=str) if chem_prop_file.exists() else None
-    )
-    recon3d_data = None
-    if recon3d_file.exists():
-        import json
-
-        recon3d_data = json.loads(recon3d_file.read_text(encoding="utf-8"))
-
-    smiles_service = SmilesRetrievalService()
-    smiles_result = smiles_service.build_smiles_dataframe(
-        cobra_model=cobra_model,
-        model_data_df=model_data_df,
-        metabolites_df=metabolites_df,
-        manually_curated_smiles_df=manually_curated_smiles_df,
-        metabolites_smiles_inchi_df=metabolites_smiles_inchi_df,
-        metabolite_name_synonyms_df=metabolite_name_synonyms_df,
-        chebi_df=chebi_df,
-        chem_prop_df=chem_prop_df,
-        recon3d_data=recon3d_data,
-    )
-    base_dir.mkdir(parents=True, exist_ok=True)
-    smiles_result.smiles_df.to_csv(base_dir / "SMILES_df.csv", index=False)
-    print("Total rows in SMILES_df:", len(smiles_result.smiles_df))
-    print("Number of rows with missing smiles:", smiles_result.summary["missing_smiles"])
-    print(
-        "Number of rows with smiles longer than 218 characters:",
-        smiles_result.summary["smiles_longer_than_218"],
-    )
+    #     recon3d_data = json.loads(recon3d_file.read_text(encoding="utf-8"))
+    #
+    # smiles_service = SmilesRetrievalService()
+    # smiles_result = smiles_service.build_smiles_dataframe(
+    #     cobra_model=cobra_model,
+    #     model_data_df=model_data_df,
+    #     metabolites_df=metabolites_df,
+    #     manually_curated_smiles_df=manually_curated_smiles_df,
+    #     metabolites_smiles_inchi_df=metabolites_smiles_inchi_df,
+    #     metabolite_name_synonyms_df=metabolite_name_synonyms_df,
+    #     chebi_df=chebi_df,
+    #     chem_prop_df=chem_prop_df,
+    #     recon3d_data=recon3d_data,
+    # )
+    # base_dir.mkdir(parents=True, exist_ok=True)
+    # smiles_result.smiles_df.to_csv(base_dir / "SMILES_df.csv", index=False)
+    # print("Total rows in SMILES_df:", len(smiles_result.smiles_df))
+    # print("Number of rows with missing smiles:", smiles_result.summary["missing_smiles"])
+    # print(
+    #     "Number of rows with smiles longer than 218 characters:",
+    #     smiles_result.summary["smiles_longer_than_218"],
+    # )
     identifier_translation_service = IdentifierTranslationService(logger=None)
 
     genes_in_model = [str(gene.id) for gene in cobra_model.genes if str(gene.id).strip()]
-    genes_in_model = list(set(genes_in_model))[:10]
+    genes_in_model = list(set(genes_in_model))[50:150]
     transcript_df = identifier_translation_service.build_gene_transcript_dataframe(
         genes_in_model,
         gene_id_type="ensembl_gene_id",
@@ -642,5 +694,6 @@ if __name__ == "__main__":
         include_sequence_metadata=True,
         include_cdna_sequence=True,
     )
+
     # save it as transcript_df.csv in base_dir/artifacts/model_stage/transcript_df.csv
     transcript_df.to_csv(transcript_df_path, index=False)
