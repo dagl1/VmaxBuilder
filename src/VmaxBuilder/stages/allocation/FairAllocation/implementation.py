@@ -136,6 +136,23 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             extension=".json",
             validator=None,
         ),
+        OutputSpec(
+            name="untrimmed_IFP_sample_abundance_df",
+            data_type=pd.DataFrame,
+            scaffold_location="outputs",
+            save_file_name="untrimmed_IFP_abundance_df",
+            saver_args={
+                "with_index": True,
+            },
+            extension=".csv",
+        ),
+        OutputSpec(
+            name="untrimmed_IFPs_per_sample",
+            data_type=dict,
+            scaffold_location="outputs",
+            save_file_name="untrimmed_IFPs_per_sample",
+            extension=".json",
+        ),
     ]
 
     def __init__(self, full_config: FullConfig):
@@ -304,13 +321,13 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
                 trimmable_genes,
             )
 
+        solver, _persistent = get_valid_solver("QP", persistent=False)
+
         quadratic_model = self.prepare_quadratic_problem_model(
             list(connected_IFP_definitions.values()), list(protein_abundance_df.index)
         )
-        solver, persistent = get_valid_solver("QP", persistent=False)
 
         per_sample_IFP_abundances: dict[str, dict[str, float]] = {}
-
         for _sample in tqdm(
             protein_abundance_df.columns,
             desc="Allocating IFP abundances per sample",

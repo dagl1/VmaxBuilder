@@ -20,6 +20,9 @@ import requests
 
 from VmaxBuilder.utils.lookup_cache import LookupCache, get_default_cache_dir
 
+# todo: revisit this as overall sequence lookup is very slow, could probably be a lot faster
+# add intermediate saving in case of long lookups and a crash
+
 
 @dataclass(slots=True)
 class IdentifierTranslationResult:
@@ -1306,9 +1309,9 @@ class IdentifierTranslationService:
         if "is_canonical" not in finalised_transcript_df.columns:
             finalised_transcript_df["is_canonical"] = False
 
-        initial_protein_coding_mask = finalised_transcript_df[
-            "is_protein_coding"
-        ].fillna(False)
+        initial_protein_coding_mask = finalised_transcript_df["is_protein_coding"].fillna(
+            False
+        )
         initial_canonical_mask = finalised_transcript_df["is_canonical"].fillna(False)
 
         peptide_mask = finalised_transcript_df["peptide_seq"].apply(
@@ -1450,9 +1453,8 @@ class IdentifierTranslationService:
         resolved_translation_id = translation_id
 
         if resolved_translation_id:
-            protein_url = (
-                f"{self._ENSEMBL_REST_BASE}/sequence/id/{resolved_translation_id}?type=protein"
-            )
+            protein_url = f"{self._ENSEMBL_REST_BASE}/sequence"
+            f"/id/{resolved_translation_id}?type=protein"
             protein_record = self._ensembl_get_json(protein_url)
             if isinstance(protein_record, dict):
                 candidate_sequence = protein_record.get("seq")

@@ -84,6 +84,25 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             extension=".pkl",
             validator=None,
         ),
+        OutputSpec(
+            name="reaction_capacity_df_without_trimming",
+            data_type=pd.DataFrame,
+            scaffold_location="artifacts",
+            save_file_name="reaction_capacity_df_without_trimming",
+            # saver args should make sure we save the index of the reactions
+            saver_args={"with_index": True},
+            extension=".csv",
+            validator=None,
+        ),
+        OutputSpec(
+            name="IFP_sample_abundance_dict_without_trimming",
+            data_type=dict,
+            scaffold_location="artifacts",
+            save_file_name="IFP_sample_abundance_dict_without_trimming",
+            saver_args={},
+            extension=".pkl",
+            validator=None,
+        ),
     ]
 
     def __init__(self, full_config: FullConfig):
@@ -135,7 +154,10 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
                 cobra_model,
             )
         )
-        if self.full_config.protein.trim_enable:
+        if (
+            self.full_config.protein.trim_enable
+            and self.full_config.allocation.run_untrimmed_separately
+        ):
             (
                 time_elapsed,
                 (
@@ -171,6 +193,12 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             },
             "diagnostics": {},
             "artifacts": {
+                "reaction_capacity_df_without_trimming": (
+                    reaction_capacity_df_without_trimming
+                ),
+                "IFP_sample_abundance_dict_without_trimming": (
+                    IFP_sample_abundance_dict_without_trimming
+                ),
                 "IFP_sample_abundance_dict": IFP_sample_abundance_dict,
             },
             "metadata": metadata,

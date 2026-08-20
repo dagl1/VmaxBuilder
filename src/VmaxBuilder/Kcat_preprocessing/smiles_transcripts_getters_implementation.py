@@ -26,6 +26,9 @@ from VmaxBuilder.Kcat_preprocessing.smiles_retrieval import (
     load_model_data_frame,
 )
 
+# todo: make sequence lookup faster, and allow to work from diff of already existing
+# Also would be good to save output to original model filepath instead of only output
+
 
 class TranscriptSMILESGetter(RealImplementation[TranscriptSmilesGetterConfigProtocol]):
     """Generated: validation needed.
@@ -603,11 +606,19 @@ if __name__ == "__main__":
     # base_dir = Path(
     #     "/home/p70088775/git/VmaxBuilder/data/run_example_output/NCI_60_human_run/"
     # )
-    swapam_data_dir = Path("E:/git/SWAPAM/data/for_SWAMP/")
-    model_dir = swapam_data_dir / "models" / "HumanGEM_2"
+    # swapam_data_dir = Path("E:/git/SWAPAM/data/for_SWAMP/")
+    # model_dir = swapam_data_dir / "models" / "HumanGEM_2"
+    # model_file = model_dir / "model_HumanGEM_2.json"
+    # transcript_df_path = model_dir / "transcript_df.csv"
 
-    model_file = model_dir / "model_HumanGEM_2.json"
-    # model_file = model_dir / "model_Human-GEM.json"
+    base_dir = Path(
+        "/home/p70088775/git/VmaxBuilder/data/run_example_output/NCI_60_human_run/"
+    )
+    swapam_data_dir = Path("/home/p70088775/git/SWAPAM/data/for_SWAMP/")
+    model_dir = swapam_data_dir / "models" / "Human-GEM-2.0.0"
+    model_file = model_dir / "model_Human-GEM.json"
+    transcript_df_path = base_dir / "artifacts" / "model_stage" / "transcript_df.csv"
+
     # metabolites_file = model_dir / "model_metabolites.tsv"
     # model_data_file = model_dir / "model_data_Human-GEM.xlsx"
     # manually_curated_smiles_file = model_dir / "manually_curated_SMILES.csv"
@@ -628,8 +639,6 @@ if __name__ == "__main__":
     # #     json.dump(make_json_serializable(gene_substrate_mapping), f, indent=4)
     # print("Number of genes in model:", len(gene_substrate_mapping))
     #
-    # transcript_df_path = base_dir / "artifacts" / "model_stage" / "transcript_df.csv"
-    transcript_df_path = model_dir / "transcript_df.csv"
     # model_data_df = load_model_data_frame(model_data_file)
     # metabolites_df = pd.read_csv(metabolites_file, sep="\t")
     # manually_curated_smiles_df = load_manually_curated_smiles_file(

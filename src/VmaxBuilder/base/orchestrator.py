@@ -739,7 +739,7 @@ if __name__ == "__main__":
         stage_name="model",
         directories=model_dir,
         file_paths={
-            "smiles_df": model_dir / "smiles_df.csv",
+            "smiles_df": model_dir / "SMILES_df.csv",
             "transcript_df": model_dir / "transcript_df.csv",
         },
     )
