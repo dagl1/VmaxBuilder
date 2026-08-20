@@ -1,0 +1,314 @@
+{
+  "mouse:Atp6v1b2:canonical_only": {
+    "gene_symbol": "Atp6v1b2",
+    "sequences": [
+      {
+        "sequence": "MALRAMRGIVNGAAPELPVPTGGPMAGAREQALAVSRNYLSQPRLTYKTVSGVNGPLVILDHVKFPRYAEIVHLTLPDGTKRSGQVLEVSGSKAVVQVFEGTSGIDAKKTSCEFTGDILRTPVSEDMLGRVFNGSGKPIDRGPVVLAEDFLDIMGQPINPQCRIYPEEMIQTGISAIDGMNSIARGQKIPIFSAAGLPHNEIAAQICRQAGLVKKSKDVVDYSEENFAIVFAAMGVNMETARFFKSDFEENGSMDNVCLFLNLANDPTIERIITPRLALTTAEFLAYQCEKHVLVILTDMSSYAEALREVSAAREEVPGRRGFPGYMYTDLATIYERAGRVEGRNGSITQIPILTMPNDDITHPIPDLTGYITEGQIYVDRQLHNRQIYPPINVLPSLSRLMKSAIGEGMTRKDHADVSNQLYACYAIGKDVQAMKAVVGEEALTSDDLLYLEFLQKFEKNFITQGPYENRTVYETLDIGWQLLRIFPKEMLKRIPQSTLSEFYPRDSAKH",
+        "source": "refseq",
+        "accession": "NP_031535.2",
+        "is_canonical": true
+      }
+    ],
+    "errors": []
+  },
+  "mouse:Dpm1:canonical_only": {
+    "gene_symbol": "Dpm1",
+    "sequences": [
+      {
+        "sequence": "MASTGASRSLAASPRPPQGRSSRQDKYSVLLPTYNERENLPLIVWLLVKSFSESAINYEIIIIDDGSPDGTREVAEQLAEIYGPDRILLRPREKKLGLGTAYIHGIKHATGNYVIIMDADLSHHPKFIPEFIRKQKEGNFDIVSGTRYKGNGGVYGWDLKRKIIRLYRKEVLQKLIEKCVSKGYVFQMEMIVRARQMNYTIGEVPISFVDRVYGESKLGGNEIVSFLKGLLTLFATT",
+        "source": "refseq",
+        "accession": "NP_001297013.1",
+        "is_canonical": true
+      }
+    ],
+    "errors": []
+  },
+  "mouse:Hsd17b6:canonical_only": {
+    "gene_symbol": "Hsd17b6",
+    "sequences": [
+      {
+        "sequence": "MWFYLVTLVGLYHLLRWYRERQVVSHLQDKYVFITGCDSGFGNLLARQLDRRGMRVLAACLTEKGAEELRNKTSDRLETVILDVTKTESIVAATQWVKERVGDRGLWGLVNNAGVLQPFAYIEWYRPEDYMPIFQVNLIGLTQVTISMLFLVKKARGRIVNVSSALGRVALFGGFYSCSKYGVEAFSDVLRHEVQDFGVKVSIIEPGSFKTEMTDAELTIERTKKVWEAAPEHIKESYGQQFFDDFCSTTKRELMKCSRNLSLVTDCMEHALTSTHPRTRYSAGWDAKFFFIPLSYLPASLVDYLLAISRGKPAQAA",
+        "source": "refseq",
+        "accession": "NP_001346306.1",
+        "is_canonical": true
+      }
+    ],
+    "errors": []
+  },
+  "mouse:Hsd17b4:canonical_only": {
+    "gene_symbol": "Hsd17b4",
+    "sequences": [],
+    "errors": [
+      "refseq_sequence_missing:NP_032318.2"
+    ]
+  },
+  "mouse:Hsd17b8:canonical_only": {
+    "gene_symbol": "Hsd17b8",
+    "sequences": [],
+    "errors": [
+      "refseq_sequence_missing:NP_038571.2"
+    ]
+  },
+  "mouse:Hyi:canonical_only": {
+    "gene_symbol": "Hyi",
+    "sequences": [],
+    "errors": [
+      "refseq_sequence_missing:NP_080877.3"
+    ]
+  },
+  "mouse:Htatip2:canonical_only": {
+    "gene_symbol": "Htatip2",
+    "sequences": [],
+    "errors": [
+      "refseq_sequence_missing:NP_001139521.1"
+    ]
+  },
+  "mouse:Idi2:canonical_only": {
+    "gene_symbol": "Idi2",
+    "sequences": [],
+    "errors": [
+      "refseq_sequence_missing:NP_796171.1"
+    ]
+  },
+  "mouse:Mtr:canonical_only": {
+    "gene_symbol": "Mtr",
+    "sequences": [],
+    "errors": [
+      "refseq_sequence_missing:NP_001074597.1"
+    ]
+  },
+  "mouse:Ndufb4b:canonical_only": {
+    "gene_symbol": "Ndufb4b",
+    "sequences": [
+      {
+        "sequence": "MSGSKYKPAPLATLPSTLDPAEYDVSPETRRAQVERLSIRARLKREYLLQYNDPKRVSHIEDPALIRWTYARSANIYPNFRPTPKNSLLGAVAGFGPLIFWYYVFKTDRDRKERLIQEGKLDRKFNISY",
+        "source": "refseq",
+        "accession": "NP_001423205.1",
+        "is_canonical": true
+      }
+    ],
+    "errors": []
+  },
+  "mouse:Nup58:canonical_only": {
+    "gene_symbol": "Nup58",
+    "sequences": [
+      {
+        "sequence": "MATGFSFGSGTLGSTTVAPGGTGAGSGFSFGTVASSTPSVGLNFGSLGSSVTPASTSASAGGFGTGLFGSKPATGFTLGGTSAGTAATTSASTTGFSLGFSKPAASATPFALPVTSTSASGLTLSSALTSTPAASTGFTLNNLGATPATTTTASTGLSLGGALAGLGGSLFQSGNTATSGLGQNALSLSLGTTAPTSAASNEGLGGIDFSTSSDKKSDKTGTRPEDSKALKDENLPPVICQDVENLQKFVKEQKQVQEEISRMSSKAMLKVQEDIKALKQLLSLAASGLQRNTLNIDKLKLETAQELKNAEIALRTQKTPPGLQHENTAPADYFRILVQQFEVQLQQYRQQIEELENHLATQASNSHITPQDLSMAMQKIYQTFVALAAQLQSIHENVKVLKEQYLGYRKMFLGDAVDVFEARRTEAKKWQNAPRVTTGPTPFSTMPNAAAVAMAATLTQQQQPATGPQPSLGVSFGTPFGSGIGTGLQSSGLGSSNLGGFGTSSGFGCGTTGASTFGFGTTDKPSGSLSAGLCASA",
+        "source": "refseq",
+        "accession": "NP_001349368.1",
+        "is_canonical": true
+      }
+    ],
+    "errors": []
+  },
+  "mouse:Pla2g2a:canonical_only": {
+    "gene_symbol": "Pla2g2a",
+    "sequences": [],
+    "errors": [
+      "refseq_sequence_missing:NP_001076000.1"
+    ]
+  },
+  "mouse:Tmlhe:canonical_only": {
+    "gene_symbol": "Tmlhe",
+    "sequences": [],
+    "errors": [
+      "refseq_sequence_missing:NP_620097.1"
+    ]
+  },
+  "human:ENSG00000105499:canonical_only": {
+    "gene_symbol": "ENSG00000105499",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000107341:canonical_only": {
+    "gene_symbol": "ENSG00000107341",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000107611:canonical_only": {
+    "gene_symbol": "ENSG00000107611",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000108179:canonical_only": {
+    "gene_symbol": "ENSG00000108179",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000109667:canonical_only": {
+    "gene_symbol": "ENSG00000109667",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000110619:canonical_only": {
+    "gene_symbol": "ENSG00000110619",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000111237:canonical_only": {
+    "gene_symbol": "ENSG00000111237",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000111271:canonical_only": {
+    "gene_symbol": "ENSG00000111271",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000111275:canonical_only": {
+    "gene_symbol": "ENSG00000111275",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000111319:canonical_only": {
+    "gene_symbol": "ENSG00000111319",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000111640:canonical_only": {
+    "gene_symbol": "ENSG00000111640",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000112096:canonical_only": {
+    "gene_symbol": "ENSG00000112096",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000111700:canonical_only": {
+    "gene_symbol": "ENSG00000111700",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000111674:canonical_only": {
+    "gene_symbol": "ENSG00000111674",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000111696:canonical_only": {
+    "gene_symbol": "ENSG00000111696",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000161133:canonical_only": {
+    "gene_symbol": "ENSG00000161133",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000175198:canonical_only": {
+    "gene_symbol": "ENSG00000175198",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000180389:canonical_only": {
+    "gene_symbol": "ENSG00000180389",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000249948:canonical_only": {
+    "gene_symbol": "ENSG00000249948",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000263464:canonical_only": {
+    "gene_symbol": "ENSG00000263464",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000266200:canonical_only": {
+    "gene_symbol": "ENSG00000266200",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "human:ENSG00000258653:canonical_only": {
+    "gene_symbol": "ENSG00000258653",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "mouse:UGT2B15:canonical_only": {
+    "gene_symbol": "UGT2B15",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "mouse:UGT2B7:canonical_only": {
+    "gene_symbol": "UGT2B7",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "mouse:SULT1A3:canonical_only": {
+    "gene_symbol": "SULT1A3",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "mouse:AKR1C3:canonical_only": {
+    "gene_symbol": "AKR1C3",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "mouse:ENSG00000258653:canonical_only": {
+    "gene_symbol": "ENSG00000258653",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  },
+  "mouse:AKR1C2:canonical_only": {
+    "gene_symbol": "AKR1C2",
+    "sequences": [],
+    "errors": [
+      "no_refseq_mapping"
+    ]
+  }
+}
