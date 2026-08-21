@@ -296,8 +296,14 @@ class IdentifierTranslationService:
             ]
             for future in as_completed(futures):
                 for hit in future.result():
+                    queried_gene_id = str(hit.get("query", "")).strip()
+
+                    if not queried_gene_id:
+                        continue
                     rows.extend(
-                        self._extract_transcript_rows_from_hit(hit, target_type=target_type)
+                        self._extract_transcript_rows_from_hit(
+                            hit, query_gene_id=queried_gene_id, target_type=target_type
+                        )
                     )
                 completed_chunks += 1
                 next_percent_threshold = self._report_progress_tick(
@@ -620,29 +626,19 @@ class IdentifierTranslationService:
         field_string: str,
         species: str | None,
     ) -> list[dict[str, Any]]:
-        """Generated: validation needed.
-
-        Description:
-            Execute one MyGene querymany call for one identifier chunk.
-
-        Args:
-            chunk (list[str]): Identifier chunk.
-            source_scope (str): MyGene scopes value.
-            field_string (str): MyGene fields value.
-            species (str | None): Optional species filter.
-
-        Returns:
-            list[dict[str, Any]]: Raw MyGene hits for chunk.
-        """
+        """Execute one MyGene querymany call for one identifier chunk."""
 
         mygene_client = mygene.MyGeneInfo()
-        return mygene_client.querymany(
+
+        result = mygene_client.querymany(
             chunk,
             scopes=source_scope,
             fields=field_string,
             species=species,
             verbose=False,
         )
+
+        return result
 
     @staticmethod
     def _extract_target_identifier(hit: dict[str, Any], *, target_id_type: str) -> str | None:
@@ -713,19 +709,12 @@ class IdentifierTranslationService:
         return None
 
     def _extract_transcript_rows_from_hit(  # noqa: C901
-        self, hit: dict[str, Any], target_type: str = "gene"
+        self,
+        hit: dict[str, Any],
+        query_gene_id: str,
+        target_type: str = "gene",
     ) -> list[dict[str, Any]]:
-        """Generated: validation needed.
-
-        Description:
-            Extract transcript metadata rows from one MyGene hit payload.
-
-        Args:
-            hit (dict[str, Any]): MyGene hit record.
-
-        Returns:
-            list[dict[str, Any]]: Transcript metadata rows.
-        """
+        """Extract transcript metadata rows from one MyGene hit payload."""
 
         if hit.get("notfound"):
             return []
@@ -736,26 +725,48 @@ class IdentifierTranslationService:
         fallback_gene_id = self._extract_ensembl_gene_identifier(hit)
 
         transcript_rows: list[dict[str, Any]] = []
+
         ensembl_payload = hit.get("ensembl")
+
         entries: list[dict[str, Any]] = []
+
         if isinstance(ensembl_payload, dict):
             entries = [ensembl_payload]
         elif isinstance(ensembl_payload, list):
             entries = [entry for entry in ensembl_payload if isinstance(entry, dict)]
 
-        for entry in entries:
+        normalised_query_gene_id = str(query_gene_id).split(".")[0] if query_gene_id else ""
+
+        matching_entries = [
+            entry
+            for entry in entries
+            if str(entry.get("gene", "")).split(".")[0] == normalised_query_gene_id
+        ]
+
+        # Prefer an exact match. If MyGene did not return one, preserve
+        # the previous fallback behaviour.
+        entries_to_process = matching_entries or entries
+
+        for entry in entries_to_process:
             transcript_ids = [
                 self._normalise_identifier_version(transcript_id)
                 for transcript_id in self._normalise_transcript_identifiers(
                     entry.get("transcript")
                 )
             ]
+
             transcript_ids = self._deduplicate_identifiers(transcript_ids)
-            gene_id = entry.get("gene") or fallback_gene_id
+
+            # The queried identifier is authoritative.
+            gene_id = query_gene_id or entry.get("gene") or fallback_gene_id
+
             translation_payload = entry.get("translation")
+
             translation_id = None
+
             if isinstance(translation_payload, str):
                 translation_id = translation_payload
+
             elif isinstance(translation_payload, dict):
                 translation_id = translation_payload.get("id")
 
@@ -763,10 +774,13 @@ class IdentifierTranslationService:
 
             peptide_seq = entry.get("peptide_seq")
             cdna_seq = entry.get("cdna_seq")
+
             peptide_len = entry.get("peptide_len")
             cdna_len = entry.get("cdna_len")
+
             if peptide_len is None and isinstance(peptide_seq, str):
                 peptide_len = len(peptide_seq)
+
             if cdna_len is None and isinstance(cdna_seq, str):
                 cdna_len = len(cdna_seq)
 
@@ -801,6 +815,7 @@ class IdentifierTranslationService:
                 if self._normalise_identifier_version(row["transcript_id"])
                 == canonical_transcript
             ]
+
             if canonical_rows:
                 if canonical_rows[0]["is_protein_coding"]:
                     return [canonical_rows[0]]
@@ -808,6 +823,7 @@ class IdentifierTranslationService:
         protein_coding_rows = [
             row for row in transcript_rows if bool(row.get("is_protein_coding"))
         ]
+
         if protein_coding_rows:
             fallback_row = dict(protein_coding_rows[0])
             fallback_row["is_canonical"] = False
@@ -820,6 +836,7 @@ class IdentifierTranslationService:
                 if self._normalise_identifier_version(row["transcript_id"])
                 == canonical_transcript
             ]
+
             if canonical_rows:
                 return [canonical_rows[0]]
 
@@ -1453,8 +1470,10 @@ class IdentifierTranslationService:
         resolved_translation_id = translation_id
 
         if resolved_translation_id:
-            protein_url = f"{self._ENSEMBL_REST_BASE}/sequence"
-            f"/id/{resolved_translation_id}?type=protein"
+            protein_url = (
+                f"{self._ENSEMBL_REST_BASE}/sequence"
+                f"/id/{resolved_translation_id}?type=protein"
+            )
             protein_record = self._ensembl_get_json(protein_url)
             if isinstance(protein_record, dict):
                 candidate_sequence = protein_record.get("seq")
