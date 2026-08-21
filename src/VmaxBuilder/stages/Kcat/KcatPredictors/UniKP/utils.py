@@ -53,7 +53,7 @@ if unikp_parent_dir_str not in sys.path:
 # ------------------------------------------------------------------
 
 try:
-    import infer_Kcats as infer_Kcats_module  # ty: ignnore
+    import infer_Kcats as infer_Kcats_module  # ty: ignore
 
     infer_kcats = infer_Kcats_module.run_kcat_inference_lean
 

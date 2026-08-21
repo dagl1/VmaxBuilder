@@ -617,7 +617,7 @@ if __name__ == "__main__":
     swapam_data_dir = Path("/home/p70088775/git/SWAPAM/data/for_SWAMP/")
     model_dir = swapam_data_dir / "models" / "Human-GEM-2.0.0"
     model_file = model_dir / "model_Human-GEM.json"
-    transcript_df_path = base_dir / "artifacts" / "model_stage" / "transcript_df.csv"
+    transcript_df_path = base_dir / "artifacts" / "model_stage" / "_transcript_df.csv"
 
     # metabolites_file = model_dir / "model_metabolites.tsv"
     # model_data_file = model_dir / "model_data_Human-GEM.xlsx"
@@ -689,9 +689,19 @@ if __name__ == "__main__":
     identifier_translation_service = IdentifierTranslationService(logger=None)
 
     genes_in_model = [str(gene.id) for gene in cobra_model.genes if str(gene.id).strip()]
-    genes_in_model = list(set(genes_in_model))[50:150]
+    already_transcript_df_path = base_dir / "artifacts" / "model_stage" / "transcript_df.csv"
+    # find genes missing in transcript_df.csv
+    already_transcript_df = pd.read_csv(already_transcript_df_path)
+    transcript_genes = already_transcript_df["gene_id"].unique()
+
+    missing_genes = [gene for gene in genes_in_model if gene not in transcript_genes]
+    print(missing_genes)
+    print(f"Number of genes in model: {len(genes_in_model)}")
+    print(f"Number of genes alr)eady in transcript_df: {len(transcript_genes)}")
+    print(f"Number of missing genes: {len(missing_genes)}")
+
     transcript_df = identifier_translation_service.build_gene_transcript_dataframe(
-        genes_in_model,
+        missing_genes,
         gene_id_type="ensembl_gene_id",
         # species=self.full_config.transcripts.id_translation_species,
         # provider=self.full_config.transcripts.id_translation_provider,

@@ -459,7 +459,7 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
             DiagnosticOutputSpec(
                 save_file_name="metabolite_alluvial_plot",
                 data=alluvial_plot,
-                extensions=extensions,
+                extensions=[".html"],
             ),
         ]
         return diagnostic_output
@@ -860,6 +860,7 @@ def create_per_category_boxplot(  # noqa: C901
 
 
 if __name__ == "__main__":
+    import inspect
     from json import load
     from pathlib import Path
 
@@ -970,6 +971,48 @@ if __name__ == "__main__":
         histogram_nbinsx=80,
         Y_transformation="linear",  # Options: "linear", "log", "log10", "sqrt"
     )
+    divided_metabolite_categories = diagnostics._divide_model_metabolites_into_categories(
+        model, imputed_gene_substrate_predictions
+    )
+    for category_name, category_values in divided_metabolite_categories.items():
+        print(f"\n{category_name}")
+        print(f"  number of categories: {len(category_values)}")
+
+        for value, metabolites in category_values.items():
+            print(f"    {value!r}: {len(metabolites)} metabolites")
+    prepared_alluvial_plot_data = prepare_alluvial_plot_data(divided_metabolite_categories)
+    print("\n========== BASE ALLUVIAL DATA ==========")
+
+    print("categories:")
+    print(prepared_alluvial_plot_data["categories"])
+
+    print("\nnumber of dimensions:")
+    print(len(prepared_alluvial_plot_data["dimensions"]))
+
+    print("\nnumber of rows:")
+    print(len(prepared_alluvial_plot_data["rows"]))
+
+    print("\nnumber of counts:")
+    print(len(prepared_alluvial_plot_data["counts"]))
+
+    print("\nfirst 5 rows:")
+    for row in prepared_alluvial_plot_data["rows"][:5]:
+        print(row)
+
+    print("\nfirst 20 counts:")
+    print(prepared_alluvial_plot_data["counts"][:20])
+
+    for dimension in prepared_alluvial_plot_data["dimensions"]:
+        print("\nDIMENSION:", dimension["label"])
+        print("number values:", len(dimension["values"]))
+        print("first values:", dimension["values"][:10])
+        print("unique values:", set(dimension["values"]))
+    alluvial_plot = create_alluvial_plot(
+        prepared_alluvial_plot_data,
+        plot_config,
+        title="Metabolite Categorization Alluvial Plot",
+    )
+    alluvial_plot.show()
 
     diagnostics.logger.info("Running diagnostics for GeneSubstratePredictionDiagnostics")
     diagnostic_output = diagnostics._create_diagnostic_output(
@@ -995,5 +1038,18 @@ if __name__ == "__main__":
             title="Metabolite Categorization Alluvial Plot",
         ),
     )
+
+    save_location = Path(base_dir) / "diagnostics"
     for plot in diagnostic_output:
-        plot.data.show()
+        if isinstance(plot, DiagnosticOutputSpec):
+            saver_args = plot.saver_args or {}
+            saver_args["overwrite"] = True
+            saver_args["extension"] = plot.extensions
+            accepted_args = inspect.signature(plot.saver).parameters
+            filtered_saver_args = {k: v for k, v in saver_args.items() if k in accepted_args}
+
+            plot.saver(
+                plot.data,
+                save_location / f"{plot.save_file_name}",
+                **filtered_saver_args,
+            )

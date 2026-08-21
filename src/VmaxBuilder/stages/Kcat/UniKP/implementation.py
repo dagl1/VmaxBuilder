@@ -54,11 +54,19 @@ class UniKPImplementation(RealImplementation[UniKPConfig]):
             in_scaffold=True,
             data_type=pd.DataFrame,
         ),
+        InputSpec(
+            name="kcat_gene_metabolite_predictions",
+            optional=True,
+            prefix="kcat_gene_metabolite_predictions",
+            extensions=".csv",
+        ),
     ]
     OUTPUTS: list[OutputSpec] = [
         OutputSpec(
             name="gene_substrate_predictions",
             extension=".csv",
+            scaffold_location="outputs",
+            save_file_name="gene_substrate_predictions",
         ),
     ]
 
@@ -85,13 +93,29 @@ class UniKPImplementation(RealImplementation[UniKPConfig]):
         gene_substrate_mapping = cast(
             dict[str, set[str]], scaffold.get_scaffold_value("gene_substrate_mapping")
         )
+        already_performed_gene_substrate_predictions = cast(
+            pd.DataFrame, scaffold.get_scaffold_value("kcat_gene_metabolite_predictions")
+        )
+
+        if already_performed_gene_substrate_predictions is not None:
+            genes_in_predictions = set(
+                already_performed_gene_substrate_predictions["ensemble_id"]
+            )
+            genes_in_predictions = set(sorted(genes_in_predictions))
+            missing_gene_substrate_pairs = {
+                gene: substrates
+                for gene, substrates in gene_substrate_mapping.items()
+                if gene not in genes_in_predictions
+            }
+            gene_substrate_mapping = missing_gene_substrate_pairs
+
         model_path = cast(
             DiscoveredInput, scaffold.discovered_inputs["model"].get("cobra_model", None)
         )
         model_parent_path = self._get_model_parent_path(model_path)
 
         # Perform Kcat inference using the utility function
-        (elapsed_time, (kcat_paths, gene_substrate_predictions)) = self.get_time_decorator(
+        (elapsed_time, (_kcat_paths, gene_substrate_predictions)) = self.get_time_decorator(
             infer_kcats
         )(
             smiles_df=smiles_df,
@@ -194,7 +218,110 @@ if __name__ == "__main__":
     )
 
     # small test on first 50 gene-substrate pairs
-    gene_substrate_mapping = dict(list(gene_substrate_mapping.items())[:50])
+    gene_substrate_mapping = dict(list(gene_substrate_mapping.items()))
+
+    lean_kcat_path = Path(base_dir) / "outputs" / "lean_kcat_inference"
+    already_performed_gene_substrate_predictions = pd.read_csv(
+        lean_kcat_path / "kcat_gene_metabolite_predictions.csv",
+    )
+
+    metabolite_ids_in_substrate_mapping = set(
+        metabolite
+        for metabolites in gene_substrate_mapping.values()
+        for metabolite in metabolites
+    )
+    metabolite_ids_in_smiles_df = set(SMILES_df.index)
+
+    gene_ids_in_substrate_mapping = set(gene_substrate_mapping.keys())
+    gene_ids_in_transcript_df = set(transcript_df.index)
+    genes_in_predictions = set(already_performed_gene_substrate_predictions["ensemble_id"])
+    # sort all
+    genes_in_predictions = set(sorted(genes_in_predictions))
+    gene_ids_in_substrate_mapping = set(sorted(gene_ids_in_substrate_mapping))
+
+    print("gene_substrate_mapping type:", type(gene_substrate_mapping))
+    print("gene_substrate_mapping size:", len(gene_substrate_mapping))
+    print("mapping keys type:", type(gene_substrate_mapping.keys()))
+    print("first mapping keys:", list(gene_substrate_mapping.keys())[:10])
+
+    print("transcript_df type:", type(transcript_df))
+    print("transcript_df shape:", transcript_df.shape)
+    print("first transcript index:", list(transcript_df.index[:10]))
+
+    print(
+        "already_performed predictions shape:",
+        already_performed_gene_substrate_predictions.shape,
+    )
+    print(
+        "first ensemble IDs:",
+        already_performed_gene_substrate_predictions["ensemble_id"].head(10).tolist(),
+    )
+    prediction_genes_missing_from_mapping = (
+        genes_in_predictions - gene_ids_in_substrate_mapping
+    )
+    prediction_genes_missing_from_transcript_df = (
+        genes_in_predictions - gene_ids_in_transcript_df
+    )
+    genes_missing_from_transcript_df = (
+        gene_ids_in_substrate_mapping - gene_ids_in_transcript_df
+    )
+    mapping_genes = set(gene_substrate_mapping)
+    transcript_genes = set(transcript_df.index)
+    prediction_genes = set(
+        already_performed_gene_substrate_predictions["ensemble_id"].dropna()
+    )
+
+    print("Mapping:", len(mapping_genes))
+    print("Transcript:", len(transcript_genes))
+    print("Predictions:", len(prediction_genes))
+
+    print("Mapping ∩ Transcript:", len(mapping_genes & transcript_genes))
+    print("Mapping ∩ Predictions:", len(mapping_genes & prediction_genes))
+    print("Transcript ∩ Predictions:", len(transcript_genes & prediction_genes))
+
+    print("Mapping - Transcript:", len(mapping_genes - transcript_genes))
+    print("Predictions - Mapping:", len(prediction_genes - mapping_genes))
+    print("Predictions - Transcript:", len(prediction_genes - transcript_genes))
+    print("Mapping - Predictions:", len(mapping_genes - prediction_genes))
+
+    missing_gene_substrate_pairs = {
+        gene: substrates
+        for gene, substrates in gene_substrate_mapping.items()
+        if gene not in genes_in_predictions
+    }
+    print(
+        "Missing gene-substrate pairs (not in predictions):",
+        len(missing_gene_substrate_pairs),
+    )
+    actual_pairs_missing_from_predictions = sum(
+        len(substrates) for substrates in missing_gene_substrate_pairs.values()
+    )
+    print(
+        "Actual gene-substrate pairs missing from predictions:",
+        actual_pairs_missing_from_predictions,
+    )
+
+    mapping_metabolites = set(
+        metabolite
+        for metabolites in gene_substrate_mapping.values()
+        for metabolite in metabolites
+    )
+    smiles_metabolites = set(SMILES_df.index)
+    prediction_metabolites = set(
+        already_performed_gene_substrate_predictions["metabolite_id"].dropna()
+    )
+
+    print("Mapping metabolites:", len(mapping_metabolites))
+    print("SMILES metabolites:", len(smiles_metabolites))
+    print("Prediction metabolites:", len(prediction_metabolites))
+
+    print("Mapping ∩ SMILES:", len(mapping_metabolites & smiles_metabolites))
+    print("Mapping ∩ Prediction:", len(mapping_metabolites & prediction_metabolites))
+    print("SMILES ∩ Prediction:", len(smiles_metabolites & prediction_metabolites))
+
+    print("Mapping - SMILES:", len(mapping_metabolites - smiles_metabolites))
+    print("Prediction - Mapping:", len(prediction_metabolites - mapping_metabolites))
+    print("Prediction - SMILES:", len(prediction_metabolites - smiles_metabolites))
 
     _, output_df = infer_kcats(  # ty: ignore
         smiles_df=SMILES_df,
@@ -209,5 +336,5 @@ if __name__ == "__main__":
         amount_of_smiles_replicates=50,
         type_of_smiles="isomeric_SMILES",
     )
-    print("Output DataFrame:")
-    pprint(output_df)
+    # print("Output DataFrame:")
+    # pprint(output_df)
