@@ -24,6 +24,9 @@ class ModelDiagnostics(BaseImplementationDiagnostics):
         Model-stage diagnostics for preparing reaction alluvial data.
     """
 
+    ## note that this is ran in the protein stage, after missing
+    ## gene removal
+
     DIAGNOSTICS_NAME = "model"
     # todo: metabolite alluvial for metabolites [(missing smiles, present smiles),
     # ( compartments),
@@ -224,7 +227,8 @@ if __name__ == "__main__":
 
     plot_config = PlotConfig()
     title = "Alluvial Plot Example"
-    base_dir = Path(r"E:/git/SWAPAM/data/for_SWAMP")
+    # base_dir = Path(r"E:/git/SWAPAM/data/for_SWAMP")
+    base_dir = Path("~/git/SWAPAM/data/for_SWAMP").expanduser()
     models_dir = base_dir / "models"
     model_name = "model_inhouse_v7"
     full_model_path = models_dir / f"{model_name}_human" / f"{model_name}.json"
