@@ -445,7 +445,7 @@ class IdentifierTranslationService:
         return enriched_transcript_df
 
     @staticmethod
-    def _deduplicate_identifiers(identifiers: Sequence[str]) -> list[str]:
+    def _deduplicate_identifiers(identifiers: Sequence[str] | set[str]) -> list[str]:
         """Generated: validation needed.
 
         Description:
@@ -754,6 +754,8 @@ class IdentifierTranslationService:
                     entry.get("transcript")
                 )
             ]
+            if transcript_ids is None or not transcript_ids:
+                continue
 
             transcript_ids = self._deduplicate_identifiers(transcript_ids)
 
