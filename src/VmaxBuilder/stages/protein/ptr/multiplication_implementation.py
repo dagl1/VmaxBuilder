@@ -78,6 +78,14 @@ class SimplePTRMultiplicationImplementation(RealImplementation[PTRInputConfigPro
             extension=".csv",
             validator=None,
         ),
+        OutputSpec(
+            name="resolved_sample_type_map",
+            data_type=dict,
+            scaffold_location="artifacts",
+            save_file_name="resolved_sample_type_map",
+            extension=".json",
+            validator=None,
+        ),
     ]
     DIAGNOSTICS = []
 
@@ -132,6 +140,7 @@ class SimplePTRMultiplicationImplementation(RealImplementation[PTRInputConfigPro
             "metadata": metadata,
             "artifacts": {
                 "all_genes_protein_abundance_df": all_genes_protein_abundance_df,
+                "sample_type_map": ptr_validated_sample_type_map,
             },
         }
 

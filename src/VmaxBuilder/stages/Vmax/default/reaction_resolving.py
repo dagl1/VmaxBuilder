@@ -187,22 +187,28 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         # then we check if the IFP is in the trimming output for this sample,
         # and if so we only consider the remaining genes and calculate the highest
         # Kcat among those
-        return {
+        new_scaffold_objects = {
             "outputs": {
                 "non_imputed_reaction_capacity_df": reaction_capacity_df,
             },
             "diagnostics": {},
             "artifacts": {
-                "reaction_capacity_df_without_trimming": (
-                    reaction_capacity_df_without_trimming
-                ),
-                "IFP_sample_abundance_dict_without_trimming": (
-                    IFP_sample_abundance_dict_without_trimming
-                ),
                 "IFP_sample_abundance_dict": IFP_sample_abundance_dict,
             },
             "metadata": metadata,
         }
+        if (
+            self.full_config.protein.trim_enable
+            and self.full_config.allocation.run_untrimmed_separately
+        ):
+            new_scaffold_objects["outputs"]["reaction_capacity_df_without_trimming"] = (
+                reaction_capacity_df_without_trimming
+            )
+            new_scaffold_objects["artifacts"][
+                "IFP_sample_abundance_dict_without_trimming"
+            ] = IFP_sample_abundance_dict_without_trimming
+
+        return new_scaffold_objects
 
     def get_genes_for_IFP(
         self,
