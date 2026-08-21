@@ -35,7 +35,7 @@ class TypeInfo:
 class SaveContext:
     with_index: bool = False
     header: bool | list[str] = True
-    plot_size: tuple[int, int] | None = (1600, 1200)  # Default width and height for plots
+    plot_size: tuple[int, int] | None = (3200, 2800)  # Default width and height for plots
 
     def __post_init__(self):
         if not isinstance(self.with_index, bool):

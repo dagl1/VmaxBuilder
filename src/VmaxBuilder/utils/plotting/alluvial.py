@@ -154,23 +154,18 @@ def prepare_alluvial_plot_data(
     dimensions = []
     for dimension in base_alluvial_data["dimensions"]:
         category = str(dimension["label"])
+
         values = [
             label_display_map[category].get(str(value), str(value))
             for value in dimension["values"]
         ]
-        categoryarray = [
-            label_display_map[category].get(str(label), str(label))
-            for label in category_participation_dict[category].keys()
-        ]
+
         dimensions.append(
             {
                 "label": category,
                 "values": values,
-                "categoryorder": "array",
-                "categoryarray": categoryarray,
             }
         )
-
     colours_hex, _, _, _, _ = custom_colorblind_color_discrete_palette()
     colour_palette_iterator = cycle(colours_hex)
     category_label_colours: dict[str, dict[str, str]] = {
@@ -209,17 +204,17 @@ def create_alluvial_plot(
 ) -> go.Figure:
     if plot_config is None:
         plot_config = PlotConfig()
-    fig = go.Figure(
-        go.Parcats(
-            dimensions=alluvial_plot_data["dimensions"],
-            counts=alluvial_plot_data["counts"],
-            line={"color": alluvial_plot_data["line_colours"]},
-            hoveron="color",
-            hoverinfo="all",
-            labelfont={"color": "black", "size": 14},
-            arrangement="freeform",
-        )
+
+    parcats = go.Parcats(
+        dimensions=alluvial_plot_data["dimensions"],
+        counts=alluvial_plot_data["counts"],
+        line={"color": alluvial_plot_data["line_colours"]},
+        hoveron="color",
+        hoverinfo="all",
+        labelfont={"color": "black", "size": 14},
+        arrangement="freeform",
     )
+    fig = go.Figure(data=parcats)
     fig.update_layout(
         title=title,
         font={"size": 12, "color": "black"},
