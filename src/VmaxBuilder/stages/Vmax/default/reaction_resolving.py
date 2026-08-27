@@ -304,6 +304,8 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
                     "expression_contribution_to_IFP_Vmax": None,
                     "PTR": None,
                     "PTR_contribution_to_IFP_Vmax": None,
+                    "abundance": None,
+                    "abundance_contribution_to_IFP_Vmax": None,
                     "main_substrate_prediction_value": kcats_of_genes_in_reaction[
                         _gene
                     ].main_substrate_prediction_value,

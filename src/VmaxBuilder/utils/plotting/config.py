@@ -19,6 +19,7 @@ class PlotConfig:
     Y_transformation: str = "log10"  # Options: "linear", "log", "log10", "sqrt"
     histogram_axis_type: str = "probability"  # "count", "probability"
     histogram_nbinsx: int = 50  # Number of bins for histogram
+    histogram_nbinsy: int = 50  # Number of bins for histogram
     histogram_base_overlay_opacity = 0.55  # if only 1 group then is 1,
     # otherwise start from this value (at 2 groups) and then reduce with an
     # exponential decay based on the number of groups to avoid
