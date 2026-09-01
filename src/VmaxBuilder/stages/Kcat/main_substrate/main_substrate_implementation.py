@@ -67,6 +67,7 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
         InputSpec(
             name="gene_substrate_predictions",
             prefix="gene_substrate_predictions",
+            in_scaffold=True,
             extensions=(
                 ".json",
                 ".csv",
@@ -348,37 +349,43 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
         gene_substrate_predictions: pd.DataFrame,
         cobra_model: Model,
     ) -> dict[str, dict[str, GeneSubstratePrediction]]:
-        _validate_gene_substrate_predictions(gene_substrate_predictions)
+        gene_substrate_predictions = _validate_gene_substrate_predictions(
+            gene_substrate_predictions
+        )
         gene_substrate_prediction_dict: dict[str, dict[str, GeneSubstratePrediction]] = {}
         metabolite_lookup = _build_metabolite_lookup(cobra_model)
+        compartments = set(
+            extract_compartment(metabolite.id) for metabolite in cobra_model.metabolites
+        )
         # Cache because the same metabolite can occur for many genes.
         metabolite_match_cache: dict[str, tuple[str, str]] = {}
 
         for row in gene_substrate_predictions.itertuples(index=False):
             gene_id = row.ensemble_id
             original_metabolite_id = row.metabolite_id
-
             cached_match = metabolite_match_cache.get(original_metabolite_id)
 
             if cached_match is None:
+                # todo: find  way to get compartment if not included in metabolite id
+                # similarly we need to ensure that we can properly recognise bare
+                # metabolite ids
+
                 compartment = extract_compartment(original_metabolite_id)
                 metabolite_id_without_compartment = remove_compartment(original_metabolite_id)
 
-                matched_metabolite = metabolite_lookup.get(
-                    (metabolite_id_without_compartment, compartment)
-                )
-
-                if matched_metabolite is not None:
-                    metabolite_id = matched_metabolite.id
-                else:
-                    metabolite_id = (
-                        f"COULD NOT FIND MATCH FOR "
-                        f"{metabolite_id_without_compartment} "
-                        f"IN COMPARTMENT {compartment}"
+                # go over all compartments, see if it exists and add it
+                for compartment in compartments:
+                    matched_metabolite = metabolite_lookup.get(
+                        (metabolite_id_without_compartment, compartment)
                     )
 
-                cached_match = (compartment, metabolite_id)
-                metabolite_match_cache[original_metabolite_id] = cached_match
+                    if matched_metabolite is not None:
+                        metabolite_id = matched_metabolite.id
+                    else:
+                        continue
+
+                    cached_match = (compartment, metabolite_id)
+                    metabolite_match_cache[original_metabolite_id] = cached_match
 
             compartment, metabolite_id = cached_match
 

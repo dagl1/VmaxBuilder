@@ -193,9 +193,26 @@ def _build_metabolite_lookup(
     return lookup
 
 
+def _validate_df(
+    missing_columns: set[str],
+    df: pd.DataFrame,
+):
+    if missing_columns:
+        raise ValueError(
+            "Gene substrate prediction DataFrame is missing required columns: "
+            f"{sorted(missing_columns)}"
+        )
+
+    if not pd.api.types.is_string_dtype(df["ensemble_id"]):
+        raise TypeError("'ensemble_id' column must contain strings.")
+
+    if not pd.api.types.is_string_dtype(df["metabolite_id"]):
+        raise TypeError("'metabolite_id' column must contain strings.")
+
+
 def _validate_gene_substrate_predictions(
     df: pd.DataFrame,
-) -> None:
+) -> pd.DataFrame:
     required_columns = {
         "ensemble_id",
         "metabolite_id",
@@ -210,17 +227,7 @@ def _validate_gene_substrate_predictions(
 
     missing_columns = required_columns.difference(df.columns)
 
-    if missing_columns:
-        raise ValueError(
-            "Gene substrate prediction DataFrame is missing required columns: "
-            f"{sorted(missing_columns)}"
-        )
-
-    if not pd.api.types.is_string_dtype(df["ensemble_id"]):
-        raise TypeError("'ensemble_id' column must contain strings.")
-
-    if not pd.api.types.is_string_dtype(df["metabolite_id"]):
-        raise TypeError("'metabolite_id' column must contain strings.")
+    _validate_df(missing_columns, df)
 
     numeric_columns = {
         "median",
@@ -242,9 +249,23 @@ def _validate_gene_substrate_predictions(
         "smiles_longer_than_218",
     }
 
+    # try converting as we often get 0/1 instead of True/False
+
+    for column in boolean_columns:
+        if not pd.api.types.is_bool_dtype(df[column]):
+            try:
+                df[column] = df[column].astype(bool)
+            except Exception as e:
+                raise TypeError(
+                    f"'{column}' column must contain boolean values. "
+                    f"Got dtype {df[column].dtype}. Error: {e}"
+                ) from e
+
     for column in boolean_columns:
         if not pd.api.types.is_bool_dtype(df[column]):
             raise TypeError(
                 f"'{column}' column must contain boolean values. "
                 f"Got dtype {df[column].dtype}."
             )
+
+    return df
