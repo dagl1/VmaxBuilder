@@ -495,7 +495,10 @@ if __name__ == "__main__":
 
     from VmaxBuilder.utils.custom_logging import CustomLogger
 
-    base_dir = r"/home/p70088775/git/VmaxBuilder/data/run_example_output/NCI_60_human_run/"
+    base_dir = (
+        r"/home/p70088775/git/VmaxBuilder"
+        r"/data/run_example_output/DCM_test_Human-GEM-2.0.0_run/"
+    )
 
     IFP_mapping_path = Path(base_dir) / "outputs" / "adjusted_IFP_mapping.json"
     reaction_to_IFP_mapping_path = (

@@ -362,8 +362,11 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
 
         for row in gene_substrate_predictions.itertuples(index=False):
             gene_id = row.ensemble_id
-            original_metabolite_id = row.metabolite_id
-            cached_match = metabolite_match_cache.get(original_metabolite_id)
+            # could or could not have compartment id, if not then there might be multiple
+            # cached matches with different compartments
+            original_metabolite_id = row.metabolite_id  #
+            metabolite_id_without_compartment = remove_compartment(original_metabolite_id)
+            cached_match = metabolite_match_cache.get(metabolite_id_without_compartment)
 
             if cached_match is None:
                 # todo: find  way to get compartment if not included in metabolite id
@@ -371,29 +374,36 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                 # metabolite ids
                 compartment = extract_compartment(original_metabolite_id)
                 if compartment is None:
-                    _compartments = []
                     for compartment in compartments:
                         matched_metabolite = metabolite_lookup.get(
                             (original_metabolite_id, compartment)
                         )
                         if matched_metabolite is None:
                             continue
+                        if original_metabolite_id not in metabolite_match_cache:
+                            metabolite_match_cache[original_metabolite_id] = []
 
                         metabolite_id = matched_metabolite.id
                         cached_match = (compartment, metabolite_id)
-                        metabolite_match_cache[original_metabolite_id] = cached_match
-                        _compartments.append(compartment)
+                        metabolite_match_cache[original_metabolite_id].append(cached_match)
 
                 else:
-                    _compartments = [compartment]
-                    metabolite_id_without_compartment = remove_compartment(
-                        original_metabolite_id
-                    )
+                    if original_metabolite_id not in metabolite_match_cache:
+                        metabolite_match_cache[original_metabolite_id] = []
+
                     cached_match = (compartment, metabolite_id_without_compartment)
+                    metabolite_match_cache[metabolite_id_without_compartment].append(
+                        cached_match
+                    )
 
-            for compartment in _compartments:
-                _, metabolite_id = cached_match
-
+            matches = metabolite_match_cache.get(metabolite_id_without_compartment)
+            if not matches:
+                self.logger.warning(
+                    f"Metabolite {original_metabolite_id} not found in the model. "
+                    f"Skipping gene {gene_id}."
+                )
+                continue
+            for compartment, metabolite_id in matches:
                 prediction = GeneSubstratePrediction(
                     gene_id=gene_id,
                     substrate_id=metabolite_id,
