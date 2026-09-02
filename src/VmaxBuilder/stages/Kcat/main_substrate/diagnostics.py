@@ -868,15 +868,16 @@ if __name__ == "__main__":
 
     from VmaxBuilder.utils.custom_logging import CustomLogger
 
-    base_dir = r"/home/p70088775/git/VmaxBuilder/data/run_example_output/NCI_60_human_run/"
+    base_dir = (
+        r"/home/p70088775/git/VmaxBuilder"
+        "/data/run_example_output/DCM_test_Human-GEM-2.0.0_run/"
+    )
 
     SWAPAM_data_dir = Path(r"/home/p70088775/git/SWAPAM/data/for_SWAMP")
     main_substrate_predictions_path = (
-        SWAPAM_data_dir
-        / "Kcat_predictions"
-        / "UniKPV1"
-        / "model_inhouse_v7_human"
-        / "final_kcat_per_gene_combination_results.csv"
+        r"/home/p70088775/git/VmaxBuilder/data"
+        r"/run_example_output/DCM_test_Human-GEM-2.0.0_run/outputs"
+        r"/lean_kcat_inference/kcat_gene_metabolite_predictions.csv"
     )
     main_substrate_predictions_df = pd.read_csv(main_substrate_predictions_path)
     model_path = Path(base_dir) / "outputs" / "adjusted_irreversible_cobra_model.json"

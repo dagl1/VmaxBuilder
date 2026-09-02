@@ -282,9 +282,8 @@ def match_metabolite_with_model_metabolites(
                 : -len(f"_{model_metabolite_compartment}")
             ]
         elif model_metabolite_id.endswith(model_metabolite_compartment):  # ty:ignore
-            model_metabolite_id = model_metabolite_id[
-                : -len(model_metabolite_compartment)
-            ]  # ty:ignore
+            # ty:ignore
+            model_metabolite_id = model_metabolite_id[: -len(model_metabolite_compartment)]
         if (
             metabolite_without_compartment == model_metabolite_id
             and compartment == model_metabolite_compartment
@@ -292,7 +291,7 @@ def match_metabolite_with_model_metabolites(
             return model_metabolite
 
 
-def extract_compartment(old_id: Any) -> str:
+def extract_compartment(old_id: Any) -> str | None:
     """Generated: validation needed.
 
     Description:
@@ -318,7 +317,7 @@ def extract_compartment(old_id: Any) -> str:
     m = re.search(r"\[(?P<comp>[A-Za-z]+)]$", old_id)
     if m:
         return m.group("comp")
-    return ""
+    return None
 
 
 def remove_compartment(old_id: Any) -> Any:
@@ -774,3 +773,25 @@ def create_task_specific_model_for_diagnostics(  # noqa: C901
         added_reactions.append(new_reaction)
 
     return irreversible_cobra_model, added_reactions
+
+
+if __name__ == "__main__":
+    # Example usage of the utility functions
+    print("This module provides utility functions for VmaxBuilder.")
+
+    met_id_1 = "MAM20065_c"
+    met_id_2 = "MAM20065[cyt]"
+    met_id_3 = "MAM20065cg"
+    met_id_4 = "MAM20065"
+
+    # Test extract_compartment
+    print(f"Compartment of {met_id_1}: {extract_compartment(met_id_1)}")
+    print(f"Compartment of {met_id_2}: {extract_compartment(met_id_2)}")
+    print(f"Compartment of {met_id_3}: {extract_compartment(met_id_3)}")
+    print(f"Compartment of {met_id_4}: {extract_compartment(met_id_4)}")
+
+    # Test remove_compartment
+    print(f"ID without compartment of {met_id_1}: {remove_compartment(met_id_1)}")
+    print(f"ID without compartment of {met_id_2}: {remove_compartment(met_id_2)}")
+    print(f"ID without compartment of {met_id_3}: {remove_compartment(met_id_3)}")
+    print(f"ID without compartment of {met_id_4}: {remove_compartment(met_id_4)}")

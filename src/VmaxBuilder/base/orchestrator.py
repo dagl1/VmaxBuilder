@@ -64,6 +64,8 @@ pd.set_option(
 
 # todo: add validator at end of implementation to see if all things in outputs
 # are now present in scaffold outputs
+# todo: add, when overwrite is true, and use_previous_run is true,
+# a way to utilise already created data and to only validate them
 
 
 class Orchestrator:

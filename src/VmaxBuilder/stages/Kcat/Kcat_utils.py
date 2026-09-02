@@ -210,6 +210,25 @@ def _validate_df(
         raise TypeError("'metabolite_id' column must contain strings.")
 
 
+def _replace_missing_columns(missing_columns: set[str], df: pd.DataFrame) -> pd.DataFrame:
+    if (
+        missing_columns
+        and {"missing_smiles", "truncated_smiles"}.issubset(df.columns)
+        and not {"missing", "smiles_longer_than_218"}.issubset(df.columns)
+    ):
+        # check if missing and or smiles_longer_than_218 are missing, if so
+        # we check if missing_smiles and or truncated_smiles are present
+        # and rename them to the expected names
+        if "missing" in missing_columns:
+            df = df.rename(columns={"missing_smiles": "missing"})
+            missing_columns.remove("missing")
+
+        if "smiles_longer_than_218" in missing_columns:
+            df = df.rename(columns={"truncated_smiles": "smiles_longer_than_218"})
+            missing_columns.remove("smiles_longer_than_218")
+    return df
+
+
 def _validate_gene_substrate_predictions(
     df: pd.DataFrame,
 ) -> pd.DataFrame:
@@ -226,6 +245,7 @@ def _validate_gene_substrate_predictions(
     }
 
     missing_columns = required_columns.difference(df.columns)
+    df = _replace_missing_columns(missing_columns, df)
 
     _validate_df(missing_columns, df)
 

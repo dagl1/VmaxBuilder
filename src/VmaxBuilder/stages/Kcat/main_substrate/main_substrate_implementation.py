@@ -369,45 +369,54 @@ class MainSubstrateImplementation(RealImplementation[MainSubstrateConfigProtocol
                 # todo: find  way to get compartment if not included in metabolite id
                 # similarly we need to ensure that we can properly recognise bare
                 # metabolite ids
-
                 compartment = extract_compartment(original_metabolite_id)
-                metabolite_id_without_compartment = remove_compartment(original_metabolite_id)
+                if compartment is None:
+                    _compartments = []
+                    for compartment in compartments:
+                        matched_metabolite = metabolite_lookup.get(
+                            (original_metabolite_id, compartment)
+                        )
+                        if matched_metabolite is None:
+                            continue
 
-                # go over all compartments, see if it exists and add it
-                for compartment in compartments:
-                    matched_metabolite = metabolite_lookup.get(
-                        (metabolite_id_without_compartment, compartment)
-                    )
-
-                    if matched_metabolite is not None:
                         metabolite_id = matched_metabolite.id
-                    else:
-                        continue
+                        cached_match = (compartment, metabolite_id)
+                        metabolite_match_cache[original_metabolite_id] = cached_match
+                        _compartments.append(compartment)
 
-                    cached_match = (compartment, metabolite_id)
-                    metabolite_match_cache[original_metabolite_id] = cached_match
+                else:
+                    _compartments = [compartment]
+                    metabolite_id_without_compartment = remove_compartment(
+                        original_metabolite_id
+                    )
+                    cached_match = (compartment, metabolite_id_without_compartment)
 
-            compartment, metabolite_id = cached_match
+            for compartment in _compartments:
+                _, metabolite_id = cached_match
 
-            prediction = GeneSubstratePrediction(
-                gene_id=gene_id,
-                substrate_id=metabolite_id,
-                compartment=compartment,
-                # use the config prediction_value_column: str = "median"
-                prediction_value=getattr(row, self.full_config.Kcat.prediction_value_column),
-                prediction_min=row.min if not pd.isna(row.min) else None,
-                prediction_max=row.max if not pd.isna(row.max) else None,
-                prediction_median=row.median if not pd.isna(row.median) else None,
-                prediction_mean=row.mean if not pd.isna(row.mean) else None,
-                prediction_sd=row.sd if not pd.isna(row.sd) else None,
-                missing_smiles=row.missing if not pd.isna(row.missing) else False,
-                imputed=False,  # Initially, predictions are not imputed
-                smiles_longer_than_218=row.smiles_longer_than_218
-                if not pd.isna(row.smiles_longer_than_218)
-                else False,
-            )
+                prediction = GeneSubstratePrediction(
+                    gene_id=gene_id,
+                    substrate_id=metabolite_id,
+                    compartment=compartment,
+                    # use the config prediction_value_column: str = "median"
+                    prediction_value=getattr(
+                        row, self.full_config.Kcat.prediction_value_column
+                    ),
+                    prediction_min=row.min if not pd.isna(row.min) else None,
+                    prediction_max=row.max if not pd.isna(row.max) else None,
+                    prediction_median=row.median if not pd.isna(row.median) else None,
+                    prediction_mean=row.mean if not pd.isna(row.mean) else None,
+                    prediction_sd=row.sd if not pd.isna(row.sd) else None,
+                    missing_smiles=row.missing if not pd.isna(row.missing) else False,
+                    imputed=False,  # Initially, predictions are not imputed
+                    smiles_longer_than_218=row.smiles_longer_than_218
+                    if not pd.isna(row.smiles_longer_than_218)
+                    else False,
+                )
 
-            gene_substrate_prediction_dict.setdefault(gene_id, {})[metabolite_id] = prediction
+                gene_substrate_prediction_dict.setdefault(gene_id, {})[metabolite_id] = (
+                    prediction
+                )
 
         return gene_substrate_prediction_dict
 
@@ -643,15 +652,16 @@ if __name__ == "__main__":
 
     from VmaxBuilder.utils.custom_logging import CustomLogger
 
-    base_dir = r"/home/p70088775/git/VmaxBuilder/data/run_example_output/NCI_60_human_run/"
+    base_dir = (
+        r"/home/p70088775/git/VmaxBuilder/data"
+        "/run_example_output/DCM_test_Human-GEM-2.0.0_run/"
+    )
 
     SWAPAM_data_dir = Path(r"/home/p70088775/git/SWAPAM/data/for_SWAMP")
     main_substrate_predictions_path = (
-        SWAPAM_data_dir
-        / "Kcat_predictions"
-        / "UniKPV1"
-        / "model_inhouse_v7_human"
-        / "final_kcat_per_gene_combination_results.csv"
+        r"/home/p70088775/git/VmaxBuilder/data"
+        r"/run_example_output/DCM_test_Human-GEM-2.0.0_run/outputs"
+        r"/lean_kcat_inference/kcat_gene_metabolite_predictions.csv"
     )
     main_substrate_predictions_df = pd.read_csv(main_substrate_predictions_path)
     model_path = Path(base_dir) / "outputs" / "adjusted_irreversible_cobra_model.json"

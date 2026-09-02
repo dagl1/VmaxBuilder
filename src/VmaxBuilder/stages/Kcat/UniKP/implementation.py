@@ -129,6 +129,7 @@ class UniKPImplementation(RealImplementation[UniKPConfig]):
             prediction_checkpoint_every_chunks=self.full_config.Kcat.prediction_checkpoint_every_chunks,
             amount_of_smiles_replicates=self.full_config.Kcat.amount_of_smiles_replicates,
             type_of_smiles=self.full_config.Kcat.type_of_smiles,
+            print_level=self.logger.print_level,
         )
 
         metadata = self.create_metadata(elapsed_time)
