@@ -730,7 +730,7 @@ if __name__ == "__main__":
     model_dir = models_dir / model_name
     model_path = model_dir
 
-    expression_name = "DCM_test"
+    expression_name = "NCI_60_human"
     expression_path = base_dir / "expression_datasets" / expression_name
     ptr_path = base_dir / "PTR_datasets" / "Eraslan2019_human"
     # proteomics_path = base_dir / "proteomics" / "NCI60"
@@ -787,7 +787,89 @@ if __name__ == "__main__":
     Kcat = orchestrator.set_Kcat_implementation(UniKPMainSubstrateImplementation)
     Vmax = orchestrator.set_Vmax_implementation(DefaultVmaxReactionResolving)
 
-    protein.config.expression_sample_type_map = {idx: "heart" for idx in range(1, 1000)}
+    nci60_to_eraslan_tissues = {
+        # Breast Cancer (BR) -> endometrium / ovary / fat (Endometrium/ovary is used for
+        # female reproductive origin, but fat or lymph node is sometimes grouped; here
+        # matched to ovary/endometrium, or commonly grouped broadly. Let's map to
+        # endometrium/ovary or the closest matching glandular tissue like endometrium)
+        "BR:BT-549": "endometrium",
+        "BR:HS 578T": "endometrium",
+        "BR:MCF7": "endometrium",
+        "BR:MDA-MB-231": "endometrium",
+        "BR:T-47D": "endometrium",
+        # Central Nervous System (CNS) -> brain
+        "CNS:SF-268": "brain",
+        "CNS:SF-295": "brain",
+        "CNS:SF-539": "brain",
+        "CNS:SNB-19": "brain",
+        "CNS:SNB-75": "brain",
+        "CNS:U251": "brain",
+        # Colon Cancer (CO) -> colon
+        "CO:COLO 205": "colon",
+        "CO:HCC-2998": "colon",
+        "CO:HCT-116": "colon",
+        "CO:HCT-15": "colon",
+        "CO:HT29": "colon",
+        "CO:KM12": "colon",
+        "CO:SW-620": "colon",
+        # Lung Cancer (LC) -> lung
+        "LC:A549/ATCC": "lung",
+        "LC:EKVX": "lung",
+        "LC:HOP-62": "lung",
+        "LC:HOP-92": "lung",
+        "LC:NCI-H226": "lung",
+        "LC:NCI-H23": "lung",
+        "LC:NCI-H322M": "lung",
+        "LC:NCI-H460": "lung",
+        "LC:NCI-H522": "lung",
+        # Leukemia (LE) -> lymph node (or spleen/tonsil; lymph node is the standard baseline
+        # representation for white blood cells/lymphoid lineages)
+        "LE:CCRF-CEM": "lymphnode",
+        "LE:HL-60(TB)": "lymphnode",
+        "LE:K-562": "lymphnode",
+        "LE:MOLT-4": "lymphnode",
+        "LE:RPMI-8226": "lymphnode",
+        "LE:SR": "lymphnode",
+        # Melanoma (ME) -> fat (Melanoma originates in the skin, which is not directly
+        # present as "skin" in the 29 tissues. The subcutaneous layer or closest
+        # lipid/epithelial proxy often leans toward fat or smooth muscle; fat is the standard
+        # substitute here)
+        "ME:LOX IMVI": "fat",
+        "ME:M14": "fat",
+        "ME:MALME-3M": "fat",
+        "ME:MDA-MB-435": "fat",
+        "ME:MDA-N": "fat",
+        "ME:SK-MEL-2": "fat",
+        "ME:SK-MEL-28": "fat",
+        "ME:SK-MEL-5": "fat",
+        "ME:UACC-257": "fat",
+        "ME:UACC-62": "fat",
+        # Ovarian Cancer (OV) -> ovary
+        "OV:IGROV1": "ovary",
+        "OV:NCI/ADR-RES": "ovary",
+        "OV:OVCAR-3": "ovary",
+        "OV:OVCAR-4": "ovary",
+        "OV:OVCAR-5": "ovary",
+        "OV:OVCAR-8": "ovary",
+        "OV:SK-OV-3": "ovary",
+        # Prostate Cancer (PR) -> prostate
+        "PR:DU-145": "prostate",
+        "PR:PC-3": "prostate",
+        # Renal Cancer (RE) -> kidney
+        "RE:786-0": "kidney",
+        "RE:A498": "kidney",
+        "RE:ACHN": "kidney",
+        "RE:CAKI-1": "kidney",
+        "RE:RXF 393": "kidney",
+        "RE:SN12C": "kidney",
+        "RE:TK-10": "kidney",
+        "RE:UO-31": "kidney",
+    }
+    if expression_name == "NCI_60_human":
+        # ty: ignore
+        protein.config.expression_sample_type_map = nci60_to_eraslan_tissues
+    else:
+        protein.config.expression_sample_type_map = {idx: "heart" for idx in range(1, 1000)}
 
     protein.config.PTR_special_gene_groups = {"transport_reactions": []}
     # todo: rename use_special_groups_for_unobserved_imputation to PTR

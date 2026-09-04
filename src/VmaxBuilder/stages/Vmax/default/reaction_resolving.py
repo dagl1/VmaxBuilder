@@ -19,6 +19,7 @@ from VmaxBuilder.stages.Kcat.Kcat_utils import (
     ReactionMainSubstratePrediction,
 )
 from VmaxBuilder.stages.Vmax.default.config import ReactionResolvingConfig
+from VmaxBuilder.stages.Vmax.default.diagnostics import VmaxDiagnostics
 from VmaxBuilder.typing_stubs.Vmax.default.reaction_resolving import (
     ReactionResolvingConfigProtocol,
 )
@@ -29,7 +30,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
     IMPL_NAME = "DefaultVmaxReactionResolving"
     IMPLEMENTATION_CONFIG_CLASS = ReactionResolvingConfig
     CHILD_IMPLEMENTATIONS = []
-    DIAGNOSTICS: list[type[BaseImplementationDiagnostics]] = []
+    DIAGNOSTICS: list[type[BaseImplementationDiagnostics]] = [VmaxDiagnostics]
 
     INPUTS: list[InputSpec] = [
         # inputs are IFP sample abundance, trimming output, per_reaction_per_gene_Kcats
@@ -41,6 +42,12 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         InputSpec(
             name="IFP_sample_abundance_df",
             in_scaffold=True,
+            data_type=pd.DataFrame,
+        ),
+        InputSpec(
+            name="untrimmed_IFP_sample_abundance_df",
+            in_scaffold=True,
+            optional=True,
             data_type=pd.DataFrame,
         ),
         InputSpec(
@@ -125,6 +132,10 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         IFP_abundance_df = cast(
             pd.DataFrame, scaffold.get_scaffold_value("IFP_sample_abundance_df")
         )
+        untrimmed_IFP_abundance_df = cast(
+            pd.DataFrame | None,
+            scaffold.get_scaffold_value("untrimmed_IFP_sample_abundance_df"),
+        )
         # cast to numeric
         IFP_abundance_df = IFP_abundance_df.apply(pd.to_numeric, errors="coerce")
         per_reaction_per_gene_Kcats = cast(
@@ -152,12 +163,18 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
                 reaction_to_IFP_mapping,
                 gene_to_IFP_mapping,
                 cobra_model,
+                apply_trimming=True,
             )
         )
         if (
             self.full_config.protein.trim_enable
             and self.full_config.allocation.run_untrimmed_separately
         ):
+            if untrimmed_IFP_abundance_df is None:
+                raise ValueError(
+                    "run_untrimmed_separately is enabled, but "
+                    "'untrimmed_IFP_sample_abundance_df' is missing from scaffold."
+                )
             (
                 time_elapsed,
                 (
@@ -165,12 +182,13 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
                     IFP_sample_abundance_dict_without_trimming,
                 ),
             ) = self.get_time_decorator(self.resolve_reaction_capacity)(
-                IFP_abundance_df,
+                untrimmed_IFP_abundance_df,
                 per_reaction_per_gene_Kcats,
-                trimming_output,
+                {},
                 reaction_to_IFP_mapping,
                 gene_to_IFP_mapping,
                 cobra_model,
+                apply_trimming=False,
             )
 
         metadata = self.create_metadata(time_elapsed)
@@ -222,10 +240,15 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             trimming_info = trimming_output.get(IFP)
 
             if trimming_info is not None:
-                sample_genes = trimming_info.get("genes_remaining_per_sample", {}).get(sample)
-
-                if sample_genes is not None:
-                    return sample_genes
+                genes_trimmed_per_sample = trimming_info.get("genes_trimmed_per_sample", {})
+                trimmed_genes_in_sample = genes_trimmed_per_sample.get(sample, [])
+                if trimmed_genes_in_sample:
+                    trimmed_gene_set = set(trimmed_genes_in_sample)
+                    return [
+                        gene
+                        for gene in IFP_to_genes.get(IFP, [])
+                        if gene not in trimmed_gene_set
+                    ]
 
         return IFP_to_genes.get(IFP, [])
 
@@ -372,6 +395,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         reaction_to_IFP_mapping: dict[str, dict[str, list[str]]],
         gene_to_IFP_mapping: dict[str, dict[str, list[str]]],
         cobra_model: Model,
+        apply_trimming: bool = True,
     ) -> tuple[pd.DataFrame, dict[str, dict[str, dict]]]:
         IFP_to_genes = {
             IFP: [] for gene_info in gene_to_IFP_mapping.values() for IFP in gene_info["IFPs"]
@@ -393,13 +417,17 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         )
 
         use_trimmed_genes_for_kcat = (
-            self.full_config.protein.trim_enable
-            if hasattr(self.full_config.protein, "trim_enable")
-            else False
-        ) and not (
-            self.full_config.Vmax.trim_genes_remain_part_for_Kcat
-            if hasattr(self.full_config.Vmax, "trim_genes_remain_part_for_Kcat")
-            else False
+            apply_trimming
+            and (
+                self.full_config.protein.trim_enable
+                if hasattr(self.full_config.protein, "trim_enable")
+                else False
+            )
+            and not (
+                self.full_config.Vmax.trim_genes_remain_part_for_Kcat
+                if hasattr(self.full_config.Vmax, "trim_genes_remain_part_for_Kcat")
+                else False
+            )
         )
 
         self.logger.attention(f"Use trimmed genes for kcat: {use_trimmed_genes_for_kcat}")

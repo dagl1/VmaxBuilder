@@ -19,10 +19,11 @@ from VmaxBuilder.GPR.gpr_preprocessing import (
     remove_gene_from_GPR_rule,
 )
 from VmaxBuilder.stages.model.default.diagnostics import ModelDiagnostics
+from VmaxBuilder.stages.protein.diagnostics import ProteinSummaryDiagnostics
 
 
 class MissingGeneRemoval(RealImplementation[FullConfig]):
-    DIAGNOSTICS: list = [ModelDiagnostics]
+    DIAGNOSTICS: list = [ModelDiagnostics, ProteinSummaryDiagnostics]
     STAGE_NAME: str = "protein"
     IMPL_NAME: str = "missing_gene_removal"
     INPUTS: list[InputSpec] = [
