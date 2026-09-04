@@ -30,6 +30,11 @@ from VmaxBuilder.utils.plotting.colors import (
 )
 from VmaxBuilder.utils.plotting.config import PlotConfig
 from VmaxBuilder.utils.plotting.trendline import _create_trendline
+from VmaxBuilder.utils.plotting.wrappers import (
+    create_overlaid_cdf,
+    create_overlaid_histogram,
+    create_scatter_comparison_plot,
+)
 
 COLORS = custom_colorblind_color_discrete_palette()
 COLORBLIND_COLORS_RGB = COLORS[4]  # RGB format for Plotly
@@ -245,6 +250,106 @@ class PTRDiagnostics(BaseImplementationDiagnostics[PTRInputConfig]):
             (missing_overlay_histogram_spec_metabolic_only),
             (missing_violin_plot_spec),
             (missing_violin_plot_spec_metabolic_only),
+            *self._create_cross_sample_wrapper_plots(transformed_ptr_df, plot_config),
+        ]
+
+    def _create_cross_sample_wrapper_plots(
+        self,
+        transformed_ptr_df: pd.DataFrame,
+        plot_config: PlotConfig,
+    ) -> list[DiagnosticOutputSpec]:
+        """Generated: validation needed.
+
+        Description:
+            Build wrapper-based cross-sample comparison plots for PTR data.
+
+        Args:
+            transformed_ptr_df (pd.DataFrame): PTR matrix with genes as index and
+                samples as columns.
+            plot_config (PlotConfig): Plot configuration.
+
+        Returns:
+            list[DiagnosticOutputSpec]: Plot outputs. Empty list when fewer than
+                two sample columns are available.
+        """
+        sample_columns = transformed_ptr_df.columns.tolist()
+        if len(sample_columns) < 2:
+            return []
+
+        sample_one = sample_columns[0]
+        sample_two = sample_columns[1]
+        sample_one_series = transformed_ptr_df[sample_one]
+        sample_two_series = transformed_ptr_df[sample_two]
+
+        scatter_plot = create_scatter_comparison_plot(
+            sample_one_series,
+            sample_two_series,
+            plot_config=PlotConfig(
+                title=(f"PTR sample comparison scatter ({sample_one} vs {sample_two})"),
+                x_label=f"{sample_one} ({plot_config.Y_axis_unit})",
+                y_label=f"{sample_two} ({plot_config.Y_axis_unit})",
+                point_size=plot_config.point_size,
+                marker_opacity=0.6,
+                width=1100,
+                height=760,
+                histogram_nbinsx=plot_config.histogram_nbinsx,
+                histogram_nbinsy=plot_config.histogram_nbinsy,
+            ),
+            with_marginals=True,
+            with_trendline=True,
+            trendline_type=plot_config.trendline_type,
+        )
+        histogram_plot = create_overlaid_histogram(
+            sample_one_series,
+            sample_two_series,
+            plot_config=PlotConfig(
+                title=(f"PTR sample comparison histogram ({sample_one} vs {sample_two})"),
+                x_label=f"PTR value ({plot_config.Y_axis_unit})",
+                y_label=plot_config.histogram_axis_type.capitalize(),
+                width=1100,
+                height=760,
+                histogram_nbinsx=plot_config.histogram_nbinsx,
+            ),
+            sample_names=(str(sample_one), str(sample_two)),
+        )
+        cdf_plot = create_overlaid_cdf(
+            sample_one_series,
+            sample_two_series,
+            plot_config=PlotConfig(
+                title=f"PTR sample comparison CDF ({sample_one} vs {sample_two})",
+                x_label=f"PTR value ({plot_config.Y_axis_unit})",
+                y_label="Cumulative probability",
+                width=1100,
+                height=760,
+            ),
+            sample_names=(str(sample_one), str(sample_two)),
+        )
+
+        return [
+            DiagnosticOutputSpec(
+                data=scatter_plot,
+                save_file_name=(
+                    f"cross_sample_scatter_{sample_one}_vs_{sample_two}".replace("/", "_")
+                ),
+                extensions=["html", "svg"],
+                data_type=go.Figure,
+            ),
+            DiagnosticOutputSpec(
+                data=histogram_plot,
+                save_file_name=(
+                    f"cross_sample_histogram_{sample_one}_vs_{sample_two}".replace("/", "_")
+                ),
+                extensions=["html", "svg"],
+                data_type=go.Figure,
+            ),
+            DiagnosticOutputSpec(
+                data=cdf_plot,
+                save_file_name=(
+                    f"cross_sample_cdf_{sample_one}_vs_{sample_two}".replace("/", "_")
+                ),
+                extensions=["html", "svg"],
+                data_type=go.Figure,
+            ),
         ]
 
     def gene_group_plots(
@@ -635,9 +740,9 @@ def create_missing_value_PTR_correlation_plot(
         )
 
     # percentage bar charts
-    counts_per_missing = result_df["missing_count"].value_counts().sort_index()
+    counts_per_missing = result_df["missing_count"].value_counts().sort_index().astype(float)
     total_ptrs = len(result_df)
-    percentages = (counts_per_missing / total_ptrs) * 100
+    percentages = counts_per_missing.div(float(total_ptrs)).mul(100.0)
 
     if plot_config.with_percentage_bar:
         fig.add_trace(

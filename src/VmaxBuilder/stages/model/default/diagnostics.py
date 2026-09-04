@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from typing import Any
 
 import plotly.graph_objects as go
-from cobra import Metabolite, Model, Reaction
+from cobra import Model, Reaction
 
 from VmaxBuilder.base.classes import BaseImplementationDiagnostics, DiagnosticOutputSpec
 from VmaxBuilder.base.configs import FullConfig, Scaffold
@@ -102,13 +103,40 @@ class ModelDiagnostics(BaseImplementationDiagnostics):
         _reaction_alluvial_plot_figure = create_alluvial_plot(
             alluvial_plot_data, plot_config=plot_config
         )
+        metabolite_category_participation_dict = (
+            self._divide_model_metabolites_into_categories(irreversible_cobra_model)
+        )
+        metabolite_alluvial_plot_data = prepare_alluvial_plot_data(
+            metabolite_category_participation_dict
+        )
+        metabolite_alluvial_plot_figure = create_alluvial_plot(
+            metabolite_alluvial_plot_data,
+            plot_config=plot_config,
+            title="Model Metabolite Alluvial",
+        )
         alluvial_diagnostics_output = DiagnosticOutputSpec(
             save_file_name="model_reaction_alluvial_plot",
             data=_reaction_alluvial_plot_figure,
             extensions=[".svg", ".html"],
         )
+        metabolite_alluvial_diagnostics_output = DiagnosticOutputSpec(
+            save_file_name="model_metabolite_alluvial_plot",
+            data=metabolite_alluvial_plot_figure,
+            extensions=[".svg", ".html"],
+        )
+        metabolite_categories_json = DiagnosticOutputSpec(
+            save_file_name="model_metabolite_alluvial_categories",
+            data=metabolite_category_participation_dict,
+            extensions=[".json"],
+        )
 
-        diagnostics = {"model": [alluvial_diagnostics_output]}
+        diagnostics = {
+            "model": [
+                alluvial_diagnostics_output,
+                metabolite_alluvial_diagnostics_output,
+                metabolite_categories_json,
+            ]
+        }
         new_scaffold_objects = {
             "outputs": {},
             "diagnostics": diagnostics,
@@ -219,6 +247,108 @@ class ModelDiagnostics(BaseImplementationDiagnostics):
                     inverted_dict.setdefault(reaction_id, {})[category] = subcategory
         return inverted_dict
 
+    def _divide_model_metabolites_into_categories(
+        self,
+        model: Model,
+    ) -> dict[str, dict[str, list[str]]]:
+        """Generated: validation needed.
+
+        Description:
+            Bucket model metabolites for alluvial diagnostics.
+
+        Args:
+            model (Model): COBRA model.
+
+        Returns:
+            dict[str, dict[str, list[str]]]: Category membership map per metabolite.
+        """
+        metabolite_ids_by_base: dict[str, set[str]] = defaultdict(set)
+        for metabolite in model.metabolites:
+            base_identifier = self._metabolite_base_identifier(metabolite.id)
+            metabolite_ids_by_base[base_identifier].add(metabolite.id)
+
+        category_participation_dict: dict[str, dict[str, list[str]]] = {
+            "smiles_presence": {"present": [], "missing": []},
+            "compartment": {},
+            "total_reactions": {"0": [], "1": [], "2": [], "3": [], "<=10": [], ">10": []},
+            "present_in_other_compartments": {
+                "0": [],
+                "1": [],
+                "2": [],
+                "3": [],
+                "<=10": [],
+                ">10": [],
+            },
+        }
+
+        for metabolite in model.metabolites:
+            annotation = metabolite.annotation if metabolite.annotation is not None else {}
+            has_smiles = any(
+                bool(annotation.get(annotation_key))
+                for annotation_key in ("smiles", "SMILES", "inchi")
+            )
+            smiles_label = "present" if has_smiles else "missing"
+            category_participation_dict["smiles_presence"][smiles_label].append(metabolite.id)
+
+            compartment_label = (
+                metabolite.compartment if metabolite.compartment else "unknown"
+            )
+            category_participation_dict["compartment"].setdefault(
+                compartment_label, []
+            ).append(metabolite.id)
+
+            total_reaction_count = len(metabolite.reactions)
+            total_reaction_bucket = self._count_to_bucket(total_reaction_count)
+            category_participation_dict["total_reactions"][total_reaction_bucket].append(
+                metabolite.id
+            )
+
+            base_identifier = self._metabolite_base_identifier(metabolite.id)
+            in_other_compartments_count = max(
+                len(metabolite_ids_by_base[base_identifier]) - 1,
+                0,
+            )
+            other_compartments_bucket = self._count_to_bucket(in_other_compartments_count)
+            category_participation_dict["present_in_other_compartments"][
+                other_compartments_bucket
+            ].append(metabolite.id)
+
+        return category_participation_dict
+
+    def _count_to_bucket(self, count: int) -> str:
+        """Generated: validation needed.
+
+        Description:
+            Convert non-negative integer counts into shared diagnostics buckets.
+
+        Args:
+            count (int): Value to bucket.
+
+        Returns:
+            str: Bucket label.
+        """
+        if count <= 3:
+            return str(count)
+        if count <= 10:
+            return "<=10"
+        return ">10"
+
+    def _metabolite_base_identifier(self, metabolite_id: str) -> str:
+        """Generated: validation needed.
+
+        Description:
+            Remove compartment suffix from metabolite identifiers.
+
+        Args:
+            metabolite_id (str): COBRA metabolite identifier.
+
+        Returns:
+            str: Identifier without compartment suffix.
+        """
+        if "_" not in metabolite_id:
+            return metabolite_id
+        return metabolite_id.rsplit("_", maxsplit=1)[0]
+
 
 if __name__ == "__main__":
     from pathlib import Path
@@ -246,4 +376,13 @@ if __name__ == "__main__":
     title = "Alluvial Plot Example"
     figure = create_alluvial_plot(alluvial_plot_data, plot_config)
 
+    metabolite_categories = diagnostics._divide_model_metabolites_into_categories(model)
+    metabolite_alluvial_plot_data = prepare_alluvial_plot_data(metabolite_categories)
+    metabolite_figure = create_alluvial_plot(
+        metabolite_alluvial_plot_data,
+        plot_config,
+        title="Model Metabolite Alluvial",
+    )
+
     figure.show()
+    metabolite_figure.show()

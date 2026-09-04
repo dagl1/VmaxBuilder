@@ -1,3 +1,16 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Mapping
+
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+
+from VmaxBuilder.utils.plotting.config import PlotConfig
+from VmaxBuilder.utils.plotting.wrappers import create_dual_axis_bar_plot
+
 # todo: show how many IFPs actually have enough values to even be trimmable
 
 # show how many IFPs actually have enough values to be trimmable and have at least 1
@@ -23,109 +36,252 @@
 
 # ensure that IFPs that are trimmed can be traced back to their real IFP
 # todo: ensure that old version and new version give similar output
-import cobra.io.mat
-from cobra.core.model import Model
-from cobra.io.json import load_json_model
 
-from VmaxBuilder.cobrapy_overwrites.cobrapy_io import load_matlab_model, save_json_model
-from VmaxBuilder.utils.extra_utils import remove_compartment
 
-if __name__ == "__main__":
-    from pathlib import Path
+def _trimmed_ifps_per_sample(
+    trimming_output: Mapping[str, Mapping[str, Any]],
+) -> dict[str, set[str]]:
+    """Generated: validation needed.
 
-    # pkl_path = Path(
-    #     r"/home/p70088775/git/VmaxBuilder/data"
-    #     "/run_example_output/NCI_60_human_run/artifacts/Vmax_stage/"
-    #     "IFP_sample_abundance_dict.pkl"
-    # )
-    # import pickle
-    # from time import perf_counter
-    #
-    # time_start = perf_counter()
-    # with open(pkl_path, "rb") as f:
-    #     data = pickle.load(f)
-    # time_end = perf_counter()
-    #
-    # print(f"total_time_elapsed:{time_end - time_start}")
+    Description:
+        Build sample-to-trimmed-IFP mapping from trimming output.
 
-    def get_all_gene_substrate_combinations(model: Model):
-        gene_substrate_combinations = {}
-        for reaction in model.reactions:
-            if not reaction.genes:
+    Args:
+        trimming_output (dict[str, dict[str, Any]]): Per-IFP trimming payload.
+
+    Returns:
+        dict[str, set[str]]: Sample to set of trimmed IFPs.
+    """
+    per_sample_mapping: dict[str, set[str]] = {}
+    for ifp_identifier, ifp_data in trimming_output.items():
+        genes_trimmed_per_sample = ifp_data.get("genes_trimmed_per_sample", {})
+        for sample_name, trimmed_genes in genes_trimmed_per_sample.items():
+            if not trimmed_genes:
                 continue
-            substrates = reaction.metabolites
-            substrates = {
-                remove_compartment(met.id): stoich
-                for met, stoich in substrates.items()
-                if stoich < 0
-            }
+            per_sample_mapping.setdefault(str(sample_name), set()).add(str(ifp_identifier))
+    return per_sample_mapping
 
-            for gene in reaction.genes:
-                if not gene:
-                    continue
-                gene = gene.id
 
-                if gene not in gene_substrate_combinations:
-                    gene_substrate_combinations[gene] = set()
-                for substrate in substrates:
-                    gene_substrate_combinations[gene].add(substrate)
+def _samples_per_trimmed_ifp(
+    trimming_output: Mapping[str, Mapping[str, Any]],
+) -> dict[str, set[str]]:
+    """Generated: validation needed.
 
-        return gene_substrate_combinations
+    Description:
+        Build IFP-to-samples mapping for non-empty trimming events.
 
-    model_dir = Path(r"/home/p70088775/git/SWAPAM/data/for_SWAMP/models/")
-    human_2 = (
-        r"/home/p70088775/git/SWAPAM/data/for_SWAMP"
-        "/models/Human-GEM-2.0.0/model/Human-GEM.mat"
+    Args:
+        trimming_output (dict[str, dict[str, Any]]): Per-IFP trimming payload.
+
+    Returns:
+        dict[str, set[str]]: IFP to set of samples where trimming occurred.
+    """
+    per_ifp_mapping: dict[str, set[str]] = {}
+    for ifp_identifier, ifp_data in trimming_output.items():
+        genes_trimmed_per_sample = ifp_data.get("genes_trimmed_per_sample", {})
+        for sample_name, trimmed_genes in genes_trimmed_per_sample.items():
+            if not trimmed_genes:
+                continue
+            per_ifp_mapping.setdefault(str(ifp_identifier), set()).add(str(sample_name))
+    return per_ifp_mapping
+
+
+def create_trimming_summary_plots(
+    trimming_output: Mapping[str, Mapping[str, Any]],
+    *,
+    plot_config: PlotConfig | None = None,
+    top_n: int = 30,
+) -> dict[str, go.Figure]:
+    """Generated: validation needed.
+
+    Description:
+        Create trimming summary plots covering sample-level and IFP-level event counts.
+
+    Args:
+        trimming_output (dict[str, dict[str, Any]]): Per-IFP trimming payload.
+        plot_config (PlotConfig | None): Plot configuration.
+        top_n (int): Maximum number of categories in ranked bars.
+
+    Returns:
+        dict[str, go.Figure]: Named plot collection.
+    """
+    if plot_config is None:
+        plot_config = PlotConfig()
+
+    ifps_per_sample = _trimmed_ifps_per_sample(trimming_output)
+    samples_per_ifp = _samples_per_trimmed_ifp(trimming_output)
+
+    ifp_counts_per_sample = {
+        sample_name: len(trimmed_ifps)
+        for sample_name, trimmed_ifps in ifps_per_sample.items()
+    }
+    sample_counts_per_ifp = {
+        ifp_identifier: len(samples) for ifp_identifier, samples in samples_per_ifp.items()
+    }
+
+    ranked_sample_counts = sorted(
+        ifp_counts_per_sample.items(),
+        key=lambda item: item[1],
+        reverse=True,
+    )[:top_n]
+    ranked_ifp_counts = sorted(
+        sample_counts_per_ifp.items(),
+        key=lambda item: item[1],
+        reverse=True,
+    )[:top_n]
+
+    samples_histogram = go.Figure(
+        data=[
+            go.Bar(
+                x=[label for label, _ in ranked_sample_counts],
+                y=[count for _, count in ranked_sample_counts],
+                name="Trimmed IFP count",
+            )
+        ]
     )
-    human_1_17 = model_dir / "HumanGem17_irreversible" / "reversible_cobra_model.json"
-    # load
+    samples_histogram.update_layout(
+        title="Trimmed IFP count per sample",
+        xaxis_title="Sample",
+        yaxis_title="Trimmed IFPs",
+        template="plotly_white",
+        width=plot_config.width,
+        height=plot_config.height,
+    )
 
-    human_2 = cobra.io.mat.load_matlab_model(human_2)
-    hum_2_all_gene_substrate_combinations = get_all_gene_substrate_combinations(human_2)
-    save_json_model(
-        human_2,
-        str(
-            r"/home/p70088775/git/SWAPAM/data/for_SWAMP"
-            "/models/Human-GEM-2.0.0/model_Human-GEM.json"
+    ifp_histogram = go.Figure(
+        data=[
+            go.Bar(
+                x=[label for label, _ in ranked_ifp_counts],
+                y=[count for _, count in ranked_ifp_counts],
+                name="Sample count",
+            )
+        ]
+    )
+    ifp_histogram.update_layout(
+        title="Samples trimmed per IFP",
+        xaxis_title="IFP",
+        yaxis_title="Samples with trimming",
+        template="plotly_white",
+        width=plot_config.width,
+        height=plot_config.height,
+    )
+
+    total_samples = set()
+    for ifp_data in trimming_output.values():
+        genes_trimmed_per_sample = ifp_data.get("genes_trimmed_per_sample", {})
+        total_samples.update(genes_trimmed_per_sample.keys())
+    total_sample_count = max(len(total_samples), 1)
+
+    ranked_ifp_fraction_df = pd.DataFrame(
+        {
+            "ifp": [ifp_identifier for ifp_identifier, _ in ranked_ifp_counts],
+            "sample_count": [count for _, count in ranked_ifp_counts],
+        }
+    )
+    ranked_ifp_fraction_df["sample_fraction"] = ranked_ifp_fraction_df[
+        "sample_count"
+    ] / float(total_sample_count)
+
+    ifp_dual_axis_plot = create_dual_axis_bar_plot(
+        labels=ranked_ifp_fraction_df["ifp"].tolist(),
+        left_values=ranked_ifp_fraction_df["sample_count"].astype(float).tolist(),
+        right_values=ranked_ifp_fraction_df["sample_fraction"].astype(float).tolist(),
+        left_name="Trimmed sample count",
+        right_name="Trimmed sample fraction",
+        plot_config=PlotConfig(
+            title="Top trimmed IFPs: absolute and relative sample coverage",
+            x_label="IFP",
+            y_label="Samples",
+            width=max(plot_config.width, 1200),
+            height=plot_config.height,
         ),
     )
 
-    human_1_17 = load_json_model(str(human_1_17))
-    hum_1_17_all_gene_substrate_combinations = get_all_gene_substrate_combinations(human_1_17)
-
-    # compare the two, we want to find any that are in the 1.17 model but not in the 2.0
-    # model, we ddo not care about the other way around,
-
-    missing_genes = set()
-    for gene, _substrates in hum_1_17_all_gene_substrate_combinations.items():
-        if gene not in hum_2_all_gene_substrate_combinations:
-            missing_genes.add(gene)
-
-    print(f"total_genes_in_human_1_17_model: {len(hum_1_17_all_gene_substrate_combinations)}")
-    print(f"total_genes_in_human_2_model: {len(hum_2_all_gene_substrate_combinations)}")
-    print(f"total_missing_genes: {len(missing_genes)}")
-
-    # now we also need to check the actual substrate gene combinations, so we need to check
-    # if the substrates are the same for each gene, if not we need to report that as well
-    # this means that if we had x-A x-B etc, we think of each combination as its own entity
-    # we want to find all such combinations that are not in the 1.17 model (as we already
-    # calculated kcats for the 1.17 model, we just want to find what extra we need to
-    # calculate kcats for in the 2.0 model)
-
-    missing_gene_substrate_combinations = {}
-    for gene, substrates in hum_1_17_all_gene_substrate_combinations.items():
-        if gene not in hum_2_all_gene_substrate_combinations:
-            missing_gene_substrate_combinations[gene] = substrates
-        else:
-            # check if the substrates are the same
-            missing_substrates = substrates - hum_2_all_gene_substrate_combinations[gene]
-            if missing_substrates:
-                missing_gene_substrate_combinations[gene] = missing_substrates
-
-    print(
-        f"total_missing_gene_substrate_combinations: "
-        f"{len(missing_gene_substrate_combinations)}"
+    similarity_heatmap = _create_sample_ifp_jaccard_heatmap(
+        ifps_per_sample,
+        plot_config=plot_config,
     )
-    # any duplicate metabolite name without compartment does tn
 
-    pass
+    return {
+        "trimmed_ifp_count_per_sample": samples_histogram,
+        "sample_count_per_trimmed_ifp": ifp_histogram,
+        "trimmed_ifp_sample_coverage": ifp_dual_axis_plot,
+        "sample_ifp_jaccard_similarity": similarity_heatmap,
+    }
+
+
+def _create_sample_ifp_jaccard_heatmap(
+    ifps_per_sample: dict[str, set[str]],
+    *,
+    plot_config: PlotConfig,
+) -> go.Figure:
+    """Generated: validation needed.
+
+    Description:
+        Create pairwise Jaccard similarity heatmap between sample-specific trimmed IFP sets.
+
+    Args:
+        ifps_per_sample (dict[str, set[str]]): Sample to trimmed IFP set mapping.
+        plot_config (PlotConfig): Plot configuration.
+
+    Returns:
+        go.Figure: Jaccard similarity heatmap.
+    """
+    sample_names = sorted(ifps_per_sample.keys())
+    if not sample_names:
+        sample_names = ["no_samples"]
+        similarity_matrix = np.array([[1.0]])
+    else:
+        similarity_matrix = np.zeros((len(sample_names), len(sample_names)), dtype=float)
+        for row_index, sample_row in enumerate(sample_names):
+            row_ifps = ifps_per_sample[sample_row]
+            for column_index, sample_column in enumerate(sample_names):
+                column_ifps = ifps_per_sample[sample_column]
+                union_size = len(row_ifps.union(column_ifps))
+                if union_size == 0:
+                    similarity_matrix[row_index, column_index] = 1.0
+                else:
+                    similarity_matrix[row_index, column_index] = len(
+                        row_ifps.intersection(column_ifps)
+                    ) / float(union_size)
+
+    heatmap_figure = go.Figure(
+        data=go.Heatmap(
+            z=similarity_matrix,
+            x=sample_names,
+            y=sample_names,
+            colorscale="Viridis",
+            zmin=0.0,
+            zmax=1.0,
+            colorbar={"title": "Jaccard"},
+        )
+    )
+    heatmap_figure.update_layout(
+        title="Sample similarity of trimmed IFP sets",
+        xaxis_title="Sample",
+        yaxis_title="Sample",
+        template="plotly_white",
+        width=max(plot_config.width, 900),
+        height=max(plot_config.height, 850),
+    )
+    return heatmap_figure
+
+
+if __name__ == "__main__":
+    base_dir = Path(
+        "/home/p70088775/git/VmaxBuilder/data/run_example_output/NCI_60_human_run/"
+    )
+    trimming_output_path = (
+        base_dir / "artifacts" / "allocation_stage" / "trimming_output.json"
+    )
+
+    with open(trimming_output_path, "r") as output_file:
+        trimming_output_data = json.load(output_file)
+
+    plots = create_trimming_summary_plots(
+        trimming_output_data,
+        plot_config=PlotConfig(width=1200, height=700),
+        top_n=25,
+    )
+    for figure in plots.values():
+        figure.show()

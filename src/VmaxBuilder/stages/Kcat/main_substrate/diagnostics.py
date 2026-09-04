@@ -27,6 +27,11 @@ from VmaxBuilder.utils.plotting.colors import (
 )
 from VmaxBuilder.utils.plotting.config import PlotConfig
 from VmaxBuilder.utils.plotting.trendline import _create_trendline
+from VmaxBuilder.utils.plotting.wrappers import (
+    create_difference_boxplot,
+    create_rank_scatter_plot,
+    create_scatter_comparison_plot,
+)
 
 COLORS = custom_colorblind_color_discrete_palette()
 COLORBLIND_COLORS_RGB = COLORS[4]  # RGB format for Plotly
@@ -145,6 +150,12 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
         )
 
         alluvial_plot = create_alluvial_plot(alluvial_plot_data, plot_config=plot_config)
+        comparison_plots = self._create_before_after_imputation_comparison_plots(
+            before_imputation_per_gene_per_reaction_main_substrate_predictions,
+            imputed_per_gene_per_reaction_main_substrate_predictions,
+            before_imputation_gene_substrate_predictions,
+            imputed_gene_substrate_predictions,
+        )
 
         diagnostic_output = self._create_diagnostic_output(
             before_imputation_plots=before_imputation_reaction_plots,
@@ -156,6 +167,7 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
             "outputs": {},
             "diagnostics": {
                 "main_substrate_aggregation": diagnostic_output
+                + comparison_plots
                 + [
                     categorized_metabolites_spec,
                     categorized_metabolites_count_spec,
@@ -369,6 +381,176 @@ class GeneSubstratePredictionDiagnostics(BaseImplementationDiagnostics):
                     )
 
         return reaction_values
+
+    def _create_before_after_imputation_comparison_plots(
+        self,
+        before_reaction_predictions: dict[str, ReactionMainSubstratePrediction],
+        after_reaction_predictions: dict[str, ReactionMainSubstratePrediction],
+        before_gene_predictions: dict[str, dict[str, GeneSubstratePrediction]],
+        after_gene_predictions: dict[str, dict[str, GeneSubstratePrediction]],
+    ) -> list[DiagnosticOutputSpec]:
+        """Generated: validation needed.
+
+        Description:
+            Build wrapper-based before-vs-after comparison plots for reaction and
+            gene prediction values.
+
+        Args:
+            before_reaction_predictions (dict[str, ReactionMainSubstratePrediction]):
+                Reaction predictions before imputation.
+            after_reaction_predictions (dict[str, ReactionMainSubstratePrediction]):
+                Reaction predictions after imputation.
+            before_gene_predictions (dict[str, dict[str, GeneSubstratePrediction]]):
+                Gene-substrate predictions before imputation.
+            after_gene_predictions (dict[str, dict[str, GeneSubstratePrediction]]):
+                Gene-substrate predictions after imputation.
+
+        Returns:
+            list[DiagnosticOutputSpec]: Comparison plot outputs.
+        """
+        reaction_before_series = self._build_reaction_prediction_series(
+            before_reaction_predictions
+        )
+        reaction_after_series = self._build_reaction_prediction_series(
+            after_reaction_predictions
+        )
+        gene_before_series = self._build_gene_prediction_series(before_gene_predictions)
+        gene_after_series = self._build_gene_prediction_series(after_gene_predictions)
+
+        reaction_scatter = create_scatter_comparison_plot(
+            reaction_before_series,
+            reaction_after_series,
+            plot_config=PlotConfig(
+                title="Reaction prediction comparison (before vs after imputation)",
+                x_label="Before imputation (log10)",
+                y_label="After imputation (log10)",
+                point_size=5,
+                width=1100,
+                height=760,
+            ),
+            with_marginals=True,
+            with_trendline=True,
+            trendline_type="linear",
+        )
+        gene_scatter = create_scatter_comparison_plot(
+            gene_before_series,
+            gene_after_series,
+            plot_config=PlotConfig(
+                title="Gene-substrate comparison (before vs after imputation)",
+                x_label="Before imputation (log10)",
+                y_label="After imputation (log10)",
+                point_size=4,
+                width=1100,
+                height=760,
+            ),
+            with_marginals=True,
+            with_trendline=True,
+            trendline_type="linear",
+        )
+        reaction_difference = create_difference_boxplot(
+            reaction_before_series,
+            reaction_after_series,
+            plot_config=PlotConfig(
+                title="Reaction delta distribution (before - after)",
+                y_label="Difference (log10)",
+                width=900,
+                height=650,
+            ),
+        )
+        gene_rank_scatter = create_rank_scatter_plot(
+            gene_before_series,
+            gene_after_series,
+            plot_config=PlotConfig(
+                title="Gene-substrate rank shift (before vs after)",
+                x_label="Rank before imputation",
+                y_label="Rank after imputation",
+                point_size=4,
+                width=1000,
+                height=760,
+            ),
+        )
+
+        return [
+            DiagnosticOutputSpec(
+                save_file_name="reaction_before_after_scatter_marginal",
+                data=reaction_scatter,
+                extensions=[".svg", ".html"],
+                data_type=go.Figure,
+            ),
+            DiagnosticOutputSpec(
+                save_file_name="gene_before_after_scatter_marginal",
+                data=gene_scatter,
+                extensions=[".svg", ".html"],
+                data_type=go.Figure,
+            ),
+            DiagnosticOutputSpec(
+                save_file_name="reaction_before_after_difference_boxplot",
+                data=reaction_difference,
+                extensions=[".svg", ".html"],
+                data_type=go.Figure,
+            ),
+            DiagnosticOutputSpec(
+                save_file_name="gene_before_after_rank_scatter",
+                data=gene_rank_scatter,
+                extensions=[".svg", ".html"],
+                data_type=go.Figure,
+            ),
+        ]
+
+    def _build_reaction_prediction_series(
+        self,
+        reaction_predictions: dict[str, ReactionMainSubstratePrediction],
+    ) -> pd.Series:
+        """Generated: validation needed.
+
+        Description:
+            Collapse reaction predictions into one log10 value per reaction.
+
+        Args:
+            reaction_predictions (dict[str, ReactionMainSubstratePrediction]):
+                Reaction prediction mapping.
+
+        Returns:
+            pd.Series: Reaction-indexed log10 values.
+        """
+        reaction_to_values: dict[str, list[float]] = {}
+        for reaction_id, compartment, value in self.safely_get_log10_value(
+            reaction_predictions
+        ):
+            reaction_to_values.setdefault(f"{reaction_id}|{compartment}", []).append(value)
+
+        reduced_mapping = {
+            reaction_identifier: float(np.mean(values))
+            for reaction_identifier, values in reaction_to_values.items()
+            if values
+        }
+        return pd.Series(reduced_mapping, dtype=float)
+
+    def _build_gene_prediction_series(
+        self,
+        gene_predictions: dict[str, dict[str, GeneSubstratePrediction]],
+    ) -> pd.Series:
+        """Generated: validation needed.
+
+        Description:
+            Build gene-substrate indexed log10 prediction series.
+
+        Args:
+            gene_predictions (dict[str, dict[str, GeneSubstratePrediction]]):
+                Gene predictions mapping.
+
+        Returns:
+            pd.Series: Gene-substrate indexed log10 values.
+        """
+        values: dict[str, float] = {}
+        for gene_id, substrate_predictions in gene_predictions.items():
+            for substrate_id, prediction in substrate_predictions.items():
+                if prediction.prediction_value is None or prediction.prediction_value <= 0:
+                    continue
+                values[f"{gene_id}|{substrate_id}"] = float(
+                    np.log10(prediction.prediction_value)
+                )
+        return pd.Series(values, dtype=float)
 
     # always use go graph objects plot
     def _create_histogram_distribution(
@@ -960,7 +1142,7 @@ if __name__ == "__main__":
             },
         )()
 
-    diagnostics.full_config = DummyFullConfig()  # ty:ignore
+    diagnostics.full_config = DummyFullConfig()  # ty: ignore
     number_of_reactions_with_missing_smiles = sum(
         1
         for gene_id in imputed_gene_substrate_predictions.values()

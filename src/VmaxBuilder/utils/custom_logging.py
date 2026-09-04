@@ -177,6 +177,11 @@ def _attention_gradient(text: str) -> str:
 
 class ParentDirectoryFormatter(Formatter):
     def format(self, record: LogRecord) -> str:
+        if not hasattr(record, "custom_lineno"):
+            record.custom_lineno = record.lineno
+        if not hasattr(record, "custom_pathname"):
+            record.custom_pathname = record.pathname
+
         raw_path = getattr(record, "custom_pathname", record.pathname)
         path_obj = Path(raw_path)
         if len(path_obj.parts) > 1:
@@ -439,7 +444,11 @@ class CustomLogger:
         if self.logger.isEnabledFor(CustomLogger.STARTING_LEVEL):
             stack_ = stack()
             filename, lineno = self.process_stack(stack_)
-            extra_new = {"custom_pathname": filename, "print_level": print_level}
+            extra_new = {
+                "custom_pathname": filename,
+                "custom_lineno": lineno,
+                "print_level": print_level,
+            }
             # merge with new from args if it exists
             extra_new.update(kwargs.get("extra", {}))
 
