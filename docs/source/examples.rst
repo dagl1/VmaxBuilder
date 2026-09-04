@@ -1,37 +1,39 @@
 Examples
 ========
 
-This page will host runnable examples for core workflows.
+These examples are intentionally short and map directly onto the runtime flow.
 
-Planned examples
-----------------
-
-1. Minimal modular pipeline run with default configuration.
-2. Custom stage selection via orchestrator dispatcher.
-3. Custom algorithm registration through registry pattern.
-
-Placeholder status
-------------------
-
-Examples are intentionally lightweight now while refactor foundation is finalized.
-
-Example template (to be expanded)
----------------------------------
+Example 1: print the active config
+----------------------------------
 
 .. code-block:: python
 
-   # Placeholder skeleton
-   # from VmaxBuilder.api import VmaxBuilderAPI
-   # from VmaxBuilder.config import load_config
-   #
-   # config = load_config()
-   # api = VmaxBuilderAPI(config=config)
-   # api.load(...)
-   # api.run(stages=["expression", "model", "protein_abundance", "allocation", "vmax"])
+   print(orchestrator.return_config("run"))
+   print(orchestrator.return_config("allocation"))
+
+Example 2: change runtime verbosity
+-----------------------------------
+
+.. code-block:: python
+
+   orchestrator.set_print_level("INFO")
+   orchestrator.set_print_level("DEBUG")
+
+Example 3: switch implementations
+----------------------------------
+
+.. code-block:: python
+
+   orchestrator.set_model_implementation(DefaultIrreversibleModelImplementation)
+   orchestrator.set_protein_implementation(MvalueTrimmingExpressionPTRImplementation)
+   orchestrator.set_allocation_implementation(FairAllocationImplementation)
+   orchestrator.set_Kcat_implementation(UniKPMainSubstrateImplementation)
+   orchestrator.set_Vmax_implementation(DefaultVmaxReactionResolving)
 
 See also
 --------
 
 - :doc:`getting_started`
+- :doc:`tutorial`
 - :doc:`use_cases`
-- :doc:`VmaxBuilder (API)`
+- :doc:`api`

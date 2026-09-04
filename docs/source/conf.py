@@ -52,8 +52,8 @@ autodoc_default_options = {
     "private-members": True,
     "autodoc_class_signature": "separated",
 }
-autosummary_generate = True
-autosummary_generate_overwrite = True
+autosummary_generate = False
+autosummary_generate_overwrite = False
 autodoc_member_order = "bysource"
 autodoc_preserve_defaults = True
 
@@ -64,6 +64,7 @@ html_last_updated_fmt = "%b %d, %Y"
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
 templates_path = ["_templates"]
+exclude_patterns = ["generated/**"]
 
 # # -- Custom Documenter to skip function headers -----------------------------
 from sphinx.environment.collectors.title import TitleCollector  # noqa: E402
