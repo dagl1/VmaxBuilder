@@ -730,7 +730,7 @@ if __name__ == "__main__":
     model_dir = models_dir / model_name
     model_path = model_dir
 
-    expression_name = "NCI_60_human"
+    expression_name = "DCM_magnet"
     expression_path = base_dir / "expression_datasets" / expression_name
     ptr_path = base_dir / "PTR_datasets" / "Eraslan2019_human"
     # proteomics_path = base_dir / "proteomics" / "NCI60"

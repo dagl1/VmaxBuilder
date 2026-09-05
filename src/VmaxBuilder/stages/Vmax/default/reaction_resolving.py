@@ -45,12 +45,6 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             data_type=pd.DataFrame,
         ),
         InputSpec(
-            name="untrimmed_IFP_sample_abundance_df",
-            in_scaffold=True,
-            optional=True,
-            data_type=pd.DataFrame,
-        ),
-        InputSpec(
             name="trimming_output",
             in_scaffold=True,
             data_type=dict,
@@ -91,25 +85,6 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             extension=".pkl",
             validator=None,
         ),
-        OutputSpec(
-            name="reaction_capacity_df_without_trimming",
-            data_type=pd.DataFrame,
-            scaffold_location="artifacts",
-            save_file_name="reaction_capacity_df_without_trimming",
-            # saver args should make sure we save the index of the reactions
-            saver_args={"with_index": True},
-            extension=".csv",
-            validator=None,
-        ),
-        OutputSpec(
-            name="IFP_sample_abundance_dict_without_trimming",
-            data_type=dict,
-            scaffold_location="artifacts",
-            save_file_name="IFP_sample_abundance_dict_without_trimming",
-            saver_args={},
-            extension=".pkl",
-            validator=None,
-        ),
     ]
 
     def __init__(self, full_config: FullConfig):
@@ -131,10 +106,6 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
     def generate_outputs(self, scaffold: Scaffold):
         IFP_abundance_df = cast(
             pd.DataFrame, scaffold.get_scaffold_value("IFP_sample_abundance_df")
-        )
-        untrimmed_IFP_abundance_df = cast(
-            pd.DataFrame | None,
-            scaffold.get_scaffold_value("untrimmed_IFP_sample_abundance_df"),
         )
         # cast to numeric
         IFP_abundance_df = IFP_abundance_df.apply(pd.to_numeric, errors="coerce")
@@ -166,30 +137,6 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
                 apply_trimming=True,
             )
         )
-        if (
-            self.full_config.protein.trim_enable
-            and self.full_config.allocation.run_untrimmed_separately
-        ):
-            if untrimmed_IFP_abundance_df is None:
-                raise ValueError(
-                    "run_untrimmed_separately is enabled, but "
-                    "'untrimmed_IFP_sample_abundance_df' is missing from scaffold."
-                )
-            (
-                time_elapsed,
-                (
-                    reaction_capacity_df_without_trimming,
-                    IFP_sample_abundance_dict_without_trimming,
-                ),
-            ) = self.get_time_decorator(self.resolve_reaction_capacity)(
-                untrimmed_IFP_abundance_df,
-                per_reaction_per_gene_Kcats,
-                {},
-                reaction_to_IFP_mapping,
-                gene_to_IFP_mapping,
-                cobra_model,
-                apply_trimming=False,
-            )
 
         metadata = self.create_metadata(time_elapsed)
 
@@ -215,16 +162,6 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             },
             "metadata": metadata,
         }
-        if (
-            self.full_config.protein.trim_enable
-            and self.full_config.allocation.run_untrimmed_separately
-        ):
-            new_scaffold_objects["outputs"]["reaction_capacity_df_without_trimming"] = (
-                reaction_capacity_df_without_trimming
-            )
-            new_scaffold_objects["artifacts"][
-                "IFP_sample_abundance_dict_without_trimming"
-            ] = IFP_sample_abundance_dict_without_trimming
 
         return new_scaffold_objects
 

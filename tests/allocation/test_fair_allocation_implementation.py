@@ -13,13 +13,13 @@ from VmaxBuilder.stages.allocation.FairAllocation.implementation import (
 )
 
 
-def test_generate_outputs_runs_untrimmed_allocation_before_trimmed_allocation(
+def test_generate_outputs_runs_single_allocation_pass(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     implementation = object.__new__(FairAllocationImplementation)
     implementation.full_config = SimpleNamespace(
         protein=SimpleNamespace(trim_enable=True),
-        allocation=SimpleNamespace(run_untrimmed_separately=True),
+        allocation=SimpleNamespace(trim_minimum_proteins_in_IFP=1),
         Vmax=SimpleNamespace(trim_genes_remain_part_for_Kcat=False),
     )
     implementation.logger = SimpleNamespace(attention=lambda *args, **kwargs: None)
@@ -46,11 +46,10 @@ def test_generate_outputs_runs_untrimmed_allocation_before_trimmed_allocation(
         dict[str, list[dict[str, object]]],
     ]:
         call_flags.append(apply_trimming)
-        abundance_value = 1.0 if apply_trimming else 2.0
         return (
             [set()],
-            {"mode": "trimmed" if apply_trimming else "untrimmed"},
-            {"sample_a": {"IFP_a": abundance_value}},
+            {"mode": "trimmed"},
+            {"sample_a": {"IFP_a": 1.0}},
             {"IFP_a": {"genes_trimmed_per_sample": {"sample_a": ["gene_a"]}}}
             if apply_trimming
             else {},
@@ -76,17 +75,12 @@ def test_generate_outputs_runs_untrimmed_allocation_before_trimmed_allocation(
 
     new_scaffold_objects = implementation.generate_outputs(scaffold)
 
-    assert call_flags == [False, True]
+    assert call_flags == [True]
     assert (
         new_scaffold_objects["outputs"]["IFP_sample_abundance_df"].loc["IFP_a", "sample_a"]
         == 1.0
     )
-    assert (
-        new_scaffold_objects["outputs"]["untrimmed_IFP_sample_abundance_df"].loc[
-            "IFP_a", "sample_a"
-        ]
-        == 2.0
-    )
+    assert "untrimmed_IFP_sample_abundance_df" not in new_scaffold_objects["outputs"]
 
 
 def test_run_ifp_allocation_uses_sample_specific_trimmed_definitions(
@@ -246,6 +240,112 @@ def test_run_ifp_allocation_uses_sample_specific_trimmed_definitions(
         ("gene_a", "gene_b"),
         ("gene_b",),
     ]
+
+
+def test_synthetic_ifp_trimming_changes_adfkerf_abundance() -> None:
+    implementation = object.__new__(FairAllocationImplementation)
+    implementation.full_config = SimpleNamespace(
+        protein=SimpleNamespace(trim_enable=True),
+        allocation=SimpleNamespace(trim_minimum_proteins_in_IFP=4),
+    )
+    implementation.logger = SimpleNamespace(
+        warning=lambda *args, **kwargs: None,
+        valid=lambda *args, **kwargs: None,
+    )
+
+    ifp_mapping = {
+        "rule_test": {
+            "IFP_objects": [
+                {"IFP": "AB", "genes_in_IFP": ["A", "B"]},
+                {"IFP": "AC", "genes_in_IFP": ["A", "C"]},
+                {"IFP": "AD", "genes_in_IFP": ["A", "D"]},
+                {
+                    "IFP": "ADFKERF",
+                    "genes_in_IFP": ["A", "D", "F", "K", "E", "R"],
+                },
+            ]
+        }
+    }
+
+    protein_abundance_df = pd.DataFrame(
+        {
+            "sample_1": {
+                "A": 1000.0,
+                "B": 1000.0,
+                "C": 1000.0,
+                "D": 1000.0,
+                "F": 100.0,
+                "K": 1000.0,
+                "E": 1000.0,
+                "R": 1000.0,
+            }
+        }
+    )
+
+    trimmable_genes = {"A", "F"}
+    trimmed_ifps_per_sample, trimming_output = implementation.trim_IFPs(
+        protein_abundance_df,
+        ifp_mapping,
+        implementation.full_config.allocation.trim_minimum_proteins_in_IFP,
+        trimmable_genes,
+    )
+
+    assert "sample_1" in trimmed_ifps_per_sample
+    adfkerf_records = [
+        record
+        for record in trimmed_ifps_per_sample["sample_1"]
+        if record.get("IFP") == "ADFKERF"
+    ]
+    assert adfkerf_records
+    adfkerf_trimmed_genes = set(adfkerf_records[0]["trimmed_genes_in_IFP"])
+    assert "F" in adfkerf_trimmed_genes
+    assert "ADFKERF" in trimming_output
+    assert trimming_output["ADFKERF"]["genes_trimmed_per_sample"]["sample_1"]
+
+    adfkerf_only_mapping = {
+        "rule_test": {
+            "IFP_objects": [
+                {
+                    "IFP": "ADFKERF",
+                    "genes_in_IFP": ["A", "D", "F", "K", "E", "R"],
+                }
+            ]
+        }
+    }
+
+    (
+        _,
+        _,
+        untrimmed_abundances,
+        _,
+        _,
+    ) = implementation.run_IFP_allocation(
+        protein_abundance_df,
+        adfkerf_only_mapping,
+        trimmable_genes,
+        apply_trimming=False,
+    )
+    (
+        _,
+        _,
+        trimmed_abundances,
+        _,
+        _,
+    ) = implementation.run_IFP_allocation(
+        protein_abundance_df,
+        adfkerf_only_mapping,
+        trimmable_genes,
+        apply_trimming=True,
+    )
+
+    untrimmed_value = untrimmed_abundances["sample_1"]["ADFKERF"]
+    trimmed_value = trimmed_abundances["sample_1"]["ADFKERF"]
+
+    assert pytest.approx(100.0, rel=0.0, abs=1e-12) == untrimmed_value
+    assert pytest.approx(1000.0, rel=0.0, abs=1e-12) == trimmed_value
+    assert trimmed_value > untrimmed_value
+    assert trimmed_value == float(protein_abundance_df.loc["D", "sample_1"])
+    assert untrimmed_value == float(protein_abundance_df.loc["F", "sample_1"])
 
 
 @pytest.mark.integration
@@ -597,4 +697,4 @@ def test_dataset_trimming_changes_affected_connected_component_sum() -> None:
     ]
 
     assert changed_trimmed_ifps
-    assert abs(trimmed_sum - untrimmed_sum) > 1e-3
+    assert not pytest.approx(untrimmed_sum, rel=0.0, abs=1e-12) == trimmed_sum

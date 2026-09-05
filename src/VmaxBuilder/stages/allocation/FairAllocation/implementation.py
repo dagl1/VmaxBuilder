@@ -140,23 +140,6 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
             extension=".json",
             validator=None,
         ),
-        OutputSpec(
-            name="untrimmed_IFP_sample_abundance_df",
-            data_type=pd.DataFrame,
-            scaffold_location="outputs",
-            save_file_name="untrimmed_IFP_abundance_df",
-            saver_args={
-                "with_index": True,
-            },
-            extension=".csv",
-        ),
-        OutputSpec(
-            name="untrimmed_IFPs_per_sample",
-            data_type=dict,
-            scaffold_location="artifacts",
-            save_file_name="untrimmed_IFPs_per_sample",
-            extension=".json",
-        ),
     ]
 
     def __init__(self, full_config: FullConfig):
@@ -183,23 +166,6 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
         trimmable_genes = scaffold.get_scaffold_value("trimmable_genes")
         if trimmable_genes is not None:
             trimmable_genes = cast(set[str], set(trimmable_genes))
-            if self.full_config.allocation.run_untrimmed_separately:
-                _trimmable_genes = None
-                (
-                    time_elapsed_1,
-                    (
-                        _untrimmed_base_connected_IFPs,
-                        untrimmed_base_connected_component_diagnostics,
-                        untrimmed_per_sample_IFP_abundances,
-                        _untrimmed_trimming_output,
-                        untrimmed_IFPs_per_sample,
-                    ),
-                ) = self.get_time_decorator(self.run_IFP_allocation)(
-                    protein_abundance_df,
-                    IFP_mapping,
-                    _trimmable_genes,
-                    apply_trimming=False,
-                )
 
         (
             time_elapsed,
@@ -234,8 +200,6 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
                 )
                 for plot_name, figure in trimming_summary_plots.items()
             ]
-            if self.full_config.allocation.run_untrimmed_separately:
-                time_elapsed = time_elapsed + time_elapsed_1
 
         metadata = self.create_metadata(
             elapsed_time=time_elapsed,
@@ -268,24 +232,6 @@ class FairAllocationImplementation(RealImplementation[FairAllocationConfigProtoc
                 trimming_diagnostic_output,
                 *trimming_plot_outputs,
             ]
-            if self.full_config.allocation.run_untrimmed_separately:
-                new_scaffold_objects["diagnostics"]["untrimmed_allocation"] = [
-                    DiagnosticOutputSpec(
-                        data=untrimmed_base_connected_component_diagnostics,
-                        save_file_name="untrimmed_connected_component_diagnostics",
-                        extensions=".json",
-                        data_type=dict,
-                    )
-                ]
-                new_scaffold_objects["artifacts"]["untrimmed_IFPs_per_sample"] = (
-                    untrimmed_IFPs_per_sample
-                )
-                new_scaffold_objects["outputs"]["untrimmed_IFP_sample_abundance_df"] = (
-                    pd.DataFrame.from_dict(
-                        untrimmed_per_sample_IFP_abundances,
-                        orient="index",
-                    ).transpose()
-                )
 
         return new_scaffold_objects
 

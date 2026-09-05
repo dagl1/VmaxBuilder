@@ -11,31 +11,26 @@ import plotly.graph_objects as go
 from VmaxBuilder.utils.plotting.config import PlotConfig
 from VmaxBuilder.utils.plotting.wrappers import create_dual_axis_bar_plot
 
-# todo: show how many IFPs actually have enough values to even be trimmable
-
-# show how many IFPs actually have enough values to be trimmable and have at least 1
-# trimmable gene
-
-# show how many IFPs are trimmed once or more times in this specific expression dataset
-
-# show of all IFPs that are trimmed once, their percentage of samples they are
-# trimmed in (bar)
-
-# show amount of samples per IFP (histogram with x asis the IFPs and the amount of )
-# show amount of IPFs per sample (same as above but x axis is the samples)
-# todo: think of plot where one can show whether samples share specific IFPs ->
-# heatmap with trues falses for each sample and each IFP, then clustering
-# also UpSet plot for the same, but with the IFPs as sets and the samples as
-# elements in the sets
-
-# last we could also try jaccard similarity between samples, samples with high similarity
-# indicate they share same IFPs
-# and/or same for between IFPs
-
-# todo: total amount of trimming
-
-# ensure that IFPs that are trimmed can be traced back to their real IFP
-# todo: ensure that old version and new version give similar output
+# TODO diagnostics roadmap (trimming-threshold sensitivity):
+# 1) Plot distribution of percentile pairs after flat-threshold addition
+#    (x = adjusted m-value / percentile-pair score, y = density) with a vertical
+#    red line at active trimmability threshold.
+# 2) Repeat histogram for threshold multipliers: 0.2x, 0.5x, 1.0x, 2.0x, 4.0x,
+#    so users can see inclusion-shift across strict/relaxed settings.
+# 3) Add threshold sweep curve:
+#    x = threshold multiplier, y = number (and fraction) of trimmable genes/
+#    trimmable IFP events retained.
+# 4) Add percentile-point sweep:
+#    x = selected percentile point in trimming assessment, y = included value
+#    count (or fraction) at fixed flat-threshold addition.
+# 5) Add 2D sensitivity heatmap:
+#    x = percentile point, y = threshold multiplier, z = retained trimmable
+#    values/events.
+# 6) Add before/after trim candidate diagnostics:
+#    report how many candidate values are near threshold (e.g., +/-5%) to
+#    highlight unstable decision regions.
+# 7) Add sample-stratified versions of the above to show whether a small subset
+#    of samples drives most threshold sensitivity.
 
 
 def _trimmed_ifps_per_sample(

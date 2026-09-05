@@ -7,4 +7,3 @@ class FairAllocationConfig:
     # are at least this many proteins in the IFP. As trimming iteratively removes lowest
     # expressed proteins, this prevents the IFP from being trimmed down to a
     # very small number of proteins.
-    run_untrimmed_separately: bool = True  # this only has an effect if trim_enable is true
