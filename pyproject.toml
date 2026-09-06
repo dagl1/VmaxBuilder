@@ -264,6 +264,12 @@ skip_covered = true
 ### Linting and formatting with Ruff
 [tool.ruff]
 line-length = 94
+exclude = [
+    "external/",  # Third-party submodules (UniKP)
+    ".venv",
+    "build",
+    "dist",
+]
 
 [tool.ruff.lint]
 select = [
@@ -292,7 +298,7 @@ line-ending = "auto"
 [tool.isort]
 profile = "black"
 line_length = 94
-skip_glob = ["**/__init__.py"]
+skip_glob = ["**/__init__.py", "external/**"]
 
 [tool.mypy]
 python_version = 3.11

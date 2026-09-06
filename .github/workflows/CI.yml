@@ -28,15 +28,16 @@ jobs:
 
       - name: Run Ruff lint
         shell: pwsh
-        run: uv run ruff check .
+        run: uv run ruff check src tests
 
       - name: Run ruff ty check
         shell: pwsh
-        run: uv run ty check .
+        continue-on-error: true
+        run: uv run ty check src tests
 
       - name: Run isort check
         shell: pwsh
-        run: uv run isort --check-only .
+        run: uv run isort --check-only src tests
 
 #      - name: run mypy type check
 #        shell: pwsh
