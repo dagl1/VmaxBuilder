@@ -34,6 +34,10 @@ Current runtime model
 
 - The :class:`~VmaxBuilder.base.orchestrator.Orchestrator` wires the pipeline.
 - ``RunConfig`` controls the execution mode.
+- ``RunConfig.prune_scaffold_unused_objects`` controls in-memory scaffold cleanup
+	during orchestrator full runs.
+- ``RunConfig.use_existing_results_if_available`` enables per-implementation
+	reuse of existing saved outputs.
 - ``FullConfig`` holds stage-specific configuration.
 - ``Scaffold`` carries inputs, artifacts, outputs, metadata, and diagnostics.
 

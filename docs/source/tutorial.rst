@@ -46,6 +46,8 @@ Minimal orchestrator skeleton
        run_input_validation=True,
        run_output_validation=True,
        run_diagnostics=True,
+       prune_scaffold_unused_objects=True,
+       use_existing_results_if_available=False,
    )
 
    stage_loading = StageLoading(
@@ -81,6 +83,27 @@ Minimal orchestrator skeleton
    orchestrator.set_Kcat_implementation(UniKPMainSubstrateImplementation)
    orchestrator.set_Vmax_implementation(DefaultVmaxReactionResolving)
    orchestrator.run()
+
+Execution options that matter in practice
+-----------------------------------------
+
+Two ``RunConfig`` switches are useful for long runs and restart workflows:
+
+- ``prune_scaffold_unused_objects=True``
+    Prunes in-memory scaffold inputs/artifacts/extras after each implementation save,
+    while keeping objects required by remaining consumers in this and future stages.
+- ``use_existing_results_if_available=True``
+    Reuses already-saved implementation outputs when all required output files are
+    present, and skips recomputation for that implementation.
+
+If ``overwrite_existing_results=True`` is set, reuse is intentionally disabled.
+
+Stage-by-stage API usage
+------------------------
+
+When a user runs stages or implementations manually through the API (instead of
+``orchestrator.run()``), scaffold pruning is not activated by default run context.
+This keeps scaffold objects available for interactive debugging and custom flows.
 
 Inspect config and print settings
 ---------------------------------
