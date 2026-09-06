@@ -48,12 +48,6 @@ Applies to both function and class/module-level docstrings.
 
 - Add documentation to functions that lack it, if function is modified
 
-## Important
-
-All generated or modified docstrings must start with:
-
-"Generated: validation needed"
-
 ## Sphinx
 
 ALL generated docstrings much be compatible with Sphinx for read-the-docs
