@@ -22,7 +22,10 @@ import pandas as pd
 from VmaxBuilder.base.exceptions import ImplementationConfigConflictError
 from VmaxBuilder.base.protocols import DependencyChecker
 from VmaxBuilder.utils.custom_logging import CustomLogger, custom_asdict
-from VmaxBuilder.utils.file_handling import save_with_tries
+from VmaxBuilder.utils.file_handling import (
+    load_existing_file_based_on_extension,
+    save_with_tries,
+)
 from VmaxBuilder.utils.iterables import make_json_serializable
 
 if TYPE_CHECKING:
@@ -80,6 +83,10 @@ class BaseStage:
         Returns:
             Scaffold: Updated scaffold after stage execution.
         """
+        # Register stage-wide pruning plan once so leaf implementations can
+        # safely remove unused scaffold objects only after outputs are saved.
+        self._register_scaffold_pruning_plan(scaffold)
+
         # Run diagnostics before the stage execution
         if self.config.run.lazy_load:
             stage_implementation: BaseImplementation = self.implementation
@@ -111,6 +118,85 @@ class BaseStage:
         This is implementation-agnostic, and thus will be handled per stage.
         """
         return scaffold
+
+    def _register_scaffold_pruning_plan(self, scaffold: "Scaffold") -> None:
+        """Generated: validation needed.
+
+        Description:
+            Build and register a stage execution plan used for scaffold pruning
+            after each leaf implementation has saved outputs.
+
+        Args:
+            scaffold (Scaffold): Shared scaffold payload.
+        """
+        if not getattr(self.config.run, "prune_scaffold_unused_objects", False):
+            return
+        if not scaffold.extras.get("_orchestrator_full_run_active", False):
+            return
+
+        stage_roots: list[BaseImplementation] = [self.implementation]
+        stage_roots.extend(self.additional_implementations.values())
+
+        leaf_implementations: list[BaseImplementation] = []
+        for root in stage_roots:
+            for implementation in _iter_implementations(root):
+                if isinstance(implementation, type):
+                    continue
+                if implementation.child_implementations:
+                    continue
+                leaf_implementations.append(implementation)
+
+        required_inputs_by_leaf: dict[str, set[str]] = {}
+        execution_plan: list[str] = []
+
+        for implementation in leaf_implementations:
+            implementation_key = implementation._build_pruning_plan_key()
+            execution_plan.append(implementation_key)
+
+            required_inputs = {
+                input_spec.name for input_spec in implementation.INPUTS if input_spec.name
+            }
+            for diagnostic in implementation.diagnostics:
+                required_inputs.update(
+                    {input_spec.name for input_spec in diagnostic.INPUTS if input_spec.name}
+                )
+            required_inputs_by_leaf[implementation_key] = required_inputs
+
+        scaffold.extras["_scaffold_pruning_state"] = {
+            "stage_name": self.STAGE_NAME,
+            "execution_plan": execution_plan,
+            "required_inputs_by_leaf": required_inputs_by_leaf,
+            "required_future_input_names": self._read_future_stage_required_input_names(
+                scaffold
+            ),
+            "required_stage_output_names": {
+                output_spec.name for output_spec in self.OUTPUTS if output_spec.name
+            },
+            "current_index": 0,
+        }
+
+    @staticmethod
+    def _read_future_stage_required_input_names(scaffold: "Scaffold") -> set[str]:
+        """Generated: validation needed.
+
+        Description:
+            Read orchestrator-provided future-stage required input names from scaffold.
+
+        Args:
+            scaffold (Scaffold): Shared scaffold payload.
+
+        Returns:
+            set[str]: Required input names for downstream stages.
+        """
+        future_required = scaffold.extras.get(
+            "_orchestrator_future_required_input_names",
+            set(),
+        )
+        if isinstance(future_required, set):
+            return {str(key) for key in future_required}
+        if isinstance(future_required, list):
+            return {str(key) for key in future_required}
+        return set()
 
     def ensure_outputs(self, scaffold: "Scaffold") -> None:
         """
@@ -183,6 +269,7 @@ class BaseImplementationDiagnostics(Generic[ConfigType], ABC):
     """
 
     DIAGNOSTICS_NAME: str
+    INPUTS: list["InputSpec"] = []
 
     def __init__(self, full_config: "FullConfig"):
         self.full_config = full_config
@@ -319,7 +406,20 @@ class BaseImplementation(Generic[ConfigType], ABC):
             "diagnostics": {},
         }
         for diagnostic in self.diagnostics:
+            self.logger.info(
+                f"Entering diagnostics: {diagnostic.DIAGNOSTICS_NAME} for {self.IMPL_NAME}",
+                print_level=2,
+            )
+            start_time = datetime.now()
             scaffold_objects = diagnostic.before_run(scaffold)
+            elapsed_time = (datetime.now() - start_time).total_seconds()
+            self.logger.finished(
+                (
+                    f"Finished diagnostics: {diagnostic.DIAGNOSTICS_NAME} "
+                    f"for {self.IMPL_NAME}, took {elapsed_time:.2f} seconds"
+                ),
+                print_level=1,
+            )
 
         return scaffold_objects
 
@@ -340,7 +440,20 @@ class BaseImplementation(Generic[ConfigType], ABC):
         }
         to_collate_diagnostics = []
         for diagnostic in self.diagnostics:
+            self.logger.info(
+                f"Entering diagnostics: {diagnostic.DIAGNOSTICS_NAME} for {self.IMPL_NAME}",
+                print_level=2,
+            )
+            start_time = datetime.now()
             new_scaffold_objects = diagnostic.after_run(scaffold_objects, scaffold=scaffold)
+            elapsed_time = (datetime.now() - start_time).total_seconds()
+            self.logger.finished(
+                (
+                    f"Finished diagnostics: {diagnostic.DIAGNOSTICS_NAME} for "
+                    f"{self.IMPL_NAME}, took {elapsed_time:.2f} seconds"
+                ),
+                print_level=1,
+            )
             # Collate diagnostics from all diagnostics
             to_collate_diagnostics.append(new_scaffold_objects.get("diagnostics", {}))
 
@@ -373,6 +486,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
         Returns:
             Scaffold: Updated scaffold.
         """
+        start_time = datetime.now()
         # self.logger.info(
         #     f"ENTER run: {self.IMPL_NAME} "
         #     f"id={id(self)} "
@@ -380,11 +494,23 @@ class BaseImplementation(Generic[ConfigType], ABC):
         #     print_level=1,
         # )
         if not self.child_implementations:
-            # before_run diagnostics
+            if self.try_reuse_existing_results(scaffold):
+                self.prune_unused_scaffold_objects(scaffold)
+                elapsed_time = (datetime.now() - start_time).total_seconds()
+                self.logger.finished(
+                    (
+                        f"Finished {self.IMPL_NAME} for stage {self.STAGE_NAME}, "
+                        f"took {elapsed_time:.2f} seconds (reused existing outputs)"
+                    ),
+                    print_level=1,
+                )
+                return scaffold
+
             self.logger.info(
                 f"Running: {self.IMPL_NAME} implementation for stage: {self.STAGE_NAME}",
                 print_level=1,
             )
+            # before_run diagnostics
             before_run_scaffold_objects = self.run_before_diagnostics(scaffold)
             before_run_scaffold_objects = self.add_stage_and_run_moment_to_scaffold(
                 before_run_scaffold_objects, "before_run"
@@ -409,6 +535,7 @@ class BaseImplementation(Generic[ConfigType], ABC):
             )
             scaffold.update_scaffold(after_run_scaffold_objects)
             self.save_all_scaffold_objects(after_run_scaffold_objects)
+            self.prune_unused_scaffold_objects(scaffold)
 
         else:
             for child_impl in self.child_implementations:
@@ -419,7 +546,425 @@ class BaseImplementation(Generic[ConfigType], ABC):
                 # )
                 scaffold = child_impl.run(scaffold)
 
+        elapsed_time = (datetime.now() - start_time).total_seconds()
+        self.logger.finished(
+            f"Finished {self.IMPL_NAME}, took {elapsed_time:.2f} seconds",
+            print_level=1,
+        )
         return scaffold
+
+    def try_reuse_existing_results(self, scaffold: "Scaffold") -> bool:
+        """Generated: validation needed.
+
+        Description:
+            Attempt to skip implementation execution by loading required outputs
+            from existing files into scaffold.
+
+        Args:
+            scaffold (Scaffold): Shared scaffold payload.
+
+        Returns:
+            bool: True when all reusable outputs were loaded and execution can
+            be skipped, otherwise False.
+        """
+        if not getattr(self.full_config.run, "use_existing_results_if_available", False):
+            return False
+        if self.full_config.run.overwrite_existing_results:
+            return False
+
+        reusable_specs = self._get_reusable_output_specs(scaffold)
+        if not reusable_specs:
+            return False
+
+        reusable_scaffold_objects = {
+            "inputs": {},
+            "outputs": {},
+            "artifacts": {},
+            "metadata": {},
+            "diagnostics": {},
+            "extras": {},
+        }
+
+        for output_spec in reusable_specs:
+            save_location = self._resolve_output_spec_save_location(output_spec)
+            if save_location is None or not save_location.exists():
+                return False
+
+            loaded_value = load_existing_file_based_on_extension(
+                save_location,
+                logger=self.logger,
+            )
+            target_locations = output_spec.scaffold_location
+            if isinstance(target_locations, str):
+                target_locations = [target_locations]
+
+            for location in target_locations:
+                if location not in reusable_scaffold_objects:
+                    continue
+                reusable_scaffold_objects[location][output_spec.name] = loaded_value
+
+        scaffold.update_scaffold(reusable_scaffold_objects)
+        self.logger.info(
+            f"Skipping implementation '{self.IMPL_NAME}' by reusing existing outputs.",
+            print_level=1,
+        )
+        return True
+
+    def _get_reusable_output_specs(self, scaffold: "Scaffold") -> list["OutputSpec"]:
+        """Generated: validation needed.
+
+        Description:
+            Select output specs that must exist for safe implementation skipping.
+
+        Args:
+            scaffold (Scaffold): Shared scaffold payload.
+
+        Returns:
+            list[OutputSpec]: Output specs that must be loadable from disk.
+        """
+        if not self.OUTPUTS:
+            return []
+
+        downstream_required_input_names = self._collect_downstream_required_input_names(
+            scaffold
+        )
+        reusable_output_specs: list[OutputSpec] = []
+        for output_spec in self.OUTPUTS:
+            location = output_spec.scaffold_location
+            includes_outputs = location == "outputs" or (
+                isinstance(location, list) and "outputs" in location
+            )
+            if includes_outputs or output_spec.name in downstream_required_input_names:
+                reusable_output_specs.append(output_spec)
+
+        if reusable_output_specs:
+            return reusable_output_specs
+
+        return list(self.OUTPUTS)
+
+    def _collect_downstream_required_input_names(self, scaffold: "Scaffold") -> set[str]:
+        """Generated: validation needed.
+
+        Description:
+            Collect required input names for remaining implementations in current
+            stage pruning plan.
+
+        Args:
+            scaffold (Scaffold): Shared scaffold payload.
+
+        Returns:
+            set[str]: Input names required by downstream consumers.
+        """
+        required_input_names: set[str] = set(
+            BaseStage._read_future_stage_required_input_names(scaffold)
+        )
+
+        plan_context = self._resolve_pruning_plan_context(scaffold)
+        if plan_context is None:
+            return required_input_names
+
+        _pruning_state, execution_plan, required_inputs_by_leaf, current_index = plan_context
+        for leaf_key in execution_plan[current_index + 1 :]:
+            candidate_keys = required_inputs_by_leaf.get(leaf_key, set())
+            if isinstance(candidate_keys, set):
+                required_input_names.update(candidate_keys)
+            elif isinstance(candidate_keys, list):
+                required_input_names.update({str(key) for key in candidate_keys})
+
+        return required_input_names
+
+    def _resolve_output_spec_save_location(
+        self,
+        output_spec: "OutputSpec",
+    ) -> Path | None:
+        """Generated: validation needed.
+
+        Description:
+            Resolve expected on-disk file location for an output specification.
+
+        Args:
+            output_spec (OutputSpec): Output specification to resolve.
+
+        Returns:
+            Path | None: Expected save path, or None when unresolved.
+        """
+        if output_spec.extension is None:
+            return None
+
+        output_name = output_spec.save_file_name or output_spec.name
+        location = output_spec.scaffold_location
+        if isinstance(location, list):
+            if "outputs" in location:
+                location = "outputs"
+            elif "artifacts" in location:
+                location = "artifacts"
+            else:
+                location = location[0] if location else "outputs"
+
+        if location == "outputs":
+            return (
+                self.full_config.run.paths.outputs_dir
+                / f"{str(output_name)}{output_spec.extension}"
+            )
+        if location == "artifacts":
+            return (
+                self.full_config.run.paths.artifacts_dir
+                / f"{self.STAGE_NAME}_stage"
+                / f"{str(output_name)}{output_spec.extension}"
+            )
+        return None
+
+    def _build_pruning_plan_key(self) -> str:
+        """Generated: validation needed.
+
+        Description:
+            Build stable key for identifying an implementation instance within
+            a stage pruning plan.
+
+        Returns:
+            str: Stage-implementation identifier including instance id.
+        """
+        return f"{self.STAGE_NAME}:{self.IMPL_NAME}:{id(self)}"
+
+    def prune_unused_scaffold_objects(self, scaffold: "Scaffold") -> None:
+        """Generated: validation needed.
+
+        Description:
+            Remove scaffold inputs, artifacts, and extras entries that are not
+            needed by any remaining leaf implementation or attached diagnostics
+            in the current stage plan.
+
+        Args:
+            scaffold (Scaffold): Shared scaffold payload.
+
+        Modifies:
+            scaffold.inputs, scaffold.artifacts, scaffold.extras.
+        """
+        plan_context = self._resolve_pruning_plan_context(scaffold)
+        if plan_context is None:
+            return
+
+        pruning_state, execution_plan, required_inputs_by_leaf, current_index = plan_context
+        remaining_keys = execution_plan[current_index + 1 :]
+        keys_to_keep: set[str] = set()
+        for leaf_key in remaining_keys:
+            candidate_keys = required_inputs_by_leaf.get(leaf_key, set())
+            if isinstance(candidate_keys, set):
+                keys_to_keep.update(candidate_keys)
+            elif isinstance(candidate_keys, list):
+                keys_to_keep.update({str(key) for key in candidate_keys})
+
+        stage_required_output_names = pruning_state.get("required_stage_output_names", set())
+        if isinstance(stage_required_output_names, set):
+            keys_to_keep.update(stage_required_output_names)
+        elif isinstance(stage_required_output_names, list):
+            keys_to_keep.update({str(key) for key in stage_required_output_names})
+
+        future_required_input_names = pruning_state.get("required_future_input_names", set())
+        if isinstance(future_required_input_names, set):
+            keys_to_keep.update({str(key) for key in future_required_input_names})
+        elif isinstance(future_required_input_names, list):
+            keys_to_keep.update({str(key) for key in future_required_input_names})
+
+        removed_inputs = self._prune_scaffold_section(scaffold.inputs, keys_to_keep)
+        removed_artifact_paths = self._prune_nested_scaffold_section(
+            scaffold.artifacts,
+            keys_to_keep,
+            protected_keys={
+                f"{self.STAGE_NAME}_stage",
+                "before_run",
+                "during_run",
+                "after_run",
+            },
+        )
+        removed_artifacts = self._summarize_pruned_object_names(
+            removed_artifact_paths,
+            protected_prefixes={
+                f"{self.STAGE_NAME}_stage",
+                "before_run",
+                "during_run",
+                "after_run",
+            },
+        )
+        removed_extras = self._prune_scaffold_section(
+            scaffold.extras,
+            keys_to_keep,
+            protected_keys={"_scaffold_pruning_state"},
+        )
+
+        pruning_state["current_index"] = current_index + 1
+
+        if removed_inputs or removed_artifacts or removed_extras:
+            self.logger.info(
+                "Pruned unused scaffold objects after implementation run: "
+                f"inputs={removed_inputs}, artifacts={removed_artifacts}, "
+                f"extras={removed_extras}",
+                print_level=2,
+            )
+
+    def _summarize_pruned_object_names(
+        self,
+        removed_paths: list[str],
+        protected_prefixes: set[str] | None = None,
+    ) -> list[str]:
+        """Generated: validation needed.
+
+        Description:
+            Collapse nested dotted removal paths into object-level names for
+            concise pruning logs.
+
+        Args:
+            removed_paths (list[str]): Removed dotted paths.
+            protected_prefixes (set[str] | None): Leading container names to ignore.
+
+        Returns:
+            list[str]: Sorted unique object-level names.
+        """
+        if protected_prefixes is None:
+            protected_prefixes = set()
+
+        object_names: set[str] = set()
+        for removed_path in removed_paths:
+            segments = removed_path.split(".")
+            while segments and segments[0] in protected_prefixes:
+                segments.pop(0)
+            if not segments:
+                continue
+            object_names.add(segments[0])
+
+        return sorted(object_names)
+
+    def _resolve_pruning_plan_context(
+        self,
+        scaffold: "Scaffold",
+    ) -> tuple[dict[str, Any], list[str], dict[str, set[str] | list[str]], int] | None:
+        """Generated: validation needed.
+
+        Description:
+            Validate and normalize scaffold pruning state for current implementation.
+
+        Args:
+            scaffold (Scaffold): Shared scaffold payload.
+
+        Returns:
+            tuple[dict[str, Any], list[str], dict[str, set[str] | list[str]], int] | None:
+            Normalized pruning state and current plan index, or None when pruning
+            should be skipped.
+        """
+        pruning_state = scaffold.extras.get("_scaffold_pruning_state")
+        if not isinstance(pruning_state, dict):
+            return None
+        if pruning_state.get("stage_name") != self.STAGE_NAME:
+            return None
+
+        execution_plan = pruning_state.get("execution_plan", [])
+        required_inputs_by_leaf = pruning_state.get("required_inputs_by_leaf", {})
+        if not isinstance(execution_plan, list) or not execution_plan:
+            return None
+        if not isinstance(required_inputs_by_leaf, dict):
+            return None
+
+        current_index = int(pruning_state.get("current_index", 0))
+        if current_index >= len(execution_plan):
+            return None
+
+        implementation_key = self._build_pruning_plan_key()
+        expected_key = execution_plan[current_index]
+        if implementation_key != expected_key:
+            if implementation_key not in execution_plan:
+                return None
+            current_index = execution_plan.index(implementation_key)
+
+        return (pruning_state, execution_plan, required_inputs_by_leaf, current_index)
+
+    def _prune_scaffold_section(
+        self,
+        section: dict[str, Any],
+        keys_to_keep: set[str],
+        protected_keys: set[str] | None = None,
+    ) -> list[str]:
+        """Generated: validation needed.
+
+        Description:
+            Remove non-protected top-level keys from a scaffold section when
+            those keys are not required by remaining stage consumers.
+
+        Args:
+            section (dict[str, Any]): Scaffold section to prune.
+            keys_to_keep (set[str]): Keys needed by remaining consumers.
+            protected_keys (set[str] | None): Keys never removed.
+
+        Returns:
+            list[str]: Keys removed from the section.
+        """
+        if protected_keys is None:
+            protected_keys = set()
+
+        removed_keys: list[str] = []
+        for key in list(section.keys()):
+            if key in protected_keys:
+                continue
+            if key in keys_to_keep:
+                continue
+            removed_keys.append(key)
+            del section[key]
+
+        return removed_keys
+
+    def _prune_nested_scaffold_section(
+        self,
+        section: dict[str, Any],
+        keys_to_keep: set[str],
+        protected_keys: set[str] | None = None,
+    ) -> list[str]:
+        """Generated: validation needed.
+
+        Description:
+            Recursively prune nested scaffold dictionaries while preserving
+            container keys used for stage and run-moment grouping.
+
+        Args:
+            section (dict[str, Any]): Nested scaffold section to prune.
+            keys_to_keep (set[str]): Keys needed by remaining consumers.
+            protected_keys (set[str] | None): Keys never removed as containers.
+
+        Returns:
+            list[str]: Removed keys represented as dotted paths.
+        """
+        if protected_keys is None:
+            protected_keys = set()
+
+        removed_paths: list[str] = []
+
+        def _prune_recursive(node: dict[str, Any], prefix: str = "") -> bool:
+            keys_to_delete: list[str] = []
+
+            for key, value in node.items():
+                dotted_key = f"{prefix}.{key}" if prefix else key
+
+                if key in keys_to_keep:
+                    continue
+
+                if key in protected_keys:
+                    if isinstance(value, dict):
+                        _prune_recursive(value, dotted_key)
+                    continue
+
+                if isinstance(value, dict):
+                    has_remaining_items = _prune_recursive(value, dotted_key)
+                    if has_remaining_items:
+                        continue
+
+                keys_to_delete.append(key)
+                removed_paths.append(dotted_key)
+
+            for key in keys_to_delete:
+                del node[key]
+
+            return bool(node)
+
+        _prune_recursive(section)
+        return removed_paths
 
     def load_inputs(self, scaffold: "Scaffold") -> None:
         """Generated: validation needed.

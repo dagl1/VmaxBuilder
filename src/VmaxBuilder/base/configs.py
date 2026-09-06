@@ -103,6 +103,8 @@ class RunConfig:
     run_input_validation: bool
     run_output_validation: bool
     run_diagnostics: bool
+    prune_scaffold_unused_objects: bool
+    use_existing_results_if_available: bool
     print_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     lazy_load: bool
     lazy_validate: bool
@@ -136,6 +138,8 @@ class RunConfig:
         run_input_validation: bool = True,
         run_output_validation: bool = True,
         run_diagnostics: bool = True,
+        prune_scaffold_unused_objects: bool = True,
+        use_existing_results_if_available: bool = False,
         print_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
         lazy_load: bool = False,
         lazy_validate: bool = False,
@@ -163,6 +167,8 @@ class RunConfig:
         self.save_artifacts = save_artifacts
         self.overwrite_existing_results = overwrite_existing_results
         self.run_diagnostics = run_diagnostics
+        self.prune_scaffold_unused_objects = prune_scaffold_unused_objects
+        self.use_existing_results_if_available = use_existing_results_if_available
         self.lazy_load = lazy_load
         self.lazy_validate = lazy_validate
         self._print_level = print_level
