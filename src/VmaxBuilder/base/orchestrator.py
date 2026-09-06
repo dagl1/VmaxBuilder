@@ -2,13 +2,18 @@ import json
 import sys
 from collections.abc import Iterator
 from dataclasses import fields, is_dataclass
+from datetime import datetime
 from pathlib import Path
 from pprint import pprint
 from typing import Any, TypeVar, cast, get_type_hints
 
 import pandas as pd
 
-from VmaxBuilder.base.classes import BaseImplementation, _iter_implementations
+from VmaxBuilder.base.classes import (
+    BaseImplementation,
+    BaseImplementationDiagnostics,
+    _iter_implementations,
+)
 from VmaxBuilder.base.configs import (
     DiscoveredInput,
     FullConfig,
@@ -69,6 +74,12 @@ pd.set_option(
 
 
 class Orchestrator:
+    """Coordinate stage selection, input discovery, execution, and run metadata.
+
+    The orchestrator owns the runtime scaffold and executes the fixed stage order:
+    model, protein, allocation, Kcat, Vmax.
+    """
+
     stages = {
         "model": ModelStage,
         "protein": ProteinStage,
@@ -80,6 +91,20 @@ class Orchestrator:
     ImplT = TypeVar("ImplT", bound=BaseImplementation[Any])
 
     def __init__(self, stage_implementations: StageLoading, run_config: RunConfig):
+        """Initialise orchestrator state from loading and run configuration.
+
+        Args:
+            stage_implementations (StageLoading): Per-stage loading declarations.
+            run_config (RunConfig): Global run behavior and output-path configuration.
+
+        Modifies:
+            self.config, self.scaffold, self.loading_info, and internal tracking maps.
+
+        Examples:
+            >>> orchestrator = Orchestrator(stage_loading, run_config)
+            >>> orchestrator.scaffold.inputs
+            {}
+        """
         # base initialization
         self.logger = CustomLogger(
             "Orchestrator",
@@ -106,6 +131,20 @@ class Orchestrator:
         self._all_loggers = [self.logger]
 
     def set_model_implementation(self, implementation_cls: type[ImplT]) -> ImplT:
+        """Attach model-stage implementation and refresh model input discovery.
+
+        Args:
+            implementation_cls (type[ImplT]): Concrete model implementation class.
+
+        Returns:
+            ImplT: Instantiated model implementation.
+
+        Modifies:
+            self.model_stage, self.config.model, self.discovered_inputs.
+
+        Examples:
+            >>> orchestrator.set_model_implementation(DefaultIrreversibleModelImplementation)
+        """
         implementation = implementation_cls(full_config=self.config)
         self._model = implementation
         self.config.model = implementation.config
@@ -119,6 +158,22 @@ class Orchestrator:
         return implementation
 
     def set_protein_implementation(self, implementation_cls: type[ImplT]) -> ImplT:
+        """Attach protein-stage implementation and refresh protein input discovery.
+
+        Args:
+            implementation_cls (type[ImplT]): Concrete protein implementation class.
+
+        Returns:
+            ImplT: Instantiated protein implementation.
+
+        Modifies:
+            self.protein_stage, self.config.protein, self.discovered_inputs.
+
+        Examples:
+            >>> orchestrator.set_protein_implementation(
+            ...     MvalueTrimmingExpressionPTRImplementation
+            ... )
+        """
         implementation = implementation_cls(full_config=self.config)
         # todo: make sure that stage is correct and we cant use
         # incorrect stage implementation for protein stage
@@ -135,6 +190,20 @@ class Orchestrator:
         return implementation
 
     def set_allocation_implementation(self, implementation_cls: type[ImplT]) -> ImplT:
+        """Attach allocation-stage implementation and refresh allocation discovery.
+
+        Args:
+            implementation_cls (type[ImplT]): Concrete allocation implementation class.
+
+        Returns:
+            ImplT: Instantiated allocation implementation.
+
+        Modifies:
+            self.allocation_stage, self.config.allocation, self.discovered_inputs.
+
+        Examples:
+            >>> orchestrator.set_allocation_implementation(FairAllocationImplementation)
+        """
         implementation = implementation_cls(full_config=self.config)
         self._allocation = implementation
         self.config.allocation = implementation.config
@@ -148,6 +217,20 @@ class Orchestrator:
         return implementation
 
     def set_Kcat_implementation(self, implementation_cls: type[ImplT]) -> ImplT:
+        """Attach Kcat-stage implementation and refresh Kcat input discovery.
+
+        Args:
+            implementation_cls (type[ImplT]): Concrete Kcat implementation class.
+
+        Returns:
+            ImplT: Instantiated Kcat implementation.
+
+        Modifies:
+            self.Kcat_stage, self.config.Kcat, self.discovered_inputs.
+
+        Examples:
+            >>> orchestrator.set_Kcat_implementation(UniKPMainSubstrateImplementation)
+        """
         implementation = implementation_cls(full_config=self.config)
         self._Kcat = implementation
         self.config.Kcat = implementation.config
@@ -161,6 +244,20 @@ class Orchestrator:
         return implementation
 
     def set_Vmax_implementation(self, implementation_cls: type[ImplT]) -> ImplT:
+        """Attach Vmax-stage implementation and refresh Vmax input discovery.
+
+        Args:
+            implementation_cls (type[ImplT]): Concrete Vmax implementation class.
+
+        Returns:
+            ImplT: Instantiated Vmax implementation.
+
+        Modifies:
+            self.Vmax_stage, self.config.Vmax, self.discovered_inputs.
+
+        Examples:
+            >>> orchestrator.set_Vmax_implementation(DefaultVmaxReactionResolving)
+        """
         implementation = implementation_cls(full_config=self.config)
         self._Vmax = implementation
         self.config.Vmax = implementation.config
@@ -174,6 +271,14 @@ class Orchestrator:
         return implementation
 
     def _save_metadata(self, metadata: dict[str, Any]):
+        """Persist orchestrator metadata payload to disk.
+
+        Args:
+            metadata (dict[str, Any]): Serializable metadata payload.
+
+        Modifies:
+            Writes metadata JSON under run metadata directory.
+        """
         metadata_path = self.config.run.paths.metadata_dir / "orchestrator_metadata.json"
         metadata_path.parent.mkdir(parents=True, exist_ok=True)
         self.logger.info(f"Metadata saved to {metadata_path}")
@@ -181,6 +286,18 @@ class Orchestrator:
             json.dump(make_json_serializable(metadata), f, indent=4)
 
     def run(self):
+        """Execute the full orchestrator pipeline across all configured stages.
+
+        The run sequence performs discovery, optional dependency checks, optional
+        eager loading/validation, then stage execution in fixed order.
+
+        Modifies:
+            self.scaffold, output directories, saved metadata, diagnostics, and outputs.
+
+        Examples:
+            >>> orchestrator.run()
+        """
+        start_time = datetime.now()
         self._discover_user_submitted_paths()
         self.config.run.paths._create_dirs()
         self.logger.info("Starting orchestrator run...")
@@ -193,13 +310,101 @@ class Orchestrator:
             if not self.config.run.lazy_validate:
                 self.validate_loaded_inputs()
 
-        for stage_name in self.stages:
-            self.logger.info(f"Running stage: {stage_name}")
-            self._run_stage(stage_name)
+        self.scaffold.extras["_orchestrator_full_run_active"] = True
+        try:
+            for stage_name in self.stages:
+                self.scaffold.extras["_orchestrator_current_stage_name"] = stage_name
+                self.scaffold.extras["_orchestrator_future_required_input_names"] = (
+                    self._collect_future_stage_required_input_names(stage_name)
+                )
+                self.logger.info(f"Running stage: {stage_name}")
+                self._run_stage(stage_name)
+        finally:
+            self.scaffold.extras.pop("_orchestrator_current_stage_name", None)
+            self.scaffold.extras.pop(
+                "_orchestrator_future_required_input_names",
+                None,
+            )
+            self.scaffold.extras.pop("_orchestrator_full_run_active", None)
 
-        self.logger.info("Orchestrator run completed.")
+        elapsed_time = (datetime.now() - start_time).total_seconds()
+        self.logger.finished(
+            f"Run complete. Finished all stages in {elapsed_time:.2f} seconds.",
+            print_level=1,
+        )
+
+    def _collect_stage_required_input_names(self, stage_name: str) -> set[str]:
+        """Collect required input names for one stage implementation tree.
+
+        Args:
+            stage_name (str): Stage key.
+
+        Returns:
+            set[str]: Required input names declared by stage consumers.
+        """
+        stage = getattr(self, f"{stage_name}_stage", None)
+        if stage is None:
+            return set()
+
+        roots: list[BaseImplementation] = [stage.implementation]
+        roots.extend(getattr(stage, "additional_implementations", {}).values())
+
+        required_input_names: set[str] = set()
+        for root in roots:
+            for implementation in _iter_implementations(root):
+                if isinstance(implementation, type):
+                    continue
+
+                required_input_names.update(
+                    {
+                        input_spec.name
+                        for input_spec in implementation.INPUTS
+                        if input_spec.name
+                    }
+                )
+                for diagnostic in getattr(implementation, "diagnostics", []):
+                    diagnostic_obj = cast(BaseImplementationDiagnostics, diagnostic)
+                    required_input_names.update(
+                        {
+                            input_spec.name
+                            for input_spec in diagnostic_obj.INPUTS
+                            if input_spec.name
+                        }
+                    )
+
+        return required_input_names
+
+    def _collect_future_stage_required_input_names(
+        self,
+        current_stage_name: str,
+    ) -> set[str]:
+        """Collect required input names for stages after current stage.
+
+        Args:
+            current_stage_name (str): Current stage key.
+
+        Returns:
+            set[str]: Input names required by future stages.
+        """
+        stage_names = list(self.stages.keys())
+        if current_stage_name not in stage_names:
+            return set()
+
+        current_index = stage_names.index(current_stage_name)
+        required_input_names: set[str] = set()
+        for stage_name in stage_names[current_index + 1 :]:
+            required_input_names.update(self._collect_stage_required_input_names(stage_name))
+        return required_input_names
 
     def _discover_optional_dependencies(self):
+        """Check and optionally install implementation-specific dependencies.
+
+        When one or more optional dependencies are installed, the method exits the
+        process so users can restart with newly available modules.
+
+        Raises:
+            SystemExit: Raised when optional dependencies were installed.
+        """
         # this function simply checks the currently enabled implementations and
         # sees if any has the class attribute OPTIONAL_DEPENDENCIES and
         # if so, calls its function before any other code is ran.
@@ -246,6 +451,23 @@ class Orchestrator:
     def return_config(
         self, sections: list[str] | str | None = None, verbose: bool = True
     ) -> dict[str, dict[str, Any]]:
+        """Return and optionally print active orchestrator configuration sections.
+
+        Args:
+            sections (list[str] | str | None): Section selector. Use None or "all"
+                for all sections.
+            verbose (bool): Whether to include expanded values in custom serializer.
+
+        Returns:
+            dict[str, dict[str, Any]]: Selected configuration sections.
+
+        Raises:
+            ValueError: Raised when a requested section is invalid.
+
+        Examples:
+            >>> orchestrator.return_config("run")
+            >>> orchestrator.return_config(["model", "allocation"])
+        """
         return_dict: dict[str, dict[str, Any]] = {}
         if not hasattr(self.config, "run") or self.config.run is None:
             raise ValueError(
@@ -276,6 +498,17 @@ class Orchestrator:
         return return_dict
 
     def create_metadata(self) -> dict[str, Any]:
+        """Assemble orchestrator-level run metadata.
+
+        Returns:
+            dict[str, Any]: Metadata payload with discovered paths and non-default
+            configuration values.
+
+        Examples:
+            >>> metadata = orchestrator.create_metadata()
+            >>> "orchestrator" in metadata
+            True
+        """
         discovered_paths = self.return_discovered_paths()
         discovered_paths_serializable = {
             key: {input_name: discovered_input.to_dict()}
@@ -300,6 +533,17 @@ class Orchestrator:
         return metadata
 
     def return_non_default_configs(self) -> dict[str, dict[str, Any]]:
+        """Return config fields that differ from dataclass defaults.
+
+        Returns:
+            dict[str, dict[str, Any]]: Nested map of non-default values with default
+            and current entries.
+
+        Examples:
+            >>> non_defaults = orchestrator.return_non_default_configs()
+            >>> isinstance(non_defaults, dict)
+            True
+        """
         non_default_configs = {}
 
         for subconfig_name in self.config.__dataclass_fields__:
@@ -338,12 +582,35 @@ class Orchestrator:
         return non_default_configs
 
     def set_stage_loading_info(self, stage: str, loading_info: StageLoadingInfo):
+        """Replace loading info for one stage and refresh discovered inputs.
+
+        Args:
+            stage (str): Stage key.
+            loading_info (StageLoadingInfo): New loading declaration.
+
+        Raises:
+            ValueError: Raised when stage key is unknown.
+
+        Modifies:
+            self.loading_info and self.discovered_inputs.
+
+        Examples:
+            >>> orchestrator.set_stage_loading_info(
+            ...     "model",
+            ...     StageLoadingInfo(stage_name="model", directories=["data/inputs/model"]),
+            ... )
+        """
         if stage not in self.stages:
             raise ValueError(f"Stage '{stage}' is not a valid stage.")
         self.loading_info[stage] = loading_info
         self._discover_user_submitted_paths(stage_name=stage)
 
     def _get_all_loggers(self) -> list[CustomLogger]:
+        """Collect orchestrator, stage, implementation, and diagnostics loggers.
+
+        Returns:
+            list[CustomLogger]: Ordered logger list used for print-level updates.
+        """
         all_loggers = [self.logger]
         for stage_name in self.stages:
             stage = getattr(self, f"{stage_name}_stage", None)
@@ -371,6 +638,22 @@ class Orchestrator:
         return all_loggers
 
     def set_print_level(self, level: str | int, log_modification: bool = True):
+        """Set print verbosity for all loggers attached to current run graph.
+
+        Args:
+            level (str | int): One of DEBUG/INFO/WARNING/ERROR/CRITICAL or 4..0.
+            log_modification (bool): Whether to emit summary log after applying.
+
+        Raises:
+            ValueError: Raised when level has unsupported type or value.
+
+        Modifies:
+            All attached loggers and the orchestrator run print-level config.
+
+        Examples:
+            >>> orchestrator.set_print_level("DEBUG")
+            >>> orchestrator.set_print_level(2)
+        """
         mapping = {
             "DEBUG": 4,
             "INFO": 3,
@@ -414,6 +697,16 @@ class Orchestrator:
         self._all_loggers = all_loggers
 
     def return_user_submitted_paths(self) -> list[PathInfo]:
+        """Return stage loading declarations currently attached to orchestrator.
+
+        Returns:
+            list[PathInfo]: Per-stage path declarations.
+
+        Examples:
+            >>> paths = orchestrator.return_user_submitted_paths()
+            >>> isinstance(paths, list)
+            True
+        """
         user_submitted_paths = []
         for stage_name in self.stages:
             loading_info = self.loading_info.get(stage_name)
@@ -431,6 +724,14 @@ class Orchestrator:
         return user_submitted_paths
 
     def load_inputs(self) -> None:
+        """Load all declared stage inputs into scaffold using selected implementations.
+
+        Modifies:
+            self.scaffold.inputs and possibly other scaffold sections through loaders.
+
+        Examples:
+            >>> orchestrator.load_inputs()
+        """
         for stage_name in self.stages:
             stage = getattr(self, f"{stage_name}_stage")
             stage_implementation: BaseImplementation = stage.implementation
@@ -440,9 +741,14 @@ class Orchestrator:
                 implementation.load_inputs(scaffold=self.scaffold)
 
     def validate_loaded_inputs(self):
-        """
-        Validates inputs after loading using the InputSpecs validation function.
-        Note that his does not
+        """Validate loaded inputs against InputSpec validators for each stage.
+
+        Modifies:
+            self.validation_results and self.scaffold when optional invalid inputs
+            are removed.
+
+        Examples:
+            >>> orchestrator.validate_loaded_inputs()
         """
         for stage_name in self.stages:
             stage = getattr(self, f"{stage_name}_stage")
@@ -459,12 +765,31 @@ class Orchestrator:
                 self.validation_results[stage_name].update(validation_results)
 
     def _run_stage(self, stage_name: str):
+        """Run a single stage and update orchestrator scaffold.
+
+        Args:
+            stage_name (str): Stage key to execute.
+
+        Modifies:
+            self.scaffold.
+        """
         # todo: consider whether should be public or private (orchestration run is sequential)
         stage = getattr(self, f"{stage_name}_stage")
         self.scaffold = stage.run(self.scaffold)
 
     @staticmethod
     def _initialise_scaffold(scaffold: Scaffold | None = None) -> Scaffold:
+        """Create an empty scaffold object for runtime data exchange.
+
+        Args:
+            scaffold (Scaffold | None): Reserved input. Must be None.
+
+        Returns:
+            Scaffold: Newly initialised scaffold.
+
+        Raises:
+            ValueError: Raised when scaffold argument is not None.
+        """
         if scaffold is None:
             return Scaffold(
                 inputs={},
@@ -479,28 +804,29 @@ class Orchestrator:
             raise ValueError("Scaffold must be None or a valid Scaffold instance.")
 
     def walk_implementation_dag(self) -> list[tuple[str, str]]:
+        """Developer hook placeholder for visualising implementation dependency DAG.
+
+        Returns:
+            list[tuple[str, str]]: Currently an empty edge list placeholder.
         """
-        This function walks through each implementation and its child implementations,
-        and checks, in order, what the state and return state of different implementations
-        are. This also deals with optional inputs that lead to a decision tree (if present
-        don't run the extra code, otherwise do run it). It assumes that files are either
-        created at some point earlier and thus present, or are denoted loadable and thus
-        can be loaded. It does not check whether files are actually present on those locations
-        nor whether they are valid."""
         pass
         dag: list[tuple[str, str]] = []
         return dag
 
     def validate_virtual_inputs_outputs(self):
-        """
-        Only checks the mermaid plot created to ensure that the full orchestration
-        implementation is valid and that no implementation requires any inputs that
-        are not provided or loaded by other implementations. Specifically ensures that
-        optional inputs (for instance Ensembl data) are created if they were not present.
-        """
+        """Developer hook placeholder for static orchestration I/O contract checks."""
         pass
 
     def _build_default_config(self, run_config: RunConfig) -> FullConfig:
+        """Build default full config container from run configuration.
+
+        Args:
+            run_config (RunConfig): Run configuration object.
+
+        Returns:
+            FullConfig: Config with stage sections initialised to empty
+            ImplementationConfig instances.
+        """
         return FullConfig(
             model=ImplementationConfig(),
             protein=ImplementationConfig(),
@@ -513,65 +839,132 @@ class Orchestrator:
         )
 
     def return_discovered_paths(self) -> dict[str, dict[str, DiscoveredInput]]:
+        """Return discovered file-backed inputs grouped by stage.
+
+        Returns:
+            dict[str, dict[str, DiscoveredInput]]: Discovered inputs map.
+
+        Examples:
+            >>> discovered = orchestrator.return_discovered_paths()
+            >>> "model" in discovered
+            True
+        """
         self.logger.info("Discovered paths:")
         pprint(custom_asdict(self.discovered_inputs))
         return self.discovered_inputs
 
     def _discover_in_main_implementations(self, stage_name: str):
+        """Discover inputs required by selected main implementation tree.
+
+        Args:
+            stage_name (str): Stage key.
+
+        Modifies:
+            self.discovered_inputs.
+        """
         main_implementation = getattr(self, f"{stage_name}_stage").implementation
-        for implementation in _iter_implementations(main_implementation):
-            for input_spec in implementation.INPUTS:
-                discovered_input = self._discover_input(
-                    input_spec=input_spec,
-                    loading_info=self.loading_info[stage_name],
-                )
-                if discovered_input is not None:
-                    self.discovered_inputs[stage_name][input_spec.name] = discovered_input
-                    self.logger.valid(
-                        f"Discovered input '{input_spec.name}' for stage '{stage_name}': "
-                        f"{discovered_input.file_path}"
-                        f"(source: {discovered_input.source})"
-                    )
-                else:
-                    if input_spec.name in self._attempted_discovered_inputs:
-                        continue
-                    self._attempted_discovered_inputs[input_spec.name] = input_spec
-                    self.logger.warning(
-                        f"Input '{input_spec.name}' for stage '{stage_name}' "
-                        "could not be discovered."
-                    )
+        self._discover_inputs_in_implementation_tree(
+            stage_name=stage_name,
+            root_implementation=main_implementation,
+        )
 
     def _discover_in_additional_implementations(self, stage_name: str):
-        additional_implementation_cls = getattr(
+        """Discover inputs required by stage additional implementation trees.
+
+        Args:
+            stage_name (str): Stage key.
+
+        Modifies:
+            self.discovered_inputs.
+        """
+        additional_implementations = getattr(
             getattr(self, f"{stage_name}_stage"), "additional_implementations", {}
         )
 
-        if not additional_implementation_cls:
+        if not additional_implementations:
             return
 
-        for additional_implementation in additional_implementation_cls.values():
-            for input_spec in additional_implementation.INPUTS:
-                discovered_input = self._discover_input(
-                    input_spec=input_spec,
-                    loading_info=self.loading_info[stage_name],
+        for additional_implementation in additional_implementations.values():
+            self._discover_inputs_in_implementation_tree(
+                stage_name=stage_name,
+                root_implementation=additional_implementation,
+            )
+
+    def _iter_implementation_and_diagnostic_inputs(
+        self,
+        root_implementation: BaseImplementation,
+    ) -> Iterator[tuple[str, InputSpec]]:
+        """Yield implementation and diagnostics InputSpec objects with owner labels.
+
+        Args:
+            root_implementation (BaseImplementation): Root implementation instance.
+
+        Returns:
+            Iterator[tuple[str, InputSpec]]: Owner label and input specification pairs.
+        """
+        for implementation in _iter_implementations(root_implementation):
+            if isinstance(implementation, type):
+                continue
+
+            implementation_owner = implementation.__class__.__name__
+            for input_spec in implementation.INPUTS:
+                yield (implementation_owner, input_spec)
+
+            diagnostics = getattr(implementation, "diagnostics", [])
+            for diagnostic in diagnostics:
+                diagnostic_obj = cast(BaseImplementationDiagnostics, diagnostic)
+                diagnostic_owner = (
+                    f"{implementation_owner}.{diagnostic_obj.__class__.__name__}"
                 )
-                if discovered_input is not None:
-                    self.discovered_inputs[stage_name][input_spec.name] = discovered_input
-                    self.logger.valid(
-                        f"Discovered input '{input_spec.name}' for stage '{stage_name}': "
-                        f"{discovered_input.file_path}"
-                        f"(source: {discovered_input.source})"
-                    )
-                else:
-                    if input_spec.name in self._attempted_discovered_inputs:
-                        continue
-                    self._attempted_discovered_inputs[input_spec.name] = input_spec
-                    self.logger.warning(
-                        f"Input '{input_spec.name}' for stage '{stage_name}' "
-                        "could not be discovered."
-                    )
+                for input_spec in diagnostic_obj.INPUTS:
+                    yield (diagnostic_owner, input_spec)
+
+    def _discover_inputs_in_implementation_tree(
+        self,
+        stage_name: str,
+        root_implementation: BaseImplementation,
+    ) -> None:
+        """Discover files for all InputSpec entries in one implementation tree.
+
+        Args:
+            stage_name (str): Stage name used to select loading configuration.
+            root_implementation (BaseImplementation): Root implementation instance.
+        """
+        for owner_name, input_spec in self._iter_implementation_and_diagnostic_inputs(
+            root_implementation
+        ):
+            discovered_input = self._discover_input(
+                input_spec=input_spec,
+                loading_info=self.loading_info[stage_name],
+            )
+            if discovered_input is not None:
+                self.discovered_inputs[stage_name][input_spec.name] = discovered_input
+                self.logger.valid(
+                    f"Discovered input '{input_spec.name}' for stage '{stage_name}' "
+                    f"in '{owner_name}': {discovered_input.file_path}"
+                    f"(source: {discovered_input.source})"
+                )
+                continue
+
+            attempted_key = f"{stage_name}:{owner_name}:{input_spec.name}"
+            if attempted_key in self._attempted_discovered_inputs:
+                continue
+
+            self._attempted_discovered_inputs[attempted_key] = input_spec
+            self.logger.warning(
+                f"Input '{input_spec.name}' for stage '{stage_name}' in '{owner_name}' "
+                "could not be discovered."
+            )
 
     def _discover_user_submitted_paths(self, stage_name: str | None = None):
+        """Discover user-provided inputs for one stage or all stages.
+
+        Args:
+            stage_name (str | None): Optional stage key. When None, refreshes all.
+
+        Modifies:
+            self.discovered_inputs.
+        """
         if stage_name is not None:
             self.discovered_inputs[stage_name] = {}
             stages = [stage_name]
@@ -592,6 +985,15 @@ class Orchestrator:
             self._discover_in_additional_implementations(stage_name)
 
     def _discover_input(self, input_spec, loading_info) -> DiscoveredInput | None:
+        """Resolve one input specification against explicit paths or search dirs.
+
+        Args:
+            input_spec (InputSpec): Input contract to resolve.
+            loading_info (StageLoadingInfo): Paths and directories for resolution.
+
+        Returns:
+            DiscoveredInput | None: Discovery payload when found, otherwise None.
+        """
         explicit_path = None
         if input_spec.loader and input_spec.file_path:
             explicit_path = self._resolve_explicit_file_path(
@@ -627,6 +1029,15 @@ class Orchestrator:
         input_spec: InputSpec,
         loading_info: StageLoadingInfo,
     ) -> Path | None:
+        """Resolve explicit input file path from stage loading info.
+
+        Args:
+            input_spec (InputSpec): Input contract.
+            loading_info (StageLoadingInfo): Stage loading declaration.
+
+        Returns:
+            Path | None: Existing absolute path or None when unresolved.
+        """
         file_paths = loading_info.file_paths or {}
 
         if input_spec.name not in file_paths:
@@ -644,6 +1055,14 @@ class Orchestrator:
         self,
         directories,
     ) -> list[Path]:
+        """Normalize directory declarations into resolved Path list.
+
+        Args:
+            directories (list[Path | str] | Path | str | None): Raw directory setting.
+
+        Returns:
+            list[Path]: Resolved directory paths.
+        """
         if directories is None:
             return []
 
@@ -657,6 +1076,15 @@ class Orchestrator:
         input_spec: InputSpec,
         loading_info: StageLoadingInfo,
     ) -> Path | None:
+        """Search configured directories for files matching one InputSpec.
+
+        Args:
+            input_spec (InputSpec): Input contract with prefix/extensions.
+            loading_info (StageLoadingInfo): Directory declarations.
+
+        Returns:
+            Path | None: Best match according to extension priority.
+        """
         matches = []
         self.logger.info(f"Searching directories for '{input_spec.name}'.")
         self.logger.debug(f"Directories to search: {loading_info.directories}")
@@ -683,6 +1111,15 @@ class Orchestrator:
         directory: Path,
         input_spec: InputSpec,
     ) -> list[Path]:
+        """Return files in one directory that match InputSpec prefix/extensions.
+
+        Args:
+            directory (Path): Directory to scan.
+            input_spec (InputSpec): Input contract with prefix/extensions.
+
+        Returns:
+            list[Path]: Candidate file paths.
+        """
         matches = []
         if input_spec.prefix is None or input_spec.extensions is None:
             return matches
@@ -697,6 +1134,15 @@ class Orchestrator:
         matches: list[Path],
         input_spec: InputSpec,
     ) -> Path | None:
+        """Select best file match, preferring InputSpec extension order.
+
+        Args:
+            matches (list[Path]): Candidate matches.
+            input_spec (InputSpec): Input contract containing extension priority.
+
+        Returns:
+            Path | None: Selected file path or None.
+        """
         if len(matches) == 0:
             self.logger.debug(f"No file found for '{input_spec.name}'.")
             return None
@@ -770,9 +1216,11 @@ if __name__ == "__main__":
         Vmax_loading_info=Vmax_stage_loading_info,
     )
 
+    trim_enable = True
+    trim_name = "trim" if trim_enable else "no_trim"
     run_config = RunConfig(
         output_dir=output_path,
-        run_name=f"{expression_name}_{model_name}_run",
+        run_name=f"{trim_name}_{expression_name}_{model_name}_run",
         create_dynamically_named_results=create_dynamically_named_results,
         # print_level="DEBUG",
     )
@@ -875,6 +1323,7 @@ if __name__ == "__main__":
     # todo: rename use_special_groups_for_unobserved_imputation to PTR
 
     protein.config.use_special_groups_for_unobserved_imputation = True
+    protein.config.trim_enable = trim_enable
 
     # # model.config.maximum_transcript_ifp_expansion_2 = 800
     # orchestrator.config.model.maximum_transcript_ifp_expansion = 800
