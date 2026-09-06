@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -27,6 +29,10 @@ def full_config(tmp_path: Path) -> FullConfig:
     run_config = RunConfig(output_dir=tmp_path)
     return FullConfig(
         model=ImplementationConfig(),
+        protein=ImplementationConfig(),
+        allocation=ImplementationConfig(),
+        Kcat=ImplementationConfig(),
+        Vmax=ImplementationConfig(),
         run=run_config,
         paths=run_config.paths,
         transcripts=TranscriptProcessingConfig(),
@@ -71,7 +77,129 @@ class _ParentImplementation(BaseImplementation):
 
 
 class _DummyStage(BaseStage):
+    STAGE_NAME = "model"
     OUTPUTS = [OutputSpec(name="required")]
+
+
+class _PruningStage(BaseStage):
+    STAGE_NAME = "model"
+    OUTPUTS = []
+
+
+class _PruningMainImplementation(BaseImplementation):
+    STAGE_NAME = "model"
+    IMPL_NAME = "pruning-main"
+
+    def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
+        return {
+            "outputs": {},
+            "artifacts": {
+                "needed_by_child": {"value": 1},
+                "unused_after_main": {"value": 2},
+            },
+            "metadata": {},
+            "diagnostics": {},
+        }
+
+
+class _PruningChildImplementation(BaseImplementation):
+    STAGE_NAME = "model"
+    IMPL_NAME = "pruning-child"
+    INPUTS = [InputSpec(name="needed_by_child", in_scaffold=True)]
+
+    def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
+        assert scaffold.get_scaffold_value("needed_by_child") is not None
+        return {
+            "outputs": {},
+            "artifacts": {"produced_by_child": {"value": 3}},
+            "metadata": {},
+            "diagnostics": {},
+        }
+
+
+class _PruningRootImplementation(BaseImplementation):
+    STAGE_NAME = "model"
+    IMPL_NAME = "pruning-root"
+    CHILD_IMPLEMENTATIONS = [_PruningMainImplementation, _PruningChildImplementation]
+
+    def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
+        return {
+            "outputs": {},
+            "artifacts": {},
+            "metadata": {},
+            "diagnostics": {},
+        }
+
+
+class _AdditionalConsumerImplementation(BaseImplementation):
+    STAGE_NAME = "model"
+    IMPL_NAME = "additional-consumer"
+    INPUTS = [InputSpec(name="needed_by_additional", in_scaffold=True)]
+
+    def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
+        assert scaffold.get_scaffold_value("needed_by_additional") is not None
+        return {
+            "outputs": {},
+            "artifacts": {"produced_by_additional": {"value": 4}},
+            "metadata": {},
+            "diagnostics": {},
+        }
+
+
+class _MainProducerForAdditional(BaseImplementation):
+    STAGE_NAME = "model"
+    IMPL_NAME = "main-producer-for-additional"
+
+    def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
+        return {
+            "outputs": {},
+            "artifacts": {
+                "needed_by_additional": {"value": 5},
+                "unused_after_main": {"value": 6},
+            },
+            "metadata": {},
+            "diagnostics": {},
+        }
+
+
+class _PruningWithAdditionalStage(BaseStage):
+    STAGE_NAME = "model"
+    OUTPUTS = []
+    ADDITIONAL_IMPLEMENTATIONS = [_AdditionalConsumerImplementation]
+
+    def run_additional_processes(self, scaffold: Scaffold) -> Scaffold:
+        additional = self.additional_implementations["_AdditionalConsumerImplementation"]
+        return additional.run(scaffold)
+
+
+class _FutureAwareProducerImplementation(BaseImplementation):
+    STAGE_NAME = "model"
+    IMPL_NAME = "future-aware-producer"
+    OUTPUTS = [
+        OutputSpec(
+            name="future_needed_key",
+            data_type=dict,
+            scaffold_location="artifacts",
+            extension=".json",
+        ),
+        OutputSpec(
+            name="local_unused_key",
+            data_type=dict,
+            scaffold_location="artifacts",
+            extension=".json",
+        ),
+    ]
+
+    def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
+        return {
+            "outputs": {},
+            "artifacts": {
+                "future_needed_key": {"value": 1},
+                "local_unused_key": {"value": 2},
+            },
+            "metadata": {},
+            "diagnostics": {},
+        }
 
 
 @pytest.mark.unit
@@ -266,3 +394,172 @@ def test_fallback_provider_registers_metadata() -> None:
     assert "x" in providers
     assert providers["x"].provides == "x"
     assert providers["x"].requires == frozenset({"a", "b"})
+
+
+@pytest.mark.unit
+def test_scaffold_pruning_keeps_keys_needed_by_remaining_children(
+    full_config: FullConfig,
+) -> None:
+    full_config.run.prune_scaffold_unused_objects = True
+    implementation = _PruningRootImplementation(full_config)
+    stage = _PruningStage(implementation=implementation, config=full_config)
+    scaffold = _make_scaffold()
+    scaffold.extras["_orchestrator_full_run_active"] = True
+
+    updated_scaffold = stage.run(scaffold)
+
+    assert "needed_by_child" not in updated_scaffold.artifacts
+    assert "unused_after_main" not in updated_scaffold.artifacts
+    assert "produced_by_child" not in updated_scaffold.artifacts
+
+
+@pytest.mark.unit
+def test_scaffold_pruning_accounts_for_additional_implementations(
+    full_config: FullConfig,
+) -> None:
+    full_config.run.prune_scaffold_unused_objects = True
+    implementation = _MainProducerForAdditional(full_config)
+    stage = _PruningWithAdditionalStage(implementation=implementation, config=full_config)
+    scaffold = _make_scaffold()
+    scaffold.extras["_orchestrator_full_run_active"] = True
+
+    updated_scaffold = stage.run(scaffold)
+
+    assert "needed_by_additional" not in updated_scaffold.artifacts
+    assert "unused_after_main" not in updated_scaffold.artifacts
+    assert "produced_by_additional" not in updated_scaffold.artifacts
+
+
+@pytest.mark.unit
+def test_stage_only_run_does_not_prune_scaffold(
+    full_config: FullConfig,
+) -> None:
+    full_config.run.prune_scaffold_unused_objects = True
+    implementation = _PruningRootImplementation(full_config)
+    stage = _PruningStage(implementation=implementation, config=full_config)
+    scaffold = _make_scaffold()
+
+    updated_scaffold = stage.run(scaffold)
+
+    model_stage_artifacts = updated_scaffold.artifacts.get("model_stage", {})
+    assert "needed_by_child" in model_stage_artifacts
+    assert "unused_after_main" in model_stage_artifacts
+    assert "produced_by_child" in model_stage_artifacts
+
+
+@pytest.mark.unit
+def test_reuse_existing_results_skips_implementation_when_files_exist(
+    full_config: FullConfig,
+) -> None:
+    class _ReuseExistingOutputsImplementation(BaseImplementation):
+        STAGE_NAME = "model"
+        IMPL_NAME = "reuse-existing"
+        OUTPUTS = [
+            OutputSpec(
+                name="cached_output",
+                data_type=dict,
+                scaffold_location="outputs",
+                extension=".json",
+            )
+        ]
+
+        def __init__(self, cfg: FullConfig):
+            super().__init__(cfg)
+            self.generate_calls = 0
+
+        def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
+            self.generate_calls += 1
+            return {
+                "outputs": {"cached_output": {"source": "generated"}},
+                "artifacts": {},
+                "metadata": {},
+                "diagnostics": {},
+            }
+
+    full_config.run.use_existing_results_if_available = True
+    full_config.run.paths.outputs_dir.mkdir(parents=True, exist_ok=True)
+    cached_output_path = full_config.run.paths.outputs_dir / "cached_output.json"
+    with cached_output_path.open("w", encoding="utf-8") as f:
+        json.dump({"source": "disk"}, f)
+
+    implementation = _ReuseExistingOutputsImplementation(full_config)
+    stage = _PruningStage(implementation=implementation, config=full_config)
+    scaffold = _make_scaffold()
+
+    updated_scaffold = stage.run(scaffold)
+
+    assert implementation.generate_calls == 0
+    assert updated_scaffold.outputs["cached_output"]["source"] == "disk"
+
+
+@pytest.mark.unit
+def test_reuse_existing_results_runs_implementation_when_file_missing(
+    full_config: FullConfig,
+) -> None:
+    class _ReuseExistingOutputsImplementation(BaseImplementation):
+        STAGE_NAME = "model"
+        IMPL_NAME = "reuse-existing-missing"
+        OUTPUTS = [
+            OutputSpec(
+                name="cached_output",
+                data_type=dict,
+                scaffold_location="outputs",
+                extension=".json",
+            )
+        ]
+
+        def __init__(self, cfg: FullConfig):
+            super().__init__(cfg)
+            self.generate_calls = 0
+
+        def generate_outputs(self, scaffold: Scaffold) -> dict[str, dict[str, Any]]:
+            self.generate_calls += 1
+            return {
+                "outputs": {"cached_output": {"source": "generated"}},
+                "artifacts": {},
+                "metadata": {},
+                "diagnostics": {},
+            }
+
+    full_config.run.use_existing_results_if_available = True
+    implementation = _ReuseExistingOutputsImplementation(full_config)
+    stage = _PruningStage(implementation=implementation, config=full_config)
+    scaffold = _make_scaffold()
+
+    updated_scaffold = stage.run(scaffold)
+
+    assert implementation.generate_calls == 1
+    assert updated_scaffold.outputs["cached_output"]["source"] == "generated"
+
+
+@pytest.mark.unit
+def test_scaffold_pruning_keeps_keys_needed_by_future_stages(
+    full_config: FullConfig,
+) -> None:
+    full_config.run.prune_scaffold_unused_objects = True
+    implementation = _FutureAwareProducerImplementation(full_config)
+    stage = _PruningStage(implementation=implementation, config=full_config)
+    scaffold = _make_scaffold()
+    scaffold.extras["_orchestrator_full_run_active"] = True
+    scaffold.extras["_orchestrator_future_required_input_names"] = {"future_needed_key"}
+
+    updated_scaffold = stage.run(scaffold)
+
+    model_stage_artifacts = updated_scaffold.artifacts.get("model_stage", {})
+    assert "future_needed_key" in model_stage_artifacts
+    assert "local_unused_key" not in model_stage_artifacts
+
+
+@pytest.mark.unit
+def test_reusable_output_specs_include_future_stage_dependencies(
+    full_config: FullConfig,
+) -> None:
+    implementation = _FutureAwareProducerImplementation(full_config)
+    scaffold = _make_scaffold()
+    scaffold.extras["_orchestrator_future_required_input_names"] = ["future_needed_key"]
+
+    reusable_specs = implementation._get_reusable_output_specs(scaffold)
+
+    reusable_names = {spec.name for spec in reusable_specs}
+    assert "future_needed_key" in reusable_names
+    assert "local_unused_key" not in reusable_names

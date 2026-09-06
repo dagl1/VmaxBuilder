@@ -2,17 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from VmaxBuilder.base.classes import BaseImplementation
+from VmaxBuilder.base.classes import BaseImplementation, BaseImplementationDiagnostics
 from VmaxBuilder.base.configs import (
     FullConfig,
     ImplementationConfig,
     InputSpec,
     RunConfig,
     StageLoadingInfo,
+    TranscriptProcessingConfig,
 )
 from VmaxBuilder.base.exceptions import ImplementationConfigConflictError
 from VmaxBuilder.base.orchestrator import Orchestrator
@@ -33,8 +35,13 @@ def _make_orchestrator_stub(tmp_path: Path) -> Orchestrator:
     run_config = RunConfig(output_dir=tmp_path, run_name="orchestrator")
     orchestrator.config = FullConfig(
         model=ImplementationConfig(),
+        protein=ImplementationConfig(),
+        allocation=ImplementationConfig(),
+        Kcat=ImplementationConfig(),
+        Vmax=ImplementationConfig(),
         run=run_config,
         paths=run_config.paths,
+        transcripts=TranscriptProcessingConfig(),
     )
     orchestrator.registry = {}
     return orchestrator
@@ -214,3 +221,116 @@ def test_build_flattened_config_combines_dataclass_fields(tmp_path: Path) -> Non
     assert isinstance(config, ImplementationConfig)
     assert config.alpha == 1
     assert config.beta == "x"
+
+
+@pytest.mark.unit
+def test_discover_main_implementation_includes_diagnostic_inputs(tmp_path: Path) -> None:
+    orchestrator = _make_orchestrator_stub(tmp_path)
+
+    class _ImplementationDiagnostics(BaseImplementationDiagnostics):
+        DIAGNOSTICS_NAME = "impl-diagnostics"
+        INPUTS = [InputSpec(name="diag_input", prefix="diag_", extensions=[".csv"])]
+
+        def before_run(self, scaffold: Any) -> dict[str, dict[str, Any]]:
+            return {}
+
+        def after_run(
+            self,
+            scaffold_objects: dict[str, dict[str, Any]],
+            scaffold: Any,
+        ) -> dict[str, dict[str, Any]]:
+            return {}
+
+    class _ImplementationWithDiagnostics(BaseImplementation):
+        STAGE_NAME = "model"
+        IMPL_NAME = "diag-impl"
+        INPUTS = [InputSpec(name="impl_input", prefix="impl_", extensions=[".csv"])]
+        DIAGNOSTICS = [_ImplementationDiagnostics]
+
+        def generate_outputs(self, scaffold: Any) -> dict[str, Any]:
+            return {}
+
+    (tmp_path / "impl_main.csv").write_text("v", encoding="utf-8")
+    (tmp_path / "diag_main.csv").write_text("v", encoding="utf-8")
+
+    orchestrator.discovered_inputs = {stage: {} for stage in orchestrator.stages}
+    orchestrator._attempted_discovered_inputs = {}
+    orchestrator.loading_info = {
+        stage: StageLoadingInfo(stage_name=stage, directories=[tmp_path])
+        for stage in orchestrator.stages
+    }
+    orchestrator.model_stage = SimpleNamespace(
+        implementation=_ImplementationWithDiagnostics(orchestrator.config),
+        additional_implementations={},
+    )
+
+    orchestrator._discover_in_main_implementations("model")
+
+    assert "impl_input" in orchestrator.discovered_inputs["model"]
+    assert "diag_input" in orchestrator.discovered_inputs["model"]
+
+
+@pytest.mark.unit
+def test_discover_additional_implementations_recurses_children_and_diagnostics(
+    tmp_path: Path,
+) -> None:
+    orchestrator = _make_orchestrator_stub(tmp_path)
+
+    class _ChildDiagnostics(BaseImplementationDiagnostics):
+        DIAGNOSTICS_NAME = "child-diagnostics"
+        INPUTS = [
+            InputSpec(name="child_diag_input", prefix="childdiag_", extensions=[".csv"])
+        ]
+
+        def before_run(self, scaffold: Any) -> dict[str, dict[str, Any]]:
+            return {}
+
+        def after_run(
+            self,
+            scaffold_objects: dict[str, dict[str, Any]],
+            scaffold: Any,
+        ) -> dict[str, dict[str, Any]]:
+            return {}
+
+    class _AdditionalChildImplementation(BaseImplementation):
+        STAGE_NAME = "model"
+        IMPL_NAME = "additional-child"
+        INPUTS = [InputSpec(name="child_input", prefix="child_", extensions=[".csv"])]
+        DIAGNOSTICS = [_ChildDiagnostics]
+
+        def generate_outputs(self, scaffold: Any) -> dict[str, Any]:
+            return {}
+
+    class _AdditionalParentImplementation(BaseImplementation):
+        STAGE_NAME = "model"
+        IMPL_NAME = "additional-parent"
+        INPUTS = [InputSpec(name="parent_input", prefix="parent_", extensions=[".csv"])]
+        CHILD_IMPLEMENTATIONS = [_AdditionalChildImplementation]
+
+        def generate_outputs(self, scaffold: Any) -> dict[str, Any]:
+            return {}
+
+    (tmp_path / "parent_input.csv").write_text("v", encoding="utf-8")
+    (tmp_path / "child_input.csv").write_text("v", encoding="utf-8")
+    (tmp_path / "childdiag_input.csv").write_text("v", encoding="utf-8")
+
+    orchestrator.discovered_inputs = {stage: {} for stage in orchestrator.stages}
+    orchestrator._attempted_discovered_inputs = {}
+    orchestrator.loading_info = {
+        stage: StageLoadingInfo(stage_name=stage, directories=[tmp_path])
+        for stage in orchestrator.stages
+    }
+    orchestrator.model_stage = SimpleNamespace(
+        implementation=_DemoImplementation(orchestrator.config),
+        additional_implementations={
+            "AdditionalParentImplementation": _AdditionalParentImplementation(
+                orchestrator.config
+            )
+        },
+    )
+
+    orchestrator._discover_in_additional_implementations("model")
+
+    assert "parent_input" in orchestrator.discovered_inputs["model"]
+    assert "child_input" in orchestrator.discovered_inputs["model"]
+    assert "child_diag_input" in orchestrator.discovered_inputs["model"]
