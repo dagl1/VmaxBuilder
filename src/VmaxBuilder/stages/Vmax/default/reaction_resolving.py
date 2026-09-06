@@ -1,8 +1,7 @@
-from ast import In
-from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
 
+import numpy as np
 import pandas as pd
 from cobra.core.model import Model
 from cobra.io.json import load_json_model
@@ -107,8 +106,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         IFP_abundance_df = cast(
             pd.DataFrame, scaffold.get_scaffold_value("IFP_sample_abundance_df")
         )
-        # cast to numeric
-        IFP_abundance_df = IFP_abundance_df.apply(pd.to_numeric, errors="coerce")
+        IFP_abundance_df = self._normalize_abundance_dataframe(IFP_abundance_df)
         per_reaction_per_gene_Kcats = cast(
             dict[str, ReactionMainSubstratePrediction],
             scaffold.get_scaffold_value(
@@ -137,6 +135,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
                 apply_trimming=True,
             )
         )
+        print(f"Reaction resolving took {time_elapsed:.2f} seconds.")
 
         metadata = self.create_metadata(time_elapsed)
 
@@ -164,6 +163,38 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         }
 
         return new_scaffold_objects
+
+    def _normalize_abundance_dataframe(self, abundance_df: pd.DataFrame) -> pd.DataFrame:
+        """Normalize abundance table to numeric float32 for lower memory footprint.
+
+        Args:
+            abundance_df (pd.DataFrame): Raw abundance matrix.
+
+        Returns:
+            pd.DataFrame: Numeric abundance matrix in float32 where possible.
+        """
+        try:
+            return abundance_df.astype(np.float32, copy=False)
+        except (TypeError, ValueError):
+            return abundance_df.apply(pd.to_numeric, errors="coerce").astype(np.float32)
+
+    def _should_save_ifp_sample_abundance_artifact(self) -> bool:
+        """Return whether the compact per-sample IFP artifact should be retained.
+
+        Diagnostics require this nested structure, so the compact artifact remains enabled
+        even when detailed gene payloads are disabled.
+        """
+        return True
+
+    def _should_include_gene_details_in_ifp_artifact(self) -> bool:
+        """Return whether gene-level payload is included in IFP artifact entries."""
+        return bool(
+            getattr(
+                self.full_config.Vmax,
+                "include_gene_details_in_ifp_sample_abundance_artifact",
+                False,
+            )
+        )
 
     def get_genes_for_IFP(
         self,
@@ -200,7 +231,8 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         kcats_of_genes_in_reaction: dict[str, GeneMainSubstratePrediction],
         _IFP: str,
     ) -> tuple[float, float, float, list[str]]:
-        abundance = float(IFP_abundance_df.at[_IFP, sample])  # ty: ignore
+        abundance_value = cast(Any, IFP_abundance_df.at[_IFP, sample])
+        abundance = float(abundance_value)
         # make abundance  numeric
         genes = self.get_genes_for_IFP(
             _IFP,
@@ -250,7 +282,28 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         additional_capacity: float,
         kcats_of_genes_in_reaction: dict[str, GeneMainSubstratePrediction],
         genes: list[str],
+        include_gene_details: bool,
     ):
+        gene_payload: dict[str, Any] = {}
+        if include_gene_details:
+            gene_payload = {
+                _gene: {
+                    "stoichiometry_adjusted_main_substrate_prediction_value": (
+                        kcats_of_genes_in_reaction[
+                            _gene
+                        ].stoichiometry_adjusted_main_substrate_prediction_value
+                    ),
+                    "main_substrate_prediction_value": kcats_of_genes_in_reaction[
+                        _gene
+                    ].main_substrate_prediction_value,
+                    "substrate_stoichiometries": kcats_of_genes_in_reaction[
+                        _gene
+                    ].substrate_stoichiometries,
+                }
+                for _gene in genes
+                if _gene in kcats_of_genes_in_reaction
+            }
+
         IFP_sample_abundance_dict[sample][reaction]["IFPs"][_IFP] = {
             "abundance": ifp_abundance,
             "abundance_contribution_to_reaction_Vmax": None,
@@ -258,33 +311,9 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
             "Kcat_contribution_to_reaction_Vmax": None,
             "Vmax": additional_capacity,
             "Vmax_contribution_to_reaction_Vmax": None,
-            "genes": {
-                _gene: {
-                    "expression": None,
-                    "expression_contribution_to_IFP_Vmax": None,
-                    "PTR": None,
-                    "PTR_contribution_to_IFP_Vmax": None,
-                    "abundance": None,
-                    "abundance_contribution_to_IFP_Vmax": None,
-                    "main_substrate_prediction_value": kcats_of_genes_in_reaction[
-                        _gene
-                    ].main_substrate_prediction_value,
-                    "substrate_stoichiometries": kcats_of_genes_in_reaction[
-                        _gene
-                    ].substrate_stoichiometries,
-                    "stoichiometry_adjusted_main_substrate_prediction_value": (
-                        kcats_of_genes_in_reaction[
-                            _gene
-                        ].stoichiometry_adjusted_main_substrate_prediction_value
-                    ),
-                    "GeneMainSubstratePrediction": kcats_of_genes_in_reaction[
-                        _gene
-                    ].to_dict(),
-                }
-                for _gene in genes
-                if _gene in kcats_of_genes_in_reaction
-            },
         }
+        if include_gene_details:
+            IFP_sample_abundance_dict[sample][reaction]["IFPs"][_IFP]["genes"] = gene_payload
         return IFP_sample_abundance_dict
 
     def modify_IFP_reaction_dict(
@@ -324,7 +353,7 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
                 / total_capacity
             )
 
-    def resolve_reaction_capacity(
+    def resolve_reaction_capacity(  # noqa: C901
         self,
         IFP_abundance_df: pd.DataFrame,
         Kcats_per_reaction_per_gene: dict[str, ReactionMainSubstratePrediction],
@@ -334,6 +363,22 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         cobra_model: Model,
         apply_trimming: bool = True,
     ) -> tuple[pd.DataFrame, dict[str, dict[str, dict]]]:
+        """Resolve reaction capacities while minimizing temporary memory pressure.
+
+        Args:
+            IFP_abundance_df (pd.DataFrame): IFP abundance by sample.
+            Kcats_per_reaction_per_gene (dict[str, ReactionMainSubstratePrediction]):
+                Per-reaction Kcat predictions.
+            trimming_output (dict): Trimming payload keyed by IFP.
+            reaction_to_IFP_mapping (dict[str, dict[str, list[str]]]): Reaction to IFP map.
+            gene_to_IFP_mapping (dict[str, dict[str, list[str]]]): Gene to IFP map.
+            cobra_model (Model): COBRA model containing reactions/genes.
+            apply_trimming (bool): Whether trimming-aware logic should apply.
+
+        Returns:
+            tuple[pd.DataFrame, dict[str, dict[str, dict]]]: Reaction-capacity matrix
+            and optional per-sample IFP artifact.
+        """
         IFP_to_genes = {
             IFP: [] for gene_info in gene_to_IFP_mapping.values() for IFP in gene_info["IFPs"]
         }
@@ -346,11 +391,11 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         # mean  it really
         samples = IFP_abundance_df.columns.tolist()
         reactions = [reaction.id for reaction in cobra_model.reactions]
-
-        reaction_capacity_df = pd.DataFrame(
-            0.0,
-            index=reactions,
-            columns=samples,
+        reaction_index = {reaction_id: idx for idx, reaction_id in enumerate(reactions)}
+        sample_index = {sample_name: idx for idx, sample_name in enumerate(samples)}
+        reaction_capacity_matrix = np.zeros(
+            (len(reactions), len(samples)),
+            dtype=np.float32,
         )
 
         use_trimmed_genes_for_kcat = (
@@ -371,84 +416,155 @@ class DefaultVmaxReactionResolving(RealImplementation[ReactionResolvingConfigPro
         IFPs_not_in_df = set()
         reactions_skipped_due_to_missing_kcat = set()
 
-        IFP_sample_abundance_dict = {}
+        build_ifp_artifact = self._should_save_ifp_sample_abundance_artifact()
+        include_gene_details = self._should_include_gene_details_in_ifp_artifact()
+
+        reaction_to_runtime_metadata: dict[str, dict[str, Any]] = {}
+        for reaction_obj in cobra_model.reactions:
+            reaction_id = reaction_obj.id
+            if reaction_id not in Kcats_per_reaction_per_gene:
+                reactions_skipped_due_to_missing_kcat.add(reaction_id)
+                continue
+
+            IFPs_object = reaction_to_IFP_mapping.get(reaction_id, {})
+            if not IFPs_object:
+                continue
+
+            IFPs = IFPs_object.get("IFPs", [])
+            if not IFPs:
+                continue
+
+            reaction_to_runtime_metadata[reaction_id] = {
+                "IFPs": IFPs,
+                "GPR_rule": reaction_obj.gene_reaction_rule,
+                "genes": tuple(gene.id for gene in reaction_obj.genes),
+                "gene_objects": Kcats_per_reaction_per_gene[
+                    reaction_id
+                ].gene_main_substrate_predictions,
+            }
+
+        IFPs_in_abundance_df = set(IFP_abundance_df.index)
+        IFP_sample_abundance_dict: dict[str, dict[str, dict]] = {}
+        if build_ifp_artifact:
+            IFP_sample_abundance_dict = {sample: {} for sample in samples}
 
         for sample in tqdm(
             samples,
             desc="Calculating reaction capacities",
         ):
-            IFP_sample_abundance_dict[sample] = {}
+            sample_abundance = IFP_abundance_df[sample]
             for reaction in reactions:
-                if reaction not in Kcats_per_reaction_per_gene:
-                    reactions_skipped_due_to_missing_kcat.add(reaction)
-                    continue
-                IFPs_object = reaction_to_IFP_mapping.get(reaction, {})
-                if not IFPs_object:
-                    continue
-                IFPs = IFPs_object.get("IFPs", [])
-                if not IFPs:
+                runtime_metadata = reaction_to_runtime_metadata.get(reaction)
+                if runtime_metadata is None:
                     continue
 
-                IFP_sample_abundance_dict[sample][reaction] = {
-                    "IFPs": {},
-                    "GPR_rule": cobra_model.reactions.get_by_id(reaction).gene_reaction_rule,
-                    "genes": {
-                        gene.id: {
-                            "expression": None,
-                            "PTR": None,
-                        }
-                        for gene in cobra_model.reactions.get_by_id(reaction).genes
-                    },
-                    "Vmax": None,
-                }
-
-                gene_objects = Kcats_per_reaction_per_gene[
-                    reaction
-                ].gene_main_substrate_predictions
-                kcats_of_genes_in_reaction = gene_objects
+                IFPs = cast(list[str], runtime_metadata["IFPs"])
+                kcats_of_genes_in_reaction = cast(
+                    dict[str, GeneMainSubstratePrediction],
+                    runtime_metadata["gene_objects"],
+                )
                 total_capacity = 0.0
 
+                if build_ifp_artifact:
+                    IFP_sample_abundance_dict[sample][reaction] = {
+                        "IFPs": {},
+                        "GPR_rule": runtime_metadata["GPR_rule"],
+                        "Vmax": None,
+                    }
+
+                    if include_gene_details:
+                        IFP_sample_abundance_dict[sample][reaction]["genes"] = {
+                            gene_id: {
+                                "expression": None,
+                                "PTR": None,
+                            }
+                            for gene_id in cast(tuple[str, ...], runtime_metadata["genes"])
+                        }
+
                 for _IFP in IFPs:
-                    if _IFP not in IFP_abundance_df.index:
+                    if _IFP not in IFPs_in_abundance_df:
                         IFPs_not_in_df.add(_IFP)
                         continue
 
-                    (additional_capacity, ifp_abundance, ifp_kcat, genes) = (
-                        self.get_specific_abundance_additional_capacity(
+                    ifp_abundance = float(sample_abundance.get(_IFP, np.nan))
+                    if pd.isna(ifp_abundance):
+                        continue
+
+                    genes = self.get_genes_for_IFP(
+                        _IFP,
+                        sample,
+                        trimming_output,
+                        IFP_to_genes,
+                        use_trimmed_genes_for_kcat,
+                    )
+                    max_kcat = max(
+                        (
+                            prediction_value
+                            for gene in genes
+                            if gene in kcats_of_genes_in_reaction
+                            and (
+                                prediction_value := (
+                                    kcats_of_genes_in_reaction[
+                                        gene
+                                    ].stoichiometry_adjusted_main_substrate_prediction_value
+                                )
+                            )
+                            is not None
+                        ),
+                        default=0.0,
+                    )
+
+                    additional_capacity = ifp_abundance * max_kcat
+                    if ifp_abundance < 0:
+                        self.logger.warning(
+                            f"Negative abundance for IFP {_IFP} in "
+                            f"sample {sample}: {ifp_abundance}. Setting to 0."
+                        )
+                    if max_kcat < 0:
+                        self.logger.warning(
+                            f"Negative max Kcat for reaction {reaction}"
+                            f"in sample {sample}: {max_kcat}. Setting to 0."
+                        )
+
+                    if build_ifp_artifact:
+                        IFP_sample_abundance_dict = self._build_initial_IFP_reaction_dict(
+                            IFP_sample_abundance_dict,
                             sample,
                             reaction,
-                            IFP_abundance_df,
-                            trimming_output,
-                            IFP_to_genes,
-                            use_trimmed_genes_for_kcat,
-                            kcats_of_genes_in_reaction,
                             _IFP,
+                            ifp_abundance,
+                            float(max_kcat),
+                            additional_capacity,
+                            kcats_of_genes_in_reaction,
+                            genes,
+                            include_gene_details=include_gene_details,
                         )
-                    )
-                    IFP_sample_abundance_dict = self._build_initial_IFP_reaction_dict(
-                        IFP_sample_abundance_dict,
-                        sample,
-                        reaction,
-                        _IFP,
-                        ifp_abundance,
-                        ifp_kcat,
-                        additional_capacity,
-                        kcats_of_genes_in_reaction,
-                        genes,
-                    )
 
                     total_capacity += additional_capacity
 
-                reaction_capacity_df.at[reaction, sample] = total_capacity
-                IFP_sample_abundance_dict[sample][reaction]["Vmax"] = total_capacity
-                self.modify_IFP_reaction_dict(
-                    IFP_sample_abundance_dict,
-                    sample,
-                    reaction,
-                    IFPs,
-                    IFP_abundance_df,
-                    total_capacity,
-                )
+                reaction_capacity_matrix[
+                    reaction_index[reaction],
+                    sample_index[sample],
+                ] = total_capacity
+
+                if build_ifp_artifact:
+                    IFP_sample_abundance_dict[sample][reaction]["Vmax"] = total_capacity
+                    self.modify_IFP_reaction_dict(
+                        IFP_sample_abundance_dict,
+                        sample,
+                        reaction,
+                        IFPs,
+                        IFP_abundance_df,
+                        total_capacity,
+                    )
+
+            del sample_abundance
+
+        reaction_capacity_df = pd.DataFrame(
+            reaction_capacity_matrix,
+            index=reactions,
+            columns=samples,
+        )
 
         return reaction_capacity_df, IFP_sample_abundance_dict
 
@@ -525,7 +641,7 @@ if __name__ == "__main__":
             {"trim_genes_remain_part_for_Kcat": False},
         )()
 
-    resolver.full_config = DummyFullConfig()  # ty: ignore
+    resolver.full_config = cast(Any, DummyFullConfig())
 
     reaction_activity_df, IFP_sample_abundance_dict = resolver.resolve_reaction_capacity(
         IFP_abundance_df,
