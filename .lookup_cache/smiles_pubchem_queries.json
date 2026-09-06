@@ -2234,5 +2234,32 @@
   "pubchem_name:trans,cis-myristo-2,7-dienoic acid": [],
   "pubchem_name:dibenzo[a,l]pyrene-11,12-diol-13,14-epoxic acid": [],
   "pubchem_name:trans,cis-myristo-2,7-dienic acid": [],
-  "pubchem_name:dibenzo[a,l]pyrene-11,12-diol-13,14-epoxic-acid": []
+  "pubchem_name:dibenzo[a,l]pyrene-11,12-diol-13,14-epoxic-acid": [],
+  "pubchem_name:alpha": [
+    {
+      "compound_id": "1",
+      "query": "alpha",
+      "search_namespace": "name",
+      "isomeric_smiles": "C",
+      "canonical_smiles": "C",
+      "inchi": null,
+      "inchikey": null,
+      "iupac_name": null,
+      "molecular_formula": null
+    }
+  ],
+  "pubchem_name:beta": [
+    {
+      "compound_id": "1",
+      "query": "beta",
+      "search_namespace": "name",
+      "isomeric_smiles": "C",
+      "canonical_smiles": "C",
+      "inchi": null,
+      "inchikey": null,
+      "iupac_name": null,
+      "molecular_formula": null
+    }
+  ],
+  "pubchem_name:genemet": []
 }
