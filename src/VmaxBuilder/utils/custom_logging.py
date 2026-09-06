@@ -14,12 +14,14 @@ Created by Jelle Bonthuis on 2025-03-24
 """
 
 import atexit
+import colorsys
 import cProfile
 import io
 import pstats
 import re
 import tracemalloc
 from collections import defaultdict
+from dataclasses import fields, is_dataclass
 from datetime import datetime
 from functools import partial, wraps
 from inspect import getsourcelines, stack
@@ -33,6 +35,7 @@ from logging import (
     Filter,
     Formatter,
     Logger,
+    LogRecord,
     StreamHandler,
     addLevelName,
     getLogger,
@@ -40,7 +43,7 @@ from logging import (
 from os import getpid
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Callable, Optional, cast
+from typing import Any, Callable, Iterable, Optional, cast
 
 import line_profiler
 import pandas as pd
@@ -55,7 +58,20 @@ DEFAULT_DECORATOR_TIME_DECIMALS = 4
 DEFAULT_BACKUP_LOGGER_PRINT_LEVEL = 3
 
 
-def parse_log_file(log_path):  # noqa: C901
+def parse_log_file(log_path: str | Path) -> pd.DataFrame:  # noqa: C901
+    """Generated: validation needed.
+
+    Description:
+        Parse a log file written by :class:`CustomLogger` and return a DataFrame
+        pairing each STARTING entry with its corresponding FINISHED entry.
+
+    Args:
+        log_path (str | Path): Path to the ``.log`` file to parse.
+
+    Returns:
+        pd.DataFrame: DataFrame with columns ``function``, ``file``, ``start_time``,
+            ``end_time``, ``duration``, ``lineno``, and ``calls``.
+    """
     pattern_start = re.compile(r"STARTING - Starting: (.*?) \((.*?):(\d+)\)")
     pattern_finish = re.compile(
         r"FINISHED - Finished: (.*?) in: ([\d.]+) seconds \((.*?):(\d+)\)"
@@ -134,12 +150,62 @@ def parse_log_file(log_path):  # noqa: C901
     return df
 
 
+def _attention_gradient(text: str) -> str:
+    if not text:
+        return text
+
+    result = []
+
+    for i, char in enumerate(text):
+        # One complete revolution around the colour wheel.
+        hue = i / max(len(text) - 1, 1)
+
+        # Slightly high saturation, reasonably bright.
+        saturation = 0.85
+        value = 1.0
+
+        r, g, b = colorsys.hsv_to_rgb(hue, saturation, value)
+
+        r = int(r * 255)
+        g = int(g * 255)
+        b = int(b * 255)
+
+        result.append(f"\033[38;2;{r};{g};{b}m{char}")
+
+    return "".join(result) + "\033[0m"
+
+
+class ParentDirectoryFormatter(Formatter):
+    def format(self, record: LogRecord) -> str:
+        if not hasattr(record, "custom_lineno"):
+            record.custom_lineno = record.lineno
+        if not hasattr(record, "custom_pathname"):
+            record.custom_pathname = record.pathname
+
+        raw_path = getattr(record, "custom_pathname", record.pathname)
+        path_obj = Path(raw_path)
+        if len(path_obj.parts) > 1:
+            record.parent_filename = f"{path_obj.parent.name}/{path_obj.name}"
+        else:
+            record.parent_filename = path_obj.name
+
+        return super().format(record)
+
+
 class CustomLogger:
     VALID_LEVEL = 25
+    ATTENTION_LEVEL = 18
     HIGH_DETAIL_LEVEL = 24
     LOW_DETAIL_LEVEL = 23
     FINISHED_LEVEL = 22
     STARTING_LEVEL = 21
+    CRITICAL = 50
+    ERROR = 40
+    WARNING = 30
+    WARN = WARNING
+    INFO = 20
+    DEBUG = 10
+    NOTSET = 0
 
     def __init__(
         self,
@@ -148,12 +214,26 @@ class CustomLogger:
         print_level: int = 2,
         auto_parse: bool = False,
     ):
+        """Generated: validation needed.
+
+        Description:
+            Initialise logger, attach console and file handlers, optionally
+            register an atexit log-parser.
+
+        Args:
+            name (str): Logger name; also used as log filename stem.
+            log_files_location (str | Path | None): Directory for log files.
+                Defaults to ``utils/logs/`` when None.
+            print_level (int): Maximum print-level passed through to console handler.
+            auto_parse (bool): When True register :meth:`_run_log_parser` at exit.
+        """
         if log_files_location is None:
             log_files_location_path = Path(__file__).resolve().parent / "logs"
         else:
             log_files_location_path = Path(log_files_location)
 
         self.logger: Logger = getLogger(name)
+        self.name = name
         self.logger.setLevel(DEBUG)
         self.logger.propagate = False
         self.print_level = print_level
@@ -161,11 +241,13 @@ class CustomLogger:
         addLevelName(CustomLogger.VALID_LEVEL, "VALID")
         addLevelName(CustomLogger.FINISHED_LEVEL, "FINISHED")
         addLevelName(CustomLogger.STARTING_LEVEL, "STARTING")
+        addLevelName(CustomLogger.ATTENTION_LEVEL, "ATTENTION")
         # Keep runtime compatibility for code using `custom_logger.logger.starting(...)`.
         logger_with_custom_levels = cast(Any, self.logger)
         logger_with_custom_levels.valid = self.valid
         logger_with_custom_levels.starting = self.starting
         logger_with_custom_levels.finished = self.finished
+        logger_with_custom_levels.attention = self.attention
         # todo add extra ones that could be used
         console_handler = StreamHandler()
         console_handler.setLevel(DEBUG)
@@ -177,9 +259,11 @@ class CustomLogger:
         log_file_path = log_files_location_path / log_filename
 
         file_handler = FileHandler(log_file_path, mode="w")
-        file_handler.setFormatter(
-            Formatter("%(asctime)s - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)")
+        file_log_format = (
+            "%(asctime)s - %(levelname)s - %(message)s "
+            "(%(parent_filename)s:%(custom_lineno)d)"
         )
+        file_handler.setFormatter(ParentDirectoryFormatter(file_log_format))
         self.logger.addHandler(file_handler)
         self.log_file_path = log_file_path
         self.auto_parse = auto_parse
@@ -188,7 +272,15 @@ class CustomLogger:
             atexit.register(self._run_log_parser)
 
     def set_log_files_location(self, log_files_location: str, mode: str = "w") -> None:
-        """Rebind the file handler to a new directory while preserving console logging."""
+        """Generated: validation needed.
+
+        Description:
+            Rebind the file handler to a new directory while preserving console logging.
+
+        Args:
+            log_files_location (str): New directory path for the log file.
+            mode (str): File open mode passed to :class:`~logging.FileHandler`.
+        """
         log_files_location_path = Path(log_files_location)
         log_files_location_path.mkdir(parents=True, exist_ok=True)
 
@@ -215,7 +307,20 @@ class CustomLogger:
         self.log_file_path = log_file_path
 
     @staticmethod
-    def fix_non_ascii_messages_decorator(func):
+    def fix_non_ascii_messages_decorator(func: Callable) -> Callable:
+        """Generated: validation needed.
+
+        Description:
+            Decorator that sanitises log messages to cp1252-safe strings before
+            passing them to the wrapped logging method.
+
+        Args:
+            func (Callable): Logging method to wrap.
+
+        Returns:
+            Callable: Wrapped method with message sanitisation.
+        """
+
         @wraps(func)
         def wrapper(self, message, *args, **kwargs):
             if not isinstance(message, str):
@@ -236,45 +341,45 @@ class CustomLogger:
 
         return wrapper
 
-    def process_stack(self, stack_):
-        # go through stack until first occurrence not equal to __name__ of this file
+    def process_stack(self, stack_: list) -> tuple[Path, int]:
         caller_frame = None
         for frame in stack_:
             name = __name__.replace(".", "\\")
-            if name not in frame.filename:
+            normalised_filename = frame.filename.replace("/", "\\")
+            if name not in frame.filename and name not in normalised_filename:
                 caller_frame = frame
                 break
 
         if caller_frame is None:
             raise ValueError("No caller frame found")
+
         lineno = caller_frame.lineno
-        filename = caller_frame.filename
-        filename = filename.split("/")[-1]
-        filename = filename.split("\\")[-1]
-        return filename, lineno
+        # Keep the absolute/full path using pathlib
+        full_path = Path(caller_frame.filename)
+        return full_path, lineno
 
     @fix_non_ascii_messages_decorator
-    def info(self, message, print_level=2, *args, **kwargs):
-        stack_ = stack()
-        filename, lineno = self.process_stack(stack_)
-        self.logger.info(
-            message,
-            extra={
-                "print_level": print_level,
-                "custom_filename": filename,
-                "custom_lineno": lineno,
-            },
-        )
-
-    @fix_non_ascii_messages_decorator
-    def debug(self, message, print_level=3, *args, **kwargs):
+    def debug(self, message, print_level=4, *args, **kwargs):
         stack_ = stack()
         filename, lineno = self.process_stack(stack_)
         self.logger.debug(
             message,
             extra={
                 "print_level": print_level,
-                "custom_filename": filename,
+                "custom_pathname": filename,
+                "custom_lineno": lineno,
+            },
+        )
+
+    @fix_non_ascii_messages_decorator
+    def info(self, message, print_level=3, *args, **kwargs):
+        stack_ = stack()
+        filename, lineno = self.process_stack(stack_)
+        self.logger.info(
+            message,
+            extra={
+                "print_level": print_level,
+                "custom_pathname": filename,
                 "custom_lineno": lineno,
             },
         )
@@ -287,7 +392,7 @@ class CustomLogger:
             message,
             extra={
                 "print_level": print_level,
-                "custom_filename": filename,
+                "custom_pathname": filename,
                 "custom_lineno": lineno,
             },
         )
@@ -300,7 +405,7 @@ class CustomLogger:
             message,
             extra={
                 "print_level": print_level,
-                "custom_filename": filename,
+                "custom_pathname": filename,
                 "custom_lineno": lineno,
             },
         )
@@ -313,13 +418,20 @@ class CustomLogger:
             message,
             extra={
                 "print_level": print_level,
-                "custom_filename": filename,
+                "custom_pathname": filename,
                 "custom_lineno": lineno,
             },
         )
 
-    def set_print_level(self, level):
-        """Change print level dynamically"""
+    def set_print_level(self, level: int) -> None:
+        """Generated: validation needed.
+
+        Description:
+            Change the console handler print level dynamically.
+
+        Args:
+            level (int): New maximum print level to pass through to console.
+        """
         self.print_level = level
         self.filter.print_level = level
 
@@ -332,7 +444,11 @@ class CustomLogger:
         if self.logger.isEnabledFor(CustomLogger.STARTING_LEVEL):
             stack_ = stack()
             filename, lineno = self.process_stack(stack_)
-            extra_new = {"custom_filename": filename, "print_level": print_level}
+            extra_new = {
+                "custom_pathname": filename,
+                "custom_lineno": lineno,
+                "print_level": print_level,
+            }
             # merge with new from args if it exists
             extra_new.update(kwargs.get("extra", {}))
 
@@ -341,6 +457,22 @@ class CustomLogger:
                 message,
                 args,
                 extra=extra_new,
+            )
+
+    @fix_non_ascii_messages_decorator
+    def attention(self, message, print_level=1, *args, **kwargs):
+        if self.logger.isEnabledFor(CustomLogger.ATTENTION_LEVEL):
+            stack_ = stack()
+            filename, lineno = self.process_stack(stack_)
+            self.logger._log(
+                CustomLogger.ATTENTION_LEVEL,
+                message,
+                args,
+                extra={
+                    "custom_lineno": lineno,
+                    "custom_pathname": filename,
+                    "print_level": print_level,
+                },
             )
 
     @fix_non_ascii_messages_decorator
@@ -354,7 +486,7 @@ class CustomLogger:
                 args,
                 extra={
                     "custom_lineno": lineno,
-                    "custom_filename": filename,
+                    "custom_pathname": filename,
                     "print_level": print_level,
                 },
             )
@@ -370,7 +502,7 @@ class CustomLogger:
                 args,
                 extra={
                     "custom_lineno": lineno,
-                    "custom_filename": filename,
+                    "custom_pathname": filename,
                     "print_level": print_level,
                 },
             )
@@ -445,36 +577,67 @@ def progressBar(
 
 class CustomFormatter(Formatter):
     VALID_LEVEL = 25
+    ATTENTION_LEVEL = 18
     STARTING_LEVEL = 21
     FINISHED_LEVEL = 22
-    # taken from https://stackoverflow.com/questions/384076/how-can-i-color-python-logging-output
+
     cyan = "\x1b[36;20m"
     dark_blue = "\x1b[34;20m"
     white = "\x1b[66;20m"
+    grey_orange = "\x1b[38;5;245m"
     grey = "\x1b[38;20m"
     yellow = "\x1b[33;20m"
     red = "\x1b[31;20m"
     bold_red = "\x1b[31;1m"
     green = "\x1b[32;20m"
     reset = "\x1b[0m"
-    format = "%(asctime).19s - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)"
+
+    # Kept as %(filename)s because we overwrite record.filename dynamically inside format()
+    format_str = "%(asctime).19s - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)"
+
     FORMATS = {
-        STARTING_LEVEL: cyan + format + reset,
-        FINISHED_LEVEL: dark_blue + format + reset,
-        VALID_LEVEL: green + format + reset,
-        DEBUG: grey + format + reset,
-        INFO: white + format + reset,
-        WARNING: yellow + format + reset,
-        ERROR: red + format + reset,
-        CRITICAL: bold_red + format + reset,
+        STARTING_LEVEL: cyan + format_str + reset,
+        FINISHED_LEVEL: dark_blue + format_str + reset,
+        VALID_LEVEL: green + format_str + reset,
+        DEBUG: grey_orange + format_str + reset,
+        INFO: white + format_str + reset,
+        WARNING: yellow + format_str + reset,
+        ERROR: red + format_str + reset,
+        CRITICAL: bold_red + format_str + reset,
     }
 
     def format(self, record):
+        # 1. Apply your custom wrappers overrides if they exist
         if hasattr(record, "custom_lineno"):
             record.lineno = record.custom_lineno
         if hasattr(record, "custom_filename"):
             record.filename = record.custom_filename
-        log_fmt = self.FORMATS.get(record.levelno)
+        if hasattr(record, "custom_pathname"):
+            record.pathname = record.custom_pathname
+
+        # 2. Pathlib extraction: Convert filename to 'parent/filename'
+        # Uses custom_pathname if available, falls back to standard record.pathname
+        raw_path = getattr(record, "custom_pathname", record.pathname)
+        if raw_path:
+            path_obj = Path(raw_path)
+            if len(path_obj.parts) > 1:
+                # Modifies record.filename directly so Formatter formats pick it up
+                record.filename = f"{path_obj.parent.name}/{path_obj.name}"
+            else:
+                record.filename = path_obj.name
+
+        # 3. Handle your Attention Level gradient logic
+        if record.levelno == self.ATTENTION_LEVEL:
+            message = record.getMessage()
+            gradient_message = _attention_gradient(message)
+
+            prefix = Formatter("%(asctime).19s - %(levelname)s - ").format(record)
+            suffix = Formatter(" (%(filename)s:%(lineno)d)").format(record)
+
+            return f"{prefix}{gradient_message}{suffix}"
+
+        # 4. Standard color formatting block
+        log_fmt = self.FORMATS.get(record.levelno, self.white + self.format_str + self.reset)
         formatter = Formatter(log_fmt)
         return formatter.format(record)
 
@@ -594,10 +757,24 @@ def decorator_provide_time_information(function: Callable) -> Callable:
     return decorator_provide_time_information_2(function, print_level=2)
 
 
-def profile_time(func):
+def profile_time(func: Callable) -> Callable:
+    """Generated: validation needed.
+
+    Description:
+        Decorator that profiles a function using both cProfile and line_profiler,
+        printing timing statistics to stdout.
+
+    Args:
+        func (Callable): Function to profile.
+
+    Returns:
+        Callable: Wrapped function that prints timing stats on each call.
+    """
+
     @wraps(func)
-    def wrapper(*args, **kwargs):
-        print(f"\n--- Profiling (Time) for {func.__name__} ---")
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        func_name = cast(Any, func).__name__
+        print(f"\n--- Profiling (Time) for {func_name} ---")
 
         # Line profiler
         profiler = line_profiler.LineProfiler()
@@ -629,10 +806,24 @@ def profile_time(func):
     return wrapper
 
 
-def profile_memory_full(func):
+def profile_memory_full(func: Callable) -> Callable:
+    """Generated: validation needed.
+
+    Description:
+        Decorator that profiles memory usage of a function using tracemalloc,
+        psutil, and memory_profiler, printing a full memory report to stdout.
+
+    Args:
+        func (Callable): Function to profile.
+
+    Returns:
+        Callable: Wrapped function that prints memory stats on each call.
+    """
+
     @wraps(func)
-    def wrapper(*args, **kwargs):
-        print(f"\n--- Profiling (Memory) for {func.__name__} ---")
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        func_name = cast(Any, func).__name__
+        print(f"\n--- Profiling (Memory) for {func_name} ---")
         start_time = perf_counter()
 
         # Start tracemalloc
@@ -683,6 +874,101 @@ def memory_checker(func, *args, **kwargs):
     return func(*args, **kwargs)
 
 
+def _reduce_duplicates_dict(iterable: dict) -> dict:
+    if not iterable:
+        return {}
+
+    items = list(iterable.items())
+    modified_dict = {}
+
+    current_value = items[0][1]
+    group_keys = [items[0][0]]
+
+    def format_keys(keys):
+        if len(keys) == 1:
+            return keys[0]
+        if all(isinstance(k, int) for k in keys):
+            return f"{keys[0]}-{keys[-1]}"
+        return f"{keys[0]}-{keys[-1]}"
+
+    for k, v in items[1:]:
+        if v == current_value:
+            group_keys.append(k)
+        else:
+            modified_dict[format_keys(group_keys)] = current_value
+            current_value = v
+            group_keys = [k]
+
+    modified_dict[format_keys(group_keys)] = current_value
+    return modified_dict
+
+
+def _reduce_duplicates(iterable: Any) -> Any:
+    initial_type = type(iterable)
+
+    if isinstance(iterable, dict):
+        return _reduce_duplicates_dict(iterable)
+
+    unique_values = list(dict.fromkeys(iterable))
+    modified_iterable = []
+
+    for value in unique_values:
+        indices = [i for i, x in enumerate(iterable) if x == value]
+        if len(indices) > 1:
+            modified_iterable.append(f"{value} (indices: {indices[0]}-{indices[-1]})")
+        else:
+            modified_iterable.append(value)
+
+    if initial_type is str:
+        return "".join(map(str, modified_iterable))
+    elif initial_type is tuple:
+        return tuple(modified_iterable)
+    elif initial_type is set:
+        return set(modified_iterable)
+
+    return modified_iterable
+
+
+def custom_asdict(obj, verbose=True):
+    if is_dataclass(obj):
+        result = {}
+        ignored = getattr(obj, "_ignore_fields", set())
+
+        for f in fields(obj):
+            if f.name in ignored:
+                continue
+
+            value = getattr(obj, f.name)
+            result[f.name] = custom_asdict(value, verbose=verbose)
+        return result
+
+    elif isinstance(obj, list):
+        if not verbose:
+            obj = _reduce_duplicates(obj)
+        return [custom_asdict(v, verbose) for v in obj]
+
+    elif isinstance(obj, dict):
+        if not verbose:
+            obj = _reduce_duplicates(obj)
+        return {k: custom_asdict(v, verbose) for k, v in obj.items()}
+
+    elif isinstance(obj, tuple):
+        if not verbose:
+            obj = _reduce_duplicates(obj)
+        return tuple(custom_asdict(v, verbose) for v in obj)
+
+    return obj
+
+
 @profile_time
 def time_checker(func, *args, **kwargs):
     return func(*args, **kwargs)
+
+
+if __name__ == "__main__":
+    logger = CustomLogger("test_logger", "logs")
+    logger.set_print_level(3)
+    # logger.info("This is an info message", print_level=3)
+    # logger.starting("This is a starting message", print_level=3)
+    # logger.finished("This is a finished message", print_level=3)
+    logger.attention("This is an attention message", print_level=1)

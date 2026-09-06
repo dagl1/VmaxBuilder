@@ -1,0 +1,52 @@
+# ============================================================
+# protocol/architecture
+# ============================================================
+"""
+Stages Model, Allocation1, Protein, Allocation2, Imputation
+Modules TranslationService, SubstrateAPI, IO,
+
+"""
+"""
+orchestrator ->
+    stages:
+        populated by implementation,
+            if CHILD implmeplentations, then no config
+            if no CHILD_IMPLEMENTATIONS then implemnetation has config
+
+## creating a final implemenation requires only a config class and run method
+## compositing multiple implementations into a single stage is done by creating a new
+    implementation that has CHILD_IMPLEMENTATIONS and no config class
+## optionally an implementation can have a diagnostics hook attached
+
+# implementation file structure should look like:
+    Required:
+        stage_name/implementation_name/implementation.py (imports config, diagnostics, enums, dataclasses)
+
+    Required if no child implementations:
+        stage_name/implementation_name/config.py
+
+    Optionally:
+        stage_name/implementation_name/diangostics.py
+        stage_name/implementation_name/enums.py
+        stage_name/implementation_name/dataclasses.py
+
+# each implementation has a stage_name attached to it, such that we can check
+# whether the implemneation follows the protocol, or following the child implementations in order
+# follows the protocols (so last protocol returns the final scaffold, according to SpecificStageProtocol)
+# required inputs are defined in the implementation
+# to validate that scaffold is properly updated on return, the actual protocol check is
+to_load_inputs will designate which inputs should be preloaded versus created by the implementation
+#
+
+
+## each stage has a protocol on what it should return
+
+to validate inputs, we walk down the implementations and ensure that the required inputs
+are present, for child implementations we ensure that the get_scaffold_objects returns the
+required inputs for the next implementation, and so on. We then also cast it such that
+type checking can be done on the scaffold,
+and we can ensure that the final scaffold is properly typed.
+specific time, debug, and save artifacts are present on all implementations.
+
+
+"""

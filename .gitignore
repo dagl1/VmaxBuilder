@@ -1,5 +1,6 @@
 # Byte-compiled / optimized / DLL files
 
+external/UniKP/models
 data/for_VmaxBuilder/Kcat_predictions/shared_embedding_cache
 UniKP20Km.pkl
 UniKP20kcat.pkl
@@ -147,3 +148,10 @@ data/UMAP_diagnostics_output/main_metabolite_path_finder/full_model/main_path/ba
 data/UMAP_diagnostics_output/main_metabolite_path_finder/full_model/main_path/submodel_main_metabolite_connectivity.npy
 data/UMAP_diagnostics_output/main_metabolite_path_finder/full_model/main_path/submodel_main_metabolite_connectivity_matrix.csv
 data/UMAP_diagnostics_output/main_metabolite_path_finder/full_model/main_path/submodel_main_metabolite_cover_matrix.csv
+
+empty_files_that_we_dont_need
+staged_files.txt
+src/VmaxBuilder/to_refactor
+data/
+src/VmaxBuilder/old_to_be_refactored
+.nvim-run.json

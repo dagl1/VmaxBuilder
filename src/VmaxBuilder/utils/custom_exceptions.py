@@ -6,7 +6,40 @@ from collections.abc import Sequence
 from typing import Any, Hashable
 from warnings import warn
 
-# todo add ability to check for options which are not compatible with eachother
+# todo add ability to check for options which are not compatible with each other
+
+#  todo: add global exception hook
+# # import logging
+# # import sys
+# # def handle_global_exception(exc_type, exc_value, exc_traceback):
+# #     """Global hook to catch uncaught errors and write them to a file on crash."""
+# #     # Ignore KeyboardInterrupt (Ctrl+C) so it doesn't pollute logs
+# #     if issubclass(exc_type, KeyboardInterrupt):
+# #         sys.__excepthook__(exc_type, exc_value, exc_traceback)
+# #         return
+# todo:
+# #     # Set delay=True so the file is omitted until this exact block runs
+# #     handler = logging.FileHandler("crash_report.log", delay=True)
+# #     handler.setFormatter(
+# #         logging.Formatter("%(asctime)s - GLOBAL_CRASH - %(message)s")
+# #     )
+# #
+# todo:
+# #     logger = logging.getLogger("global_error")
+# #     logger.addHandler(handler)
+# #
+# todo:
+# #     # Log the full unhandled exception stack
+# #     logger.error(
+# #         "An unhandled exception occurred",
+# #         exc_info=(exc_type, exc_value, exc_traceback),
+# #     )
+# #
+# #
+# todo:
+# # # Register the function as the system exception handler
+# # sys.excepthook = handle_global_exception
+# end todo:
 
 
 def _check_and_return_value(  # noqa: C901

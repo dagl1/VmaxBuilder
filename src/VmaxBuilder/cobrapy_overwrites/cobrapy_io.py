@@ -716,9 +716,9 @@ def save_json_model(  # noqa: C901
     try:
         if isinstance(filename, (str, Path)):
             with open(filename, "w") as file_handle:
-                json.dump(obj, file_handle, **_dump_opts)
+                json.dump(obj, file_handle, **_dump_opts)  # ty: ignore
         else:
-            json.dump(obj, filename, **_dump_opts)
+            json.dump(obj, filename, **_dump_opts)  # ty: ignore
     except ValueError as e:
         if "Out of range float values are not JSON compliant: nan" in str(e):
             if recursive_call:

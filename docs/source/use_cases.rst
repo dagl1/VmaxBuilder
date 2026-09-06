@@ -1,30 +1,38 @@
 Use Cases
 =========
 
-This page captures practical scenarios for VmaxBuilder usage.
+This page captures practical scenarios for the current orchestrator-driven workflow.
 
 Research scenarios
 ------------------
 
-- Build condition-specific reaction capacities from expression and GEM inputs.
+- Build condition-specific reaction capacities from model, protein, Kcat, and allocation inputs.
 - Compare capacity profiles across tissues or perturbations.
-- Integrate custom Kcat strategies for organism-specific workflows.
+- Use UniKP-backed Kcat prediction when you want a learning-based substrate path.
+- Generate trimmed and untrimmed allocation outputs when comparing modeling assumptions.
 
 Developer scenarios
 -------------------
 
-- Add new preprocessing or allocation methods using enum + registry integration.
+- Add new modular implementations with explicit `INPUTS`, `OUTPUTS`, and config dataclasses.
 - Validate module outputs with diagnostics-first failure handling.
-- Extend shared scaffold with module-specific metadata.
+- Extend the shared scaffold with module-specific metadata and artifacts.
+- Register a new implementation through the orchestrator stage setter.
 
-Current scope
--------------
+What users should document in their own workflows
+--------------------------------------------------
 
-Initial use cases are placeholders and will be expanded as refactor slices land.
+- What inputs were used.
+- Which stage implementations were selected.
+- Which config values changed from the defaults.
+- Where outputs and artifacts were written.
+- Whether diagnostics or alternate runs were enabled.
 
 Related pages
 -------------
 
 - :doc:`getting_started`
+- :doc:`overview`
+- :doc:`tutorial`
 - :doc:`examples`
-- :doc:`VmaxBuilder (API)`
+- :doc:`developer_guide`
